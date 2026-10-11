@@ -758,13 +758,33 @@ const panels = {
     const preset = el('select', {}, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
     const computeSel = el('select', {}, ...[['browser', 'در مرورگر من (سریع، موازی)'], ['helper', 'رایانه‌ی کمکی مدیر'], ['server', 'روی سرور (کند، نزدیک یک ساعت)']].map(([v, t]) => el('option', { value: v, selected: (dec.compute || 'browser') === v }, t)));
     const undated = Object.entries(G.nodes).filter(([n, i]) => (!i.date_source || i.date_source === 'interpolated') && !/^anon:/.test(n) && !/^(موضع |اسم مبهم|من ذكره)/.test(i.name || ''));
+    /* links into step 4: a hadith, or a name at one of its places */
+    const wtitle = {}; G.attestations.forEach(a => { wtitle[a.wid] = a.collection; });
+    const occIn = (n, aid) => (G.nodes[n] && G.nodes[n].occ || []).find(o => !aid || o.startsWith(aid + '|'));
+    const step4 = (wid, occ, txt) => { const q = new URLSearchParams({ h: wid }); if (occ) q.set('n', occ); const href = BASE + stepUrl(c.pid, null, 'identities') + '?' + q;
+      return el('a', { href, onclick: ev => { ev.preventDefault(); go(href.slice(BASE.length)); } }, txt); };
+    const nodeLink = (n, aid) => { const o = occIn(n, aid), a = G.attestations.find(x => (!aid || x.id === aid) && x.sanad.includes(n));
+      const wid = o ? o.slice(0, o.lastIndexOf('|')).split('#')[0] : a && a.wid;
+      const nm = G.narrators[n] ? G.narrators[n].name : n, d = G.narrators[n] && G.narrators[n].death, und = !G.nodes[n] || !G.nodes[n].date_source || G.nodes[n].date_source === 'interpolated';
+      return el('span', { class: 'ar' }, wid ? step4(wid, o, nm) : nm, d && !und ? el('span', { class: 'muted' }, ` (ف ${yearTxt(d)})`) : null); };
+    const flagItem = f => {
+      const wid = f.wid || String(f.ref).split('#')[0], aid = String(f.ref).includes('#') ? f.ref : null, t = f.title || wtitle[wid] || wid;
+      const what = f.kind === 'chronology' && f.nodes ? [nodeLink(f.nodes[0], aid), ' استادِ ', nodeLink(f.nodes[1], aid), ' آمده است.']
+        : f.kind === 'repeated_node' && f.nodes ? [nodeLink(f.nodes[0], aid), ' دو بار آمده است.']
+        : f.kind === 'chronology' ? [f.message] : [];
+      return el('li', {}, step4(wid, null, t), el('span', { class: 'small muted wid', dir: 'ltr' }, wid), what.length ? el('div', { class: 'small' }, ...what) : null);
+    };
+    const groups = {}; G.flags.forEach(f => (groups[f.kind] ||= []).push(f));
+    const flagsCard = G.flags.length ? card('هشدارها', el('p', { class: 'small muted' }, 'هر هشدار را باز کنید تا حدیث‌ها و راویان آن را ببینید؛ نام حدیث یا راوی شما را به همان جا در مرحله‌ی ۴ می‌برد.'),
+      Object.entries(groups).map(([k, fs]) => el('details', { class: 'flagd' }, el('summary', {}, FLAG_FA[k] || k, el('span', { class: 'chip medium' }, fa(fs.length))),
+        el('ul', { class: 'flags' }, fs.map(flagItem))))) : null;
     main.replaceChildren(...[
-      card('شجره‌ی انتقال ثبت‌شده', el('p', { class: 'muted small' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند، ${fa(G.stats.name_only)} فقط نام‌اند. محور افقی زمان است (راست = قدیم‌تر).`),
+      card('شجره‌ی انتقال ثبت‌شده', el('p', { class: 'muted small' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند، ${fa(G.stats.name_only)} فقط نام‌اند.`),
         graphSvg(G)),
-      G.flags.length ? card('هشدارها', el('ul', { class: 'flags' }, G.flags.slice(0, 60).map(f => el('li', {}, flagText(f))))) : null,
+      flagsCard,
       undated.length ? card('راویان بی‌تاریخ', el('p', { class: 'small' }, `${fa(undated.length)} راوی تاریخ وفات ندارند و تاریخشان از روی جایشان در سندها برآورد شده است. `,
-        'تاریخ را در ', el('a', { href: BASE + stepUrl(c.pid, null, 'identities') }, 'مرحله‌ی ۴ (راویان)'), ' وارد کنید: حدیث را برگزینید، نام را بزنید، و در بخش ۳ «تاریخ وفات» را بنویسید.'),
-        el('div', { class: 'small muted ar' }, undated.slice(0, 80).map(([, i]) => i.name).join('  ·  ') + (undated.length > 80 ? ' …' : ''))) : null,
+        'هر نام را بزنید تا در ', el('b', {}, 'مرحله‌ی ۴'), ' باز شود و در بخش ۳ «تاریخ وفات» را بنویسید.'),
+        el('div', { class: 'small undl' }, undated.map(([n]) => nodeLink(n)))) : null,
       card('تأیید', c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset, ' محاسبه: ', computeSel,
         el('button', { class: 'primary', onclick: async () => {
           await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: dec.dates || {}, preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); reload(c.pid);
@@ -898,28 +918,86 @@ async function narratorCard(id) {
   modal(box);
 }
 
+/* the recorded graph as a tree: every collector has a row, a teacher sits between its students (so a chain of single
+   links is one straight line), the horizontal axis is time (right = older) or generation */
+const yearTxt = d => d[0] === d[1] ? fa(Math.round(d[0])) : `${fa(Math.round(d[0]))}–${fa(Math.round(d[1]))}`;
+const DSRC = { user: 'واردشده‌ی کاربر', 'author-death': 'درگذشت مؤلف کتاب', 'hadith-kg': 'گراف دانش', kg: 'گراف دانش', noor: 'نور', imam: 'تاریخ امام', interpolated: 'برآورد از جای سند', wikishia: 'ویکی‌شیعه', fixed: 'ثابت' };
+const shortName = (s, n = 4) => { const w = String(s).replace(/\s*،\s*/g, ' ').split(/\s+/).filter(Boolean); return w.length > n ? w.slice(0, n).join(' ') + '…' : w.join(' '); };
 function graphSvg(G) {
-  const nodes = G.narrators, atts = G.attestations;
+  const nodes = G.narrators, info = G.nodes, atts = G.attestations;
   const year = n => { const d = nodes[n].death; return d ? (d[0] + d[1]) / 2 : null; };
-  const ys = Object.keys(nodes).map(year).filter(v => v != null);
-  const lo = Math.min(...ys, 0), hi = Math.max(...ys, 100), W = 2600, L = 70, R = W - 40;
-  const X = n => L + (R - L) * (1 - (((year(n) ?? lo) - lo) / (hi - lo || 1)));   // older (small year) on the right
-  const lane = {}; let next = 0;
-  atts.forEach(a => a.sanad.forEach(n => { if (!(n in lane)) lane[n] = next++; }));
-  const H = Math.max(120, next * 16 + 50);
-  const tierColor = n => { const t = (G.nodes[n].tiers || []); return t.includes('exact') ? 'var(--good)' : t.includes('chosen') || t.includes('derived') ? 'var(--accent)' : t.includes('default') ? 'var(--warn)' : 'var(--muted)'; };
+  const ecount = {}, parents = {}, through = {};
+  atts.forEach((a, ai) => a.sanad.forEach((v, i) => {
+    (through[v] ||= []).push(ai);
+    if (i) { const u = a.sanad[i - 1]; ecount[u + '>' + v] = (ecount[u + '>' + v] || 0) + 1; (parents[v] ||= new Set()).add(u); }
+  }));
+  const all = Object.keys(through);
+  /* the primary teacher of each narrator: the one most chains give, then the oldest */
+  const prim = {};
+  all.forEach(v => { const ps = [...(parents[v] || [])]; if (ps.length) prim[v] = ps.sort((a, b) => ecount[b + '>' + v] - ecount[a + '>' + v] || (year(a) ?? 1e4) - (year(b) ?? 1e4))[0]; });
+  all.forEach(v => { const seen = new Set([v]); for (let u = prim[v]; u != null; u = prim[u]) { if (u === v) { delete prim[v]; break; } if (seen.has(u)) break; seen.add(u); } });
+  const kids = {}; all.forEach(v => { if (prim[v] != null) (kids[prim[v]] ||= []).push(v); });
+  const nleaf = {}, leaves = n => nleaf[n] ??= (kids[n] || []).length ? kids[n].reduce((s, c) => s + leaves(c), 0) : 1;
+  const row = {}, depth = {}; let rows = 0;
+  const place = (n, d) => {
+    depth[n] = d;
+    const ks = (kids[n] || []).sort((a, b) => leaves(b) - leaves(a));
+    if (!ks.length) { row[n] = rows++; return; }
+    ks.forEach(k => place(k, d + 1));
+    row[n] = (row[ks[0]] + row[ks[ks.length - 1]]) / 2;
+  };
+  all.filter(n => prim[n] == null).sort((a, b) => leaves(b) - leaves(a)).forEach(n => { place(n, 0); rows += 0.5; });
+  const books = {}; atts.forEach(a => (books[a.anchor] ||= new Set()).add(a.collection));
+  const ys = all.map(year).filter(v => v != null), lo = Math.floor(Math.min(...ys, 0) / 50) * 50, hi = Math.ceil(Math.max(...ys, 100) / 50) * 50;
+  const maxD = Math.max(1, ...Object.values(depth));
+  const tierColor = n => { const t = info[n].tiers || []; return t.includes('exact') ? 'var(--good)' : t.includes('chosen') || t.includes('derived') ? 'var(--accent)' : t.includes('default') ? 'var(--warn)' : 'var(--muted)'; };
+  const undated = n => !info[n].date_source || info[n].date_source === 'interpolated';
   const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
-  const wrap = el('div', { class: 'grid-wrap', style: 'max-height:640px' }, svg);
-  const mk = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt) e.textContent = txt; return e; };
-  const drawn = new Set();
-  atts.forEach(a => a.sanad.slice(1).forEach((v, i) => { const u = a.sanad[i], k = u + '>' + v; if (drawn.has(k)) return; drawn.add(k);
-    svg.append(mk('line', { x1: X(u), y1: 20 + lane[u] * 16, x2: X(v), y2: 20 + lane[v] * 16, stroke: 'var(--line)', 'stroke-width': 1.2 })); }));
-  Object.keys(lane).forEach(n => { const g = mk('g', {}); const c = mk('circle', { style: 'cursor:pointer', cx: X(n), cy: 20 + lane[n] * 16, r: 4.5, fill: tierColor(n), stroke: (G.nodes[n].date_source === 'interpolated' || !G.nodes[n].date_source) ? 'var(--fg)' : 'none', 'stroke-dasharray': '2 2' });
-    const t = mk('title', {}, `${nodes[n].name}\n${G.nodes[n].date_source || 'بدون تاریخ'} ${nodes[n].death ? Math.round(nodes[n].death[0]) : ''}`); c.append(t); c.addEventListener('click', () => narratorCard(n)); g.append(c);
-    g.append(mk('text', { x: X(n) - 8, y: 24 + lane[n] * 16, 'font-size': 11, 'text-anchor': 'start', fill: 'var(--fg)', 'direction': 'rtl' }, nodes[n].name.slice(0, 26))); svg.append(g); });
-  for (let yv = Math.ceil(lo / 100) * 100; yv <= hi; yv += 100) [yv].forEach(yv => { const xx = L + (R - L) * (1 - (yv - lo) / (hi - lo || 1)); svg.append(mk('line', { x1: xx, y1: 0, x2: xx, y2: H - 18, stroke: 'var(--line)', 'stroke-dasharray': '3 4' })); svg.append(mk('text', { x: xx, y: H - 4, 'font-size': 11, fill: 'var(--muted)', 'text-anchor': 'middle' }, fa(yv) + ' ق')); });
-  return wrap;
+  const mk = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt != null) e.textContent = txt; return e; };
+  let mode = pref('icm.gmode', 'time'), zoom = +pref('icm.gzoom', '1') || 1;
+  const box = el('div', { class: 'gwrap' }), tools = el('div', { class: 'toolbar small' });
+  const draw = () => {
+    const time = mode === 'time';
+    const W = time ? Math.max(1200, (hi - lo) * 3.4) : Math.max(1000, (maxD + 1) * 160), L = 230, R = W - 70, RH = 34, T = 34, H = T + rows * RH + 30;
+    const X = n => time ? L + (R - L) * (1 - ((year(n) ?? lo) - lo) / (hi - lo || 1)) : R - (R - L) * depth[n] / maxD;
+    const Y = n => T + row[n] * RH;
+    const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, width: Math.round(W * zoom), height: Math.round(H * zoom), class: 'gsvg' });
+    if (time) for (let yv = Math.ceil(lo / 50) * 50; yv <= hi; yv += 50) {
+      const xx = L + (R - L) * (1 - (yv - lo) / (hi - lo || 1)), major = yv % 100 === 0;
+      svg.append(mk('line', { x1: xx, y1: 14, x2: xx, y2: H - 16, class: major ? 'grid' : 'grid minor' }));
+      if (major) [10, H - 4].forEach(y => svg.append(mk('text', { x: xx, y, class: 'axis' }, fa(yv) + ' ق')));
+    }
+    const edge = {};
+    Object.keys(ecount).forEach(k => {
+      const [u, v] = k.split('>'), x1 = X(u), y1 = Y(u), x2 = X(v), y2 = Y(v), mx = (x1 + x2) / 2;
+      edge[k] = mk('path', { d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`, class: 'e' + (prim[v] === u ? '' : ' sec'), 'stroke-width': 1 + Math.log2(ecount[k]) });
+      svg.append(edge[k]);
+    });
+    const hot = (n, on) => {
+      svg.classList.toggle('dim', on);
+      (through[n] || []).forEach(ai => atts[ai].sanad.slice(1).forEach((v, i) => edge[atts[ai].sanad[i] + '>' + v].classList.toggle('hot', on)));
+    };
+    all.forEach(n => {
+      const g = mk('g', { class: 'nd' }), x = X(n), y = Y(n), leaf = !(kids[n] || []).length, anon = (info[n].tiers || []).includes('anon');
+      const d = nodes[n].death, src = info[n].date_source;
+      g.append(mk('title', {}, `${nodes[n].name}\n${d ? (undated(n) ? 'حدود ' : 'ف ') + yearTxt(d) + ' — ' + (DSRC[src] || src || '') : 'بی‌تاریخ'}\n${fa(through[n].length)} سند`));
+      g.append(mk('circle', { cx: x, cy: y, r: anon ? 3.5 : 5, class: undated(n) ? 'und' : '', style: `--c:${tierColor(n)}` }));
+      const name = shortName(nodes[n].name, leaf ? 5 : 4);
+      if (leaf) g.append(mk('text', { x: x - 9, y: y + 4, class: 'lb', 'text-anchor': 'start', direction: 'rtl' }, name + (books[n] ? '  ·  ' + [...books[n]].map(b => shortName(b, 3)).join('، ') : '')));
+      else g.append(mk('text', { x, y: time && depth[n] % 2 ? y + 17 : y - 9, class: 'lb', 'text-anchor': 'middle', direction: 'rtl' }, name));
+      g.addEventListener('mouseenter', () => hot(n, true)); g.addEventListener('mouseleave', () => hot(n, false));
+      g.addEventListener('click', () => narratorCard(n));
+      svg.append(g);
+    });
+    box.replaceChildren(svg);
+    const btn = (t, on, f) => el('button', { class: 'small' + (on ? ' on' : ''), onclick: f }, t);
+    tools.replaceChildren('محور افقی: ', el('span', { class: 'seg' }, btn('زمان', time, () => { mode = 'time'; setPref('icm.gmode', mode); draw(); }), btn('نسل', !time, () => { mode = 'gen'; setPref('icm.gmode', mode); draw(); })),
+      ' اندازه: ', btn('−', false, () => { zoom = Math.max(0.4, zoom / 1.25); setPref('icm.gzoom', zoom); draw(); }), btn('+', false, () => { zoom = Math.min(2.5, zoom * 1.25); setPref('icm.gzoom', zoom); draw(); }),
+      el('span', { class: 'glegend' }, ...[['var(--good)', 'قطعی'], ['var(--accent)', 'برگزیده یا استنباطی'], ['var(--warn)', 'پیش‌فرض خودکار'], ['var(--muted)', 'فقط نام']].map(([c, t]) => el('span', {}, el('i', { style: `background:${c}` }), t)),
+        el('span', {}, el('i', { class: 'und' }), 'بی‌تاریخ (جایش برآورد شده)')));
+  };
+  draw();
+  return el('div', {}, tools, box, el('p', { class: 'small muted' }, 'هر گردآورنده (پایان سند) یک ردیف دارد و هر استاد میان شاگردانش می‌نشیند؛ زنجیره‌ای که شاخه نمی‌شود یک خط راست است. خط پررنگ‌تر = سندهای بیشتر؛ خط‌چین = استادِ دومی که برخی سندها برای راوی آورده‌اند. نشانگر را روی راوی ببرید تا سندهایش برجسته شوند؛ برای کارت راوی کلیک کنید.'));
 }
 
 render();

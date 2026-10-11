@@ -551,7 +551,13 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    (grade, dated facts with evidence, rijāl entries, teachers/students) is one click away.
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
    intervals from the narrator database / KG, the dates entered on step 4, interpolation along chains), with
-   chronology warnings. The user confirms *this exact graph* (its hash).
+   chronology warnings. The user confirms *this exact graph* (its hash). It is drawn as a tree: each collector
+   has a row, a teacher sits midway between its students (by the teacher most chains give; other teachers are
+   dashed), the horizontal axis is time or generation. Warnings are grouped by kind and, opened, list their
+   hadiths and narrators; these and the undated narrators link to the place in step 4 (`?h=<wid>&n=<aid>|<i>`,
+   from the graph nodes' `occ`). The KG's gap markers («موضع تعليق», «موضع إرسال», «موضع انقطاع», «اسم مبهم»)
+   are unnamed narrators of their own chain, not one shared node; one at a collector's place puts the work's
+   author before it.
 6. **Analysis**: the earliest-source model (annealed SMC per candidate source) and the viewer. The user chooses
    where it runs when confirming the graph:
    * **in the user's browser** (default): the model code (`icm/static/model.zip`: `hadith_phylogeny/` and

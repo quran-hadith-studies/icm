@@ -36,21 +36,24 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
 
     # --- chains -> node lists (source -> collector) ---------------------------------------------
     chains: List[dict] = []
+    occ: Dict[str, List[str]] = {}                     # nid -> its places "aid|i" (step 4 opens a name by its place)
     for ch in resolved["chains"]:
         if ch["wid"] not in X:
             continue
         nids = [e["nid"] for e in reversed(ch["elems"])]
+        for e in ch["elems"]:
+            occ.setdefault(e["nid"], []).append(f"{ch['aid']}|{e['i']}")
         if ch["aid"] in ph.get("chain_edits", {}):
             nids = list(ph["chain_edits"][ch["aid"]])
         seen, dd = set(), []
         for n in nids:
             if n in seen:
-                flags.append(dict(kind="repeated_node", ref=ch["aid"], message=f"{n} appears twice in one chain; later occurrence dropped"))
+                flags.append(dict(kind="repeated_node", ref=ch["aid"], wid=ch["wid"], nodes=[n], message=f"{n} appears twice in one chain; later occurrence dropped"))
                 continue
             seen.add(n)
             dd.append(n)
         if len(dd) < 2:
-            flags.append(dict(kind="chain_too_short", ref=ch["aid"], message="chain has fewer than two narrators; witness kept only if no other chain"))
+            flags.append(dict(kind="chain_too_short", ref=ch["aid"], wid=ch["wid"], message="chain has fewer than two narrators; witness kept only if no other chain"))
         chains.append(dict(aid=ch["aid"], wid=ch["wid"], nids=dd, quoted=ch.get("quoted_work"), source=ch["source"]))
     by_wid = defaultdict(list)
     for c in chains:
@@ -60,7 +63,7 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
         good = [c for c in cs if len(c["nids"]) >= 2]
         keep.extend(good or cs[:1])
         if not good:
-            flags.append(dict(kind="witness_without_chain", ref=wid, message="no chain with two narrators; the witness is anchored at its collector only"))
+            flags.append(dict(kind="witness_without_chain", ref=wid, wid=wid, message="no chain with two narrators; the witness is anchored at its collector only"))
     chains = keep
 
     # --- metadata ------------------------------------------------------------------------------
@@ -99,6 +102,7 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
     for n in all_nids:
         info[n]["name"] = info[n]["name"] or names.get(n) or n
         info[n]["tiers"] = resolved["nodes"].get(n, {}).get("tiers", [])
+        info[n]["occ"] = occ.get(n, [])
     # collector death from the work's author when the collector has no date
     for c in chains:
         w = wmeta.get(c["wid"], {})
@@ -147,8 +151,10 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
             du, dv = narrators[u]["death"], narrators[v]["death"]
             if du and dv and info[u]["date_source"] not in ("interpolated", None) and info[v]["date_source"] not in ("interpolated", None) \
                     and du[0] > dv[1] + 5:
-                flags.append(dict(kind="chronology", ref=a["id"], message=f"{narrators[u]['name']} (d. {du[0]:g}) is recorded as the teacher of "
+                flags.append(dict(kind="chronology", ref=a["id"], wid=a["wid"], nodes=[u, v], message=f"{narrators[u]['name']} (d. {du[0]:g}) is recorded as the teacher of "
                                                                           f"{narrators[v]['name']} (d. {dv[1]:g})"))
+    for f in flags:
+        f["title"] = (wmeta.get(f.get("wid")) or {}).get("title")
     undated = [n for n in all_nids if info[n]["date_source"] in (None, "interpolated")]
     spec_keys = ("name", "n_states", "cls", "kind", "labels")
     variants = [{k: u[k] for k in spec_keys} for u in alignment["units"]]
@@ -183,5 +189,5 @@ def info_out(info: Dict[str, dict]) -> Dict[str, dict]:
     for n, i in info.items():
         out[n] = dict(name=i["name"], date_source=i["date_source"], death=list(i["death"]) if i["death"] else None,
                       cities=i["cities"], imams=i["imams"], tiers=i.get("tiers", []), ids=i["ids"],
-                      mazhab=i.get("mazhab"), grade=i.get("grade"), rank=i.get("rank"))
+                      mazhab=i.get("mazhab"), grade=i.get("grade"), rank=i.get("rank"), occ=i.get("occ", []))
     return out

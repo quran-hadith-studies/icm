@@ -74,6 +74,17 @@ def test_relatives_from_noor_chains_and_the_imams():
         identity._noor_rel, identity._noor = saved
 
 
+def test_kg_gap_markers_are_unnamed_per_chain():
+    from icm import config, corpus
+    if not os.path.exists(config.KG_DB):
+        return
+    rec = corpus.get("kg:653719")                     # الرافعي: «… هبة الله … موضع تعليق» at the collector's end
+    ch = identity.kg_chains(rec)[0]
+    assert not any(e["exact"] in ("kg:30000", "kg:30001", "kg:30002") for e in ch["elems"])
+    assert ch["elems"][0]["kind"] == "collector" and ch["elems"][1]["kind"] == "anon"
+    assert [e["i"] for e in ch["elems"]] == list(range(len(ch["elems"])))
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

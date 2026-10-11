@@ -262,6 +262,10 @@ def noor_chains(rec: dict) -> List[dict]:
     return chains
 
 
+def _kg_gap(name: str) -> bool:
+    return name.startswith("موضع ") or name.strip() == "اسم مبهم"
+
+
 def kg_chains(rec: dict) -> List[dict]:
     c = corpus.conn("kg")
     sids = [r[0] for r in c.execute("select id from sanads where hadith_id=? order by id", (rec["hid"],))]
@@ -271,7 +275,13 @@ def kg_chains(rec: dict) -> List[dict]:
                          "where sr.sanad_id=? order by sr.pos", (sid,)).fetchall()
         if not rows:
             continue
-        elems = [_elem(k, r["name"], None, exact=f"kg:{r['rawi_id']}") for k, r in enumerate(rows)]
+        # the KG's gap markers («موضع تعليق», «موضع إرسال», «اسم مبهم») are unnamed narrators of this chain, not one person
+        elems = [_elem(k, r["name"], None, "anon") if _kg_gap(r["name"]) else _elem(k, r["name"], None, exact=f"kg:{r['rawi_id']}")
+                 for k, r in enumerate(rows)]
+        if elems[0]["kind"] == "anon" and rec.get("author"):         # «موضع تعليق» at the collector: the author dropped the start
+            elems.insert(0, _elem(0, rec["author"], None, kind="collector", role="collector", death=rec.get("death")))
+            for k, e in enumerate(elems):
+                e["i"] = k
         elems[0]["role"] = "collector"
         chains.append(dict(aid=f"{rec['wid']}#{sid}", wid=rec["wid"], source="kg", elems=elems, speaker=None,
                            quoted_work=None, flags=[]))

@@ -148,3 +148,19 @@ table.hl td{padding:4px 8px;vertical-align:middle;cursor:pointer}table.hl tr:hov
 @media (max-width:700px){.hide-sm{display:none}.occ .lnk{min-width:0}}
 .ststrip i.exact{background:var(--line);border-color:var(--muted)}
 .nc .dt{font-size:10.5px;color:var(--muted)}.nc .dt.no{color:var(--warn)}.nc .dt.u{color:var(--accent);font-weight:600}
+/* step 5 graph */
+.gwrap{overflow:auto;max-height:78vh;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.gsvg .grid{stroke:var(--line);stroke-dasharray:3 4}.gsvg .grid.minor{opacity:.5}
+.gsvg .axis{font-size:11px;fill:var(--muted);text-anchor:middle}
+.gsvg .e{fill:none;stroke:var(--muted);stroke-opacity:.45}.gsvg .e.sec{stroke-dasharray:4 3;stroke-opacity:.16}
+.gsvg.dim .e{stroke-opacity:.1}.gsvg .e.hot{stroke:var(--accent);stroke-opacity:.95}
+.gsvg circle{fill:var(--c);stroke:var(--card);stroke-width:1.5}.gsvg circle.und{fill:var(--card);stroke:var(--c);stroke-width:2;stroke-dasharray:2.5 1.5}
+.gsvg .nd{cursor:pointer}.gsvg .nd:hover circle{r:7}
+.gsvg .lb{font-size:11.5px;fill:var(--fg);paint-order:stroke;stroke:var(--card);stroke-width:3.5px;stroke-linejoin:round}
+.gsvg .nd:hover .lb{font-weight:700}
+.glegend{display:inline-flex;flex-wrap:wrap;gap:10px;margin-inline-start:12px;color:var(--muted)}
+.glegend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-inline-end:4px;vertical-align:middle}
+.glegend i.und{border:2px dashed var(--muted);width:7px;height:7px;background:none}
+.flagd{border-top:1px solid var(--line);padding:4px 0}.flagd summary{cursor:pointer}.flagd .chip{margin-inline-start:8px}
+.flagd .wid{margin-inline-start:8px}
+.undl{display:flex;flex-wrap:wrap;gap:4px 16px}
