@@ -25,6 +25,7 @@ STATIC = os.path.join(os.path.dirname(__file__), "static")
 ID_RE = re.compile(r"^(noor|kg):\d+$")
 WID_RE = re.compile(r"^(v02|kg):\d+$")
 STAGES = {"search", "align", "identify", "graph", "infer"}
+MAX_OPEN = 20          # unfinished projects per (non-admin) user
 
 
 def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/icm") -> APIRouter:
@@ -176,6 +177,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         seed = str(body.get("seed", ""))
         if not WID_RE.match(seed) or corpus.get(seed) is None:
             raise HTTPException(400, "unknown seed hadith")
+        open_ = [x for x in project.list_projects() if x["owner"] == u["username"] and x["status"] in ("draft", "running")]
+        if len(open_) >= MAX_OPEN and not u.get("is_admin"):
+            raise HTTPException(429, f"you have {len(open_)} unfinished projects; finish or continue one first")
         p = project.create(seed, u["username"], body.get("title"))
         jobs.enqueue(p["pid"])
         return dict(pid=p["pid"])

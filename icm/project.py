@@ -16,6 +16,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 from typing import Dict, List, Optional
@@ -36,8 +37,11 @@ def root() -> str:
     return os.path.join(config.CACHE_DIR, "projects")
 
 
+_PID = re.compile(r"[0-9a-f]{6,20}")
+
+
 def pdir(pid: str) -> str:
-    if not pid.replace("-", "").isalnum():
+    if not _PID.fullmatch(pid or ""):
         raise ValueError("bad project id")
     return os.path.join(root(), pid)
 
