@@ -1,0 +1,8 @@
+{
+  "note": "Phrases by which a transmitter says that he abbreviates the matn. Compared on norm() tokens joined by single spaces. Clauses not found before such a marker are NA, not absent.",
+  "phrases": [
+    "وساق الحدیث", "وساق الحدیث بنحوه", "فذکر الحدیث", "فذکر مثله", "ثم ذکر مثله", "ثم ذکر الحدیث",
+    "بنحوه", "بمعناه", "نحوه", "مثله", "بمثله", "الی اخره", "الخ", "وذکر الحدیث", "فذکره", "وذکر نحوه",
+    "ثم ساق الحدیث", "وقال مثله", "مختصرا", "فذکر نحوه"
+  ]
+}

@@ -37,6 +37,7 @@ def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
       sub_a       bool per token of a: substituted (aligned to a different word)
       span_b      (j0, j1) half-open range of b between the first and last matched token
       pairs       [(i, j)] matched positions
+      aligned_b   per token of a: the b token aligned to it (match or substitution) or None
     """
     ka = [match_key(t) for t in a]
     kb = [match_key(t) for t in b]
@@ -61,7 +62,8 @@ def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
                     sub_pairs.append((i, j))
     m = len(pairs)
     if m == 0:
-        return dict(m=0, s=0, gap_a=0, gap_b=0, match_a=match_a, sub_a=sub_a, span_b=(0, 0), pairs=[])
+        return dict(m=0, s=0, gap_a=0, gap_b=0, match_a=match_a, sub_a=sub_a, span_b=(0, 0), pairs=[],
+                    aligned_b=[None] * len(a))
     i0, i1_ = pairs[0][0], pairs[-1][0]
     j0, j1_ = pairs[0][1], pairs[-1][1]
     subs = [(i, j) for i, j in sub_pairs if i0 <= i <= i1_ and j0 <= j <= j1_]
@@ -69,10 +71,15 @@ def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
         if sub_a[i] and not (i0 <= i <= i1_):
             sub_a[i] = False
     s = len(subs)
+    aligned_b: List = [None] * len(a)           # the candidate token aligned to each reference token
+    for i, j in pairs:
+        aligned_b[i] = b[j]
+    for i, j in sub_pairs:                      # also substitutions at the clause ends (e.g. the count word)
+        aligned_b[i] = b[j]
     gap_a = (i1_ - i0 + 1) - m - s
     gap_b = (j1_ - j0 + 1) - m - s
     return dict(m=m, s=s, gap_a=max(gap_a, 0), gap_b=max(gap_b, 0), match_a=match_a, sub_a=sub_a,
-                span_b=(j0, j1_ + 1), pairs=pairs)
+                span_b=(j0, j1_ + 1), pairs=pairs, aligned_b=aligned_b)
 
 
 def align_clause(a: Sequence[str], b: Sequence[str], ka_cache=None) -> Dict:
@@ -89,7 +96,7 @@ def align_clause(a: Sequence[str], b: Sequence[str], ka_cache=None) -> Dict:
     js = sorted(blk_j + k for blk_i, blk_j, size in sm.get_matching_blocks() for k in range(size))
     if not js:
         return dict(m=0, s=0, gap_a=len(a), gap_b=0, match_a=[False] * len(a), sub_a=[False] * len(a),
-                    span_b=(0, 0), pairs=[])
+                    span_b=(0, 0), pairs=[], aligned_b=[None] * len(a))
     width = len(a) + 4
     best, best_j, lo = 0, js[0], 0
     for hi, j in enumerate(js):
