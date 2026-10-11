@@ -105,7 +105,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
 
     # -- pages -----------------------------------------------------------------------------------
     def page() -> HTMLResponse:
-        html = open(os.path.join(STATIC, "icm.html"), encoding="utf-8").read().replace("__BASE__", prefix)
+        # Cloudflare caches /static for hours whatever our Cache-Control says: version the URLs instead
+        v = "%x" % max(int(os.path.getmtime(os.path.join(STATIC, f))) for f in ("icm.js", "icm.css"))
+        html = open(os.path.join(STATIC, "icm.html"), encoding="utf-8").read().replace("__BASE__", prefix).replace("__V__", v)
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     @r.get("", response_class=HTMLResponse)
