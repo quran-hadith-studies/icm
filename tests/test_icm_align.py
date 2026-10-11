@@ -56,6 +56,30 @@ def test_abridgement_marker_makes_absence_unknown():
             assert u["states"]["t:2"] == -1 and u["states"]["t:3"] == -1
 
 
+def test_slot_keeps_edge_words_and_drops_formula():
+    seed = "ستة لعنهم الله وكل نبي مجاب، المكذب بقدر الله، والتارك لسنتي"
+    w = [
+        seed,
+        "سبعة لعنتهم لعنهم الله تعالى وكل نبي مجاب، والمكذب بقدر الله، والتارك لسنتي",   # an inserted word before "لعنهم"
+        "سبعة لعنتهم لعنهم الله وكل نبي مجاب، والمكذب بقدر الله",
+        "قال رسول الله صلى الله عليه وآله خمسة لعنتهم وكل نبي مجاب، المكذب بقدر الله",       # the formula's "الله"
+        "قال رسول الله صلى الله عليه وآله خمسة لعنتهم وكل نبي مجاب، المكذب بقدر الله، والتارك لسنتي",
+    ]
+    r = align.run(_search(seed, w), [f"t:{i}" for i in range(len(w))])
+    assert r["segments"]["0|t:1"]["tokens"][0] == "سبعه", r["segments"]["0|t:1"]
+    assert r["segments"]["0|t:3"]["tokens"][0] == "خمسه", r["segments"]["0|t:3"]
+    num = [u for u in r["units"] if u["kind"] == "numeric"]
+    assert num, [u["name"] for u in r["units"]]
+    lab = num[0]["labels"]
+    st = {w: (lab[v] if v >= 0 else None) for w, v in num[0]["states"].items()}
+    assert st == {"t:seed": "6", "t:0": "6", "t:1": "7", "t:2": "7", "t:3": "5", "t:4": "5"}, st
+    # every unit points at its grid columns (None for a whole clause)
+    assert all("cols" in u for u in r["units"])
+    g = r["grids"][0]
+    j = num[0]["cols"][0]
+    assert {g["columns"][j].get(w) for w in ("t:1", "t:3")} == {"سبعه", "خمسه"}
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

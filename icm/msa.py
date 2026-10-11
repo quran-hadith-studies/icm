@@ -1,6 +1,6 @@
 # Copied from hadith-hub/src/msa.py (same project) so that icm has no path dependency on the
 # hub. Change: char_ratio is memoised; it is called once per (column, token) cell and the same
-# word pairs recur constantly.
+# word pairs recur constantly; optional cheap end gaps (end_gap) for segments that may be cut short.
 """Generic similarity-aware progressive (star) multiple-sequence alignment.
 
 Generalizes the word-level Needleman-Wunsch pileup in export_consensus_web.py to
@@ -47,8 +47,10 @@ def _col_repr(col):
     return collections.Counter(col.values()).most_common(1)[0][0]
 
 
-def _align_to_profile(cols, seq, key, sim, sub_mid, gap_open, gap_ext, merge_min, join):
+def _align_to_profile(cols, seq, key, sim, sub_mid, gap_open, gap_ext, merge_min, join, end_gap=None, n_rows=None):
     reps = [_col_repr(c) for c in cols]
+    # weighted gaps: skipping a column costs in proportion to how many rows have a word there
+    occ = [min(1.0, len(c) / n_rows) for c in cols] if n_rows else [1.0] * len(cols)
     m, n = len(reps), len(seq)
     M = [[NEG] * (n + 1) for _ in range(m + 1)]   # i aligned to j (match/sub/merge)
     X = [[NEG] * (n + 1) for _ in range(m + 1)]   # gap in seq: column i unmatched ("U")
@@ -57,10 +59,11 @@ def _align_to_profile(cols, seq, key, sim, sub_mid, gap_open, gap_ext, merge_min
     PX = [[None] * (n + 1) for _ in range(m + 1)]
     PY = [[None] * (n + 1) for _ in range(m + 1)]
     M[0][0] = 0.0
+    eo, ee = (gap_open, gap_ext) if end_gap is None else (end_gap, end_gap)   # gaps before the first / after the last word
     for i in range(1, m + 1):
-        X[i][0] = gap_open + gap_ext * (i - 1); PX[i][0] = "X" if i > 1 else "M"
+        X[i][0] = eo + ee * (i - 1); PX[i][0] = "X" if i > 1 else "M"
     for j in range(1, n + 1):
-        Y[0][j] = gap_open + gap_ext * (j - 1); PY[0][j] = "Y" if j > 1 else "M"
+        Y[0][j] = eo + ee * (j - 1); PY[0][j] = "Y" if j > 1 else "M"
 
     def best3(i, j):                              # best end-state at (i,j) + which plane
         b = M[i][j]; s = "M"
@@ -85,10 +88,12 @@ def _align_to_profile(cols, seq, key, sim, sub_mid, gap_open, gap_ext, merge_min
                     cand = pv3 + (s - sub_mid)
                     if cand > bm: bm, mv, prev = cand, "N", ps3
             M[i][j], PM[i][j] = bm, (mv, prev)
-            xo, xe = M[i - 1][j] + gap_open, X[i - 1][j] + gap_ext
+            go_, ge_ = (eo, ee) if j == n else (gap_open, gap_ext)
+            xo, xe = M[i - 1][j] + go_ * occ[i - 1], X[i - 1][j] + ge_ * occ[i - 1]
             if xo >= xe: X[i][j], PX[i][j] = xo, "M"
             else: X[i][j], PX[i][j] = xe, "X"
-            yo, ye = M[i][j - 1] + gap_open, Y[i][j - 1] + gap_ext
+            go_, ge_ = (eo, ee) if i == m else (gap_open, gap_ext)
+            yo, ye = M[i][j - 1] + go_, Y[i][j - 1] + ge_
             if yo >= ye: Y[i][j], PY[i][j] = yo, "M"
             else: Y[i][j], PY[i][j] = ye, "Y"
 
@@ -118,7 +123,7 @@ def _align_to_profile(cols, seq, key, sim, sub_mid, gap_open, gap_ext, merge_min
 
 
 def star_align(items, sim=char_ratio, sub_mid=0.5, gap_open=-0.6, gap_ext=-0.15,
-               merge_min=0.6, join=lambda a, b: a + " " + b, spine_first=False, max_cols=None):
+               merge_min=0.6, join=lambda a, b: a + " " + b, spine_first=False, max_cols=None, end_gap=None, refine=0, weighted_gaps=False):
     """Progressive star alignment. items: list of (key, [tokens]). Returns
     (order, columns) where order is the keys actually PLACED (spine first, in the
     order they were aligned) and each column is a dict key->token. sim(a,b)->[0,1];
@@ -130,7 +135,12 @@ def star_align(items, sim=char_ratio, sub_mid=0.5, gap_open=-0.6, gap_ext=-0.15,
     that defines the column structure). max_cols caps the alignment: once the column
     count exceeds it, no further sequences are added (a divergent member can otherwise
     explode the profile); the skipped keys are simply absent from `order` and the
-    columns. Both default to the original behavior."""
+    columns. end_gap (a small negative number) is the cost per column of a gap before a
+    sequence's first or after its last word, so a segment that starts later than the others is
+    not pulled leftwards. refine=k adds k passes in which every placed sequence is taken out and
+    aligned again to the profile of all the others (a progressive alignment never revisits an
+    early decision). weighted_gaps=True makes a gap in the new sequence cheaper at columns that
+    few placed sequences fill. All default to the original behavior."""
     items = [it for it in items if it[1]]
     if not items:
         return [], []
@@ -141,6 +151,15 @@ def star_align(items, sim=char_ratio, sub_mid=0.5, gap_open=-0.6, gap_ext=-0.15,
     for key, toks in items[1:]:
         if max_cols is not None and len(cols) > max_cols:
             break
-        cols = _align_to_profile(cols, toks, key, sim, sub_mid, gap_open, gap_ext, merge_min, join)
+        cols = _align_to_profile(cols, toks, key, sim, sub_mid, gap_open, gap_ext, merge_min, join, end_gap,
+                                 len(placed) if weighted_gaps else None)
         placed.append(key)
+    seqs = dict(items)
+    for _ in range(refine):
+        for key in placed:
+            rest = [{k: v for k, v in c.items() if k != key} for c in cols]
+            rest = [c for c in rest if c]
+            if rest:
+                cols = _align_to_profile(rest, seqs[key], key, sim, sub_mid, gap_open, gap_ext, merge_min, join, end_gap,
+                                         len(placed) - 1 if weighted_gaps else None)
     return placed, cols

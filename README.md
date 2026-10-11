@@ -520,6 +520,13 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    scoring and alignment always use every clause.
 3. **Alignment**: per-clause multiple alignment of the selected witnesses and the variant units of the model
    (clause present/absent, words some witnesses omit, substituted words, number words), `icm/align.py`.
+   A clause's slot in a witness is its matched span without isolated edge matches (the "الله" of "قال رسول
+   الله"), widened by the clause's unmatched edge words plus up to `SLACK` inserted ones. The grid is a star
+   alignment with cheap end gaps (a segment cut short is not shifted), gap costs weighted by column occupancy
+   and two refinement passes; a conjunction written apart is joined to its word and number words align
+   (`word_sim`). Every unit records its grid columns (`cols`). The page shows one row per witness, columns
+   coloured by clause (all clauses in one table, or one table per clause), with each unit's number above its
+   columns; clicking a unit lists the witnesses of each state. Units are the characters of the step-5 model.
 4. **Narrators**: chains are read from Noor's parsed isnāds, the KG's chains or, for everything else, the
    rule-based isnād parser (`icm/sanad_parse.py`). Every name gets candidate persons (name agreement with the
    father/son guard, chain context from Noor/KG adjacency, popularity). Names whose identity the source gives
@@ -598,7 +605,7 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 |---|---|
 | `config.py` | all paths (env-overridable), SMC presets (`quick` 60/8/2, `standard` 150/15/3, `thorough` 300/20/4, `tiny` for tests), `DATA_VERSION` |
 | `text.py` | `norm()` (byte-identical to `ebadollah/lib/hadith_text.normalize`, a test checks it), tokens, clause segmentation |
-| `msa.py` | star alignment with affine gaps (copy of `hadith-hub/src/msa.py`, memoised similarity) |
+| `msa.py` | star alignment with affine gaps (copy of `hadith-hub/src/msa.py`, memoised similarity; added: `end_gap`, `weighted_gaps`, `refine`) |
 | `similarity.py` | pair scoring: order-free per-clause alignment, classes `witness/variant/extended/abridged/partial/different` |
 | `corpus.py`, `relations.py` | read-only access to v02 and the KG; Noor/consensus/KG relation signals |
 | `search.py` | step 2: candidate generation (per-clause FTS + relation signals) and scoring |

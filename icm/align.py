@@ -13,6 +13,12 @@ more witnesses share and the seed lacks) is aligned on its own:
   A witness that abbreviates ("وساق الحديث", "بنحوه") is NA for the clauses it does not
   show; leading and trailing gaps of a segment are NA (truncation is not absence).
 
+The slot of a clause in a witness is its matched span, without an isolated edge match (the
+"الله" of "قال رسول الله" matched to the clause's own "الله"), plus as many tokens on each side
+as the clause has unmatched tokens there, plus up to SLACK more when the witness inserted a
+word there ("سبعة لعنتهم لعنهم الله" for "ستة لعنهم الله"). Every unit records the grid
+columns it comes from (``cols``, None for a whole clause) so the page can point at them.
+
 Rows of X use ``text_model.NA = -1``.
 """
 from __future__ import annotations
@@ -30,7 +36,45 @@ from narrators.arabic_numbers import parse_arabic_number
 NA = -1
 MAX_UNITS = 40
 MAX_STATES = 6
-FORMULA = set(norm("قال رسول الله صلی الله علیه وآله وسلم النبی ص ع علیه السلام عن أنه قال انه ان و").split())
+FORMULA = set(norm("قال رسول الله صلی الله علیه وآله وسلم آله سلم النبی ص ع علیه السلام عن أنه قال انه ان و").split())
+SLACK = 2           # extra witness tokens a slot may take beyond the clause's unmatched edge
+END_GAP = -0.15     # cost per column of a leading/trailing gap in the grid: no opening cost (segments are cut)
+
+
+def word_sim(a: str, b: str) -> float:
+    """Similarity of two words for the grids: clitic/article variants are equal, number words
+    (ستة / سبعة / خمسة) line up with each other."""
+    if match_key(a) == match_key(b):
+        return 1.0
+    if parse_arabic_number(a) is not None and parse_arabic_number(b) is not None:
+        return 0.85
+    return char_ratio(a, b)
+
+
+def _core(pairs: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    """Matched (clause, witness) pairs without isolated edge matches: an end pair whose witness
+    distance to its neighbour exceeds the clause distance by more than 2."""
+    p = sorted(pairs, key=lambda x: x[1])
+    while len(p) > 2 and (p[1][1] - p[0][1]) - (p[1][0] - p[0][0]) > 2:
+        p = p[1:]
+    while len(p) > 2 and (p[-1][1] - p[-2][1]) - (p[-1][0] - p[-2][0]) > 2:
+        p = p[:-1]
+    return p
+
+
+def join_conj(toks: Sequence[str]) -> List[str]:
+    """A conjunction written apart ("و کل") is one word with the next ("وکل")."""
+    out: List[str] = []
+    for t in toks:
+        if out and out[-1] in ("و", "ف"):
+            out[-1] += t
+        else:
+            out.append(t)
+    return out
+
+
+def _opens_clause(t: str) -> bool:
+    return len(t) > 3 and (t.startswith("وال") or t.startswith("فال"))
 
 
 def _markers() -> List[List[str]]:
@@ -102,30 +146,50 @@ def run(search: dict, selected: Sequence[str]) -> dict:
 
     # --- per clause: segment of every witness, grid, presence ------------------------------------
     segs: Dict[Tuple[int, str], dict] = {}
-    for c in clause_defs:
-        for w in wits:
+    for w in wits:
+        found = {}
+        for c in clause_defs:
             if w["wid"] == seed and c["kind"] == "seed":
+                continue
+            r = align_clause(c["tokens"], w["tokens"])
+            core = _core([(i, j) for i, j in r["pairs"] if r["match_a"][i]]) if r["m"] else []
+            found[c["i"]] = (r, core)
+        cores = sorted((core[0][1], core[-1][1] + 1) for _, core in found.values() if core)
+        for c in clause_defs:
+            if c["i"] not in found:
                 segs[(c["i"], w["wid"])] = dict(state="present", cov=1.0, tokens=list(c["tokens"]),
                                                 aligned=list(c["tokens"]), span=None)
                 continue
-            r = align_clause(c["tokens"], w["tokens"])
+            r, core = found[c["i"]]
             n = max(len(c["tokens"]), 1)
             cov = sum(r["match_a"]) / n
             sub = sum(r["sub_a"])
             state = ("present" if cov >= 0.6 else "absent" if cov < 0.25 and sub < 2 else "unclear")
             seg_toks, span = [], None
-            if r["m"]:
-                # the slot of the clause: the matched span plus as many tokens on each side as the
-                # clause has unmatched tokens there (a substituted word sits next to the match)
-                mi = [i for i, f in enumerate(r["match_a"]) if f]
-                pad_l, pad_r = mi[0], len(c["tokens"]) - 1 - mi[-1]
-                lo = max(0, r["span_b"][0] - pad_l)
-                hi = min(len(w["tokens"]), r["span_b"][1] + pad_r)
-                while lo < r["span_b"][0] and w["tokens"][lo] in FORMULA:      # "قال رسول الله" is not part of the slot
+            if core:
+                # the slot of the clause: the matched core plus as many tokens on each side as the
+                # clause has unmatched tokens there (a substituted word sits next to the match), and
+                # up to SLACK more there, never into another clause's core
+                toks = w["tokens"]
+                c0, c1 = core[0][1], core[-1][1] + 1
+                pad_l, pad_r = core[0][0], len(c["tokens"]) - 1 - core[-1][0]
+                left = max([b for a, b in cores if b <= c0], default=0)
+                right = min([a for a, b in cores if a >= c1], default=len(toks))
+                lo = max(left, c0 - pad_l)
+                hi = min(right, c1 + pad_r)
+                if pad_l:
+                    for _ in range(SLACK):
+                        if lo > left and toks[lo - 1] not in FORMULA and not _opens_clause(toks[lo]):
+                            lo -= 1
+                if pad_r:
+                    for _ in range(SLACK):
+                        if hi < right and toks[hi] not in FORMULA and not _opens_clause(toks[hi]):
+                            hi += 1
+                while lo < c0 and toks[lo] in FORMULA:      # "قال رسول الله" is not part of the slot
                     lo += 1
-                while hi > r["span_b"][1] and w["tokens"][hi - 1] in FORMULA:
+                while hi > c1 and toks[hi - 1] in FORMULA:
                     hi -= 1
-                seg_toks, span = w["tokens"][lo:hi], [lo, hi]
+                seg_toks, span = toks[lo:hi], [lo, hi]
             segs[(c["i"], w["wid"])] = dict(
                 state=state, cov=round(cov, 3), span=span, tokens=seg_toks,
                 aligned=r["aligned_b"] if r["m"] else [None] * len(c["tokens"]))
@@ -145,12 +209,12 @@ def run(search: dict, selected: Sequence[str]) -> dict:
         # presence unit of the clause
         known = [v for v in pres.values() if v != NA]
         if len(set(known)) > 1:
-            units.append(_binary_unit(f"c{ci}", c["text"], pres, "clause", ci))
+            units.append(_binary_unit(f"c{ci}", c["text"], pres, "clause", ci, None))
         # grid + column units inside the clause
         holders = [w["wid"] for w in wits if pres[w["wid"]] == 1]
-        num_units, num_cols = _number_units(c, segs, wits)
-        units.extend(num_units)
-        grid, col_units, orth = _clause_grid(c, holders, segs, wits, skip_tokens=num_cols)
+        num_toks = _number_tokens(c, segs, wits)
+        grid, col_units, orth = _clause_grid(c, holders, segs, wits, skip_tokens=num_toks)
+        units.extend(_number_units(c, segs, wits, grid, seed))
         dropped_orth += orth
         grids.append(dict(clause=ci, kind=c["kind"], text=c["text"], witnesses=holders, columns=grid))
         units.extend(col_units)
@@ -186,17 +250,31 @@ def run(search: dict, selected: Sequence[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-def _number_units(c: dict, segs, wits) -> Tuple[List[dict], set]:
+def _number_tokens(c: dict, segs, wits) -> set:
+    """Number words in the segments of a clause whose seed text has one: they form number units,
+    not word units."""
+    if c["kind"] != "seed" or not any(parse_arabic_number(t) is not None for t in c["tokens"]):
+        return set()
+    return {t for w in wits for t in segs[(c["i"], w["wid"])]["tokens"] if parse_arabic_number(t) is not None}
+
+
+def _number_units(c: dict, segs, wits, grid: List[dict], seed: str) -> List[dict]:
     """One unit per number word of the seed clause (e.g. ستة): the state is the number the witness
-    has at the aligned position (سبعة, خمسة, ...). Returns the units and the set of seed tokens."""
-    units, used = [], set()
+    has in the grid column of that word (سبعة, خمسة, ...), else at the position the clause
+    alignment gives it."""
+    units = []
+    if c["kind"] != "seed":
+        return units
     for i, tok in enumerate(c["tokens"]):
-        if c["kind"] != "seed" or parse_arabic_number(tok) is None:
+        if parse_arabic_number(tok) is None:
             continue
+        j = next((j for j, col in enumerate(grid) if col.get(seed) == tok), None)
         vals: Dict[str, Optional[int]] = {}
         for w in wits:
             sg = segs[(c["i"], w["wid"])]
-            tb = sg["aligned"][i] if sg["state"] != "absent" and i < len(sg["aligned"]) else None
+            tb = grid[j].get(w["wid"]) if j is not None else None
+            if tb is None or parse_arabic_number(tb) is None:
+                tb = sg["aligned"][i] if sg["state"] != "absent" and i < len(sg["aligned"]) else None
             vals[w["wid"]] = parse_arabic_number(tb) if tb else None
         distinct = [v for v, _ in Counter(v for v in vals.values() if v is not None).most_common()]
         if len(distinct) < 2:
@@ -204,22 +282,17 @@ def _number_units(c: dict, segs, wits) -> Tuple[List[dict], set]:
         idx = {v: k for k, v in enumerate(distinct[:MAX_STATES])}
         states = {w: (idx.get(v, MAX_STATES - 1) if v is not None else NA) for w, v in vals.items()}
         units.append(dict(name=f"c{c['i']}n{i}:{tok}", kind="numeric", unit_kind="number", clause=c["i"], cls="numeric",
-                          n_states=len(idx), labels=[str(v) for v in idx], states=states))
-        used.add(tok)
-    # tokens that stand for the same slot in other witnesses must not form a second unit
-    for w in wits:
-        for t in segs[(c["i"], w["wid"])]["tokens"]:
-            if parse_arabic_number(t) is not None:
-                used.add(t)
-    return units, used
+                          n_states=len(idx), labels=[str(v) for v in idx], states=states,
+                          cols=[j, j] if j is not None else None))
+    return units
 
 
-def _binary_unit(uid: str, text: str, states: Dict[str, int], kind: str, ci: int) -> dict:
+def _binary_unit(uid: str, text: str, states: Dict[str, int], kind: str, ci: int, cols) -> dict:
     known = [v for v in states.values() if v != NA]
     share = sum(known) / max(len(known), 1)
     return dict(name=f"{uid}:{' '.join(text.split()[:4])}", kind="presence", unit_kind=kind, clause=ci,
                 cls="omission" if share >= 0.25 else "addition", n_states=2, labels=["absent", "present"],
-                states=dict(states))
+                states=dict(states), cols=cols)
 
 
 def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
@@ -287,11 +360,12 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
     """Multiple alignment of the segments of one clause and the units found in it."""
     if len(holders) < 2:
         return [], [], 0
-    items = [(w, segs[(c["i"], w)]["tokens"]) for w in holders if segs[(c["i"], w)]["tokens"]]
+    items = [(w, join_conj(segs[(c["i"], w)]["tokens"])) for w in holders if segs[(c["i"], w)]["tokens"]]
     if len(items) < 2:
         return [], [], 0
     first = c["tokens"] if c["kind"] == "seed" else None
-    order, cols = star_align(items, spine_first=False, merge_min=None, max_cols=3 * max(len(c["tokens"]), 6))
+    order, cols = star_align(items, sim=word_sim, spine_first=False, merge_min=None, max_cols=3 * max(len(c["tokens"]), 6),
+                             end_gap=END_GAP, refine=2, weighted_gaps=True)
     placed = set(order)
     grid = [{w: t for w, t in col.items()} for col in cols]
     units: List[dict] = []
@@ -334,7 +408,7 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
             st = {w: v for w, v in zip(order, vec)}
             for w in holders:
                 st.setdefault(w, NA)
-            u = _binary_unit(f"c{c['i']}w{block[0][0]}", words, st, "words", c["i"])
+            u = _binary_unit(f"c{c['i']}w{block[0][0]}", words, st, "words", c["i"], [block[0][0], block[-1][0]])
             units.append(u)
         block = []
     for item in pres_runs:
@@ -367,7 +441,7 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
         numeric = all(parse_arabic_number(r) is not None for r in lab if r != "*other*")
         units.append(dict(name=f"c{c['i']}s{j0}:{'|'.join(lab)}", kind="numeric" if numeric else "lexical",
                           unit_kind="words", clause=c["i"], cls="numeric" if numeric else "lexical",
-                          n_states=len(lab), labels=lab, states=states))
+                          n_states=len(lab), labels=lab, states=states, cols=[j0, group[-1][0]]))
         group = []
     for j0, info in sub_runs:
         key = tuple(sorted((w, tuple(info["clusters"][0]) and next((si for si, cl in enumerate(info["clusters"]) if info["col"].get(w) in cl), -1))

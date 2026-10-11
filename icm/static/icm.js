@@ -55,7 +55,7 @@ function el(tag, attrs, ...kids) {
     if (v === false || v == null) continue;
     if (k === 'class') e.className = v;
     else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else if (k === 'dir' || k === 'title' || k === 'href' || k === 'type' || k === 'value' || k === 'placeholder' || k === 'name' || k === 'src' || k === 'target' || k === 'style' || k === 'colspan') e.setAttribute(k, v);
+    else if (k === 'dir' || k === 'title' || k === 'href' || k === 'type' || k === 'value' || k === 'placeholder' || k === 'name' || k === 'src' || k === 'target' || k === 'style' || k === 'colspan' || k === 'rowspan') e.setAttribute(k, v);
     else if (v === true) e.setAttribute(k, '');
     else e[k] = v;
   }
@@ -306,22 +306,152 @@ const panels = {
 
   /* ----- 3: alignment ----- */
   async alignment(main, c) {
-    const A = await stage(c.pid, c.runId, 'align');
-    const names = Object.fromEntries(A.witnesses.map((w, i) => [w.wid, `${i}. ${(w.title || '').slice(0, 14)}`]));
-    const parts = [card('هم‌ترازی بخش‌به‌بخش', el('p', { class: 'muted small' }, `${fa(A.witnesses.length)} شاهد، ${fa(A.clauses.length)} بخش، ${fa(A.n_units)} واحد تغییر برای مدل (${fa(A.private_variants.length)} واحد فقط در یک شاهد دیده شد و کنار گذاشته شد).`),
-      A.private_texts.length ? el('details', {}, el('summary', {}, `${fa(A.private_texts.length)} عبارت اضافه‌ی منفرد`), A.private_texts.map(t => el('div', { class: 'ar' }, `${names[t.wid] || t.wid}: ${t.text}`))) : null)];
-    parts.push(card('واحدهای تغییر', el('table', {}, el('tr', {}, ...['نام', 'نوع', 'حالت‌ها'].map(t => el('th', {}, t))),
-      A.units.map(u => el('tr', {}, el('td', { class: 'ar' }, u.name), el('td', {}, { presence: 'حضور/غیاب', numeric: 'عدد', lexical: 'واژه' }[u.kind] || u.kind),
-        el('td', {}, u.labels.map((l, i) => `${l} (${fa(Object.values(u.states).filter(v => v === i).length)})`).join('  |  ')))))));
-    for (const g of A.grids) {
-      if (!g.columns.length) continue;
-      const ws = g.witnesses;
-      parts.push(card(`بخش ${fa(g.clause + 1)}: ${g.text}`, el('div', { class: 'grid-wrap' }, el('table', { class: 'grid' },
-        el('tr', {}, ws.map(w => el('th', { title: w }, names[w] || w))),
-        g.columns.map(col => { const vals = ws.map(w => col[w]); const cnt = {}; vals.forEach(v => { if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0];
-          return el('tr', {}, vals.map(v => el('td', { class: v ? (v === top ? 'ar' : 'ar diff') : 'gap' }, v || '—'))); })))));
-    }
-    main.replaceChildren(...parts);
+    const [A, S] = await Promise.all([stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search')]);
+    const seed = A.seed, W = A.witnesses;
+    const grid = Object.fromEntries(A.grids.map(g => [g.clause, g]));
+    const old = A.units.some(u => u.cols === undefined);       // written by the aligner before stage version 2
+    const units = A.units.map((u, k) => ({ ...u, k, cols: u.cols !== undefined ? u.cols : unitCols(u) }));
+    const colUnits = {};
+    units.forEach(u => { if (u.cols) for (let j = u.cols[0]; j <= u.cols[1]; j++) (colUnits[`${u.clause}|${j}`] ||= []).push(u.k); });
+    const clauseUnit = {}; units.forEach(u => { if (u.unit_kind === 'clause') clauseUnit[u.clause] = u.k; });
+    const cname = cl => cl.kind === 'seed' ? clauseRaw(S, cl.i) : cl.text;
+    const hadith = wid => wid === S.seed.wid ? S.seed : S.candidates.find(x => x.wid === wid || (x.copies || []).includes(wid));
+    let view = pref('icm.alview', 'one'), onlyDiff = pref('icm.aldiff', '0') === '1', pick = null;
+
+    /* the cells of one witness in one part: per grid column, or one cell when the part is not in its text */
+    const cellsOf = (cl, w, keep) => {
+      const g = grid[cl.i], sg = A.segments[`${cl.i}|${w.wid}`] || {};
+      const hu = `--h:${hue(cl.i)}`;
+      if (g && g.columns.length && g.witnesses.includes(w.wid)) {
+        const idx = g.columns.map((col, j) => col[w.wid] != null ? j : -1).filter(j => j >= 0);
+        const lo = idx[0], hi = idx[idx.length - 1];
+        return keep.map(j => {
+          const col = g.columns[j], t = col[w.wid], r = refTok(g, j, seed);
+          const cls = j < lo || j > hi ? 'na' : t == null ? (r == null ? 'gap' : 'om') : r == null ? 'ins' : mkey(t) === mkey(r) ? 'same' : 'diff';
+          const on = pick !== null && (colUnits[`${cl.i}|${j}`] || []).includes(pick);
+          const td = el('td', { class: cls + (on ? ' pk' : '') + (j === keep[0] ? ' sep' : ''), style: hu,
+            title: cls === 'om' ? `«${r}» در این شاهد نیامده` : cls === 'ins' ? 'در حدیث مبدأ نیست' : cls === 'diff' ? `حدیث مبدأ: ${r}` : '' }, t != null ? t : cls === 'na' ? '' : '·');
+          td.dataset.c = `${cl.i}|${j}`;
+          return td;
+        });
+      }
+      const n = Math.max(keep.length, 1);
+      const on = pick !== null && clauseUnit[cl.i] === pick;
+      if (sg.state === 'present' && sg.tokens && sg.tokens.length)
+        return [el('td', { class: 'same sep' + (on ? ' pk' : ''), style: hu, colspan: n }, sg.tokens.join(' '))];
+      const why = w.marker != null && sg.state !== 'present' ? 'خلاصه‌شده' : sg.state === 'absent' ? 'نیامده' : 'نامعلوم';
+      return [el('td', { class: 'miss sep' + (on ? ' pk' : ''), style: hu, colspan: n, title: { 'نیامده': 'این بخش در متن این شاهد نیست', 'خلاصه‌شده': 'متن با «وساق الحدیث / بنحوه…» کوتاه شده؛ نبودن بخش نشانه‌ی افتادگی نیست', 'نامعلوم': 'فقط تکه‌ای از این بخش پیدا شد' }[why] }, why)];
+    };
+    /* columns of a part to show: all, or only those where some witness differs from the seed */
+    const keepOf = cl => {
+      const g = grid[cl.i];
+      if (!g || !g.columns.length) return [];
+      const all = g.columns.map((_, j) => j);
+      if (!onlyDiff) return all;
+      return all.filter(j => colUnits[`${cl.i}|${j}`] || g.witnesses.some(w => { const t = g.columns[j][w], r = refTok(g, j, seed); return t == null ? r != null && inExtent(g, w, j) : r == null || mkey(t) !== mkey(r); }));
+    };
+    const nameCell = (w, i) => el('td', { class: 'nm', title: [w.title, w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', w.wid].filter(Boolean).join(' · '),
+      onclick: () => { const h = hadith(w.wid); if (h) modal(hadithBlock(h, true)); } },
+      el('span', { class: 'dot ' + w.cls }), `${fa(i)}. ${w.title || w.wid}`, el('span', { class: 'small muted' }, w.death ? ' ف ' + fa(w.death) : ''));
+    const table = (cls, rows) => {
+      const keeps = cls.map(keepOf);
+      const head1 = el('tr', { class: 'b' }, el('th', { class: 'nm', rowspan: 2 }, 'شاهد ↓ / بخش ←'),
+        cls.map((cl, n) => el('th', { class: 'band' + (pick !== null && clauseUnit[cl.i] === pick ? ' pk' : ''), style: `--h:${hue(cl.i)}`, colspan: Math.max(keeps[n].length, 1), title: cname(cl) },
+          `${fa(cl.i + 1)}${cl.kind === 'extra' ? ' (افزوده)' : ''} `, el('span', { class: 'ar' }, short(cname(cl), Math.max(8, 4 * keeps[n].length))),
+          clauseUnit[cl.i] !== undefined ? ubadge(clauseUnit[cl.i]) : null)));
+      const head2 = el('tr', { class: 'u' }, cls.flatMap((cl, n) => keeps[n].length
+        ? keeps[n].map(j => el('th', { class: j === keeps[n][0] ? 'sep' : '', style: `--h:${hue(cl.i)}` }, (colUnits[`${cl.i}|${j}`] || []).map(ubadge)))
+        : el('th', { class: 'sep', style: `--h:${hue(cl.i)}` }, onlyDiff && grid[cl.i] && grid[cl.i].columns.length ? el('span', { class: 'small muted' }, 'یکسان') : '')));
+      return el('div', { class: 'grid-wrap', style: 'max-height:76vh' }, el('table', { class: 'altab' }, el('thead', {}, head1, head2),
+        el('tbody', {}, rows.map(([w, i]) => el('tr', { class: w.wid === seed ? 'seed' : '' }, nameCell(w, i),
+          cls.flatMap((cl, n) => keeps[n].length || !(grid[cl.i] && grid[cl.i].columns.length) ? cellsOf(cl, w, keeps[n])
+            : [el('td', { class: 'same sep', style: `--h:${hue(cl.i)}` }, grid[cl.i].witnesses.includes(w.wid) ? '=' : '')]))))));
+    };
+    const ubadge = k => el('button', { class: 'ub' + (pick === k ? ' on' : ''), title: unitTitle(units[k]), onclick: ev => { ev.stopPropagation(); setPick(pick === k ? null : k); } }, fa(k + 1));
+    const unitTitle = u => `واحد ${fa(u.k + 1)}: ${UKIND(u)} — ` + u.labels.map((l, i) => `${ulab(l)} ${fa(Object.values(u.states).filter(v => v === i).length)}`).join('، ');
+
+    const pickBox = el('div', { class: 'pickbox' }), body = el('div');
+    const setPick = k => {
+      pick = k; drawBody(); drawPick(); drawUnits();
+      if (k !== null) {     // scroll the grid (not the page) to the unit's column, then show the unit's box
+        const u = units[k], t = body.querySelector(u.cols ? `td[data-c="${u.clause}|${u.cols[0]}"]` : 'th.band.pk');
+        const y = window.scrollY;
+        if (t) { t.scrollIntoView({ block: 'nearest', inline: 'center' }); window.scrollTo(0, y); }
+        pickBox.scrollIntoView({ block: 'nearest' });
+      }
+    };
+    const drawPick = () => {
+      if (pick === null) { pickBox.replaceChildren(); return; }
+      const u = units[pick], names = Object.fromEntries(W.map((w, i) => [w.wid, `${fa(i)}. ${w.title || w.wid}`]));
+      const groups = u.labels.map((l, i) => [ulab(l), Object.keys(u.states).filter(w => u.states[w] === i)]);
+      const na = Object.keys(u.states).filter(w => u.states[w] < 0);
+      pickBox.replaceChildren(el('div', { class: 'help', style: `--h:${hue(u.clause)}` },
+        el('div', { class: 'toolbar', style: 'margin:0' }, swatch(u.clause), el('b', {}, `واحد ${fa(u.k + 1)}: ${UKIND(u)}`), el('span', { class: 'ar' }, uwhere(u, A)), el('span', { class: 'grow' }), el('button', { class: 'small', onclick: () => setPick(null) }, 'بستن')),
+        groups.map(([l, ws]) => el('div', { class: 'small' }, el('b', { class: 'ar' }, l), ` (${fa(ws.length)}): `, ws.map(w => names[w]).join('، '))),
+        na.length ? el('div', { class: 'small muted' }, `نامعلوم (${fa(na.length)}): `, na.map(w => names[w]).join('، ')) : null));
+    };
+    const drawBody = () => {
+      const rows = W.map((w, i) => [w, i]);
+      if (view === 'one') { body.replaceChildren(table(A.clauses, rows)); return; }
+      body.replaceChildren(...A.clauses.map(cl => {
+        const g = grid[cl.i], holds = rows.filter(([w]) => { const sg = A.segments[`${cl.i}|${w.wid}`] || {}; return g && g.columns.length ? g.witnesses.includes(w.wid) : sg.state === 'present'; });
+        const rest = rows.filter(r => !holds.includes(r)), by = {};
+        rest.forEach(([w, i]) => { const sg = A.segments[`${cl.i}|${w.wid}`] || {}; const k = w.marker != null ? 'خلاصه‌شده' : sg.state === 'absent' ? 'نیامده' : 'نامعلوم'; (by[k] ||= []).push(`${fa(i)}. ${w.title || w.wid}`); });
+        return el('div', { class: 'cardbox', style: `--h:${hue(cl.i)};border-inline-start:5px solid hsl(var(--h) var(--k-s) var(--k-l))` },
+          el('div', { class: 'toolbar', style: 'margin:0 0 6px' }, swatch(cl.i), el('b', { class: 'ar' }, cname(cl)), cl.kind === 'extra' ? el('span', { class: 'chip partial' }, `بخش افزوده، در ${fa(cl.support)} شاهد`) : null,
+            clauseUnit[cl.i] !== undefined ? ubadge(clauseUnit[cl.i]) : null, el('span', { class: 'small muted' }, `در ${fa(holds.length)} شاهد`)),
+          holds.length ? table([cl], holds) : null,
+          Object.entries(by).map(([k, ns]) => el('div', { class: 'small muted' }, `${k} در ${fa(ns.length)} شاهد: `, ns.join('، '))));
+      }));
+    };
+    const unitsBox = el('div');
+    const drawUnits = () => unitsBox.replaceChildren(el('table', { class: 'units' },
+      el('tr', {}, ...['واحد', 'بخش', 'گونه', 'جا در متن', 'حالت‌ها (شمار شاهدها)'].map(t => el('th', {}, t))),
+      units.map(u => { const nNA = Object.values(u.states).filter(v => v < 0).length;
+        return el('tr', { class: pick === u.k ? 'on' : '', onclick: () => setPick(pick === u.k ? null : u.k), title: 'نمایش در جدول هم‌ترازی' },
+          el('td', {}, ubadge(u.k)), el('td', {}, swatch(u.clause)), el('td', { class: 'small' }, UKIND(u)), el('td', { class: 'ar' }, uwhere(u, A)),
+          el('td', {}, u.labels.map((l, i) => el('span', { class: 'st', style: `--h:${hue(u.clause)}` }, el('span', { class: 'ar' }, ulab(l)), ' ', fa(Object.values(u.states).filter(v => v === i).length))),
+            nNA ? el('span', { class: 'small muted' }, ` نامعلوم ${fa(nNA)}`) : null)); })));
+
+    const seg = (opts, cur, set) => el('span', { class: 'seg' }, opts.map(([k, t]) => el('button', { class: k === cur ? 'on' : '', onclick: () => set(k) }, t)));
+    const tools = el('div', { class: 'toolbar' });
+    const drawTools = () => tools.replaceChildren(
+      seg([['one', 'همه‌ی بخش‌ها در یک جدول'], ['parts', 'هر بخش جدا']], view, k => { view = k; setPref('icm.alview', k); drawTools(); drawBody(); }),
+      el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: onlyDiff, onchange: ev => { onlyDiff = ev.target.checked; setPref('icm.aldiff', onlyDiff ? '1' : '0'); drawBody(); } }), ' فقط ستون‌هایی که اختلاف دارند'),
+      el('span', { class: 'small muted' }, 'راهنما: '), el('span', { class: 'lg same', style: `--h:${hue(0)}` }, 'مثل حدیث مبدأ'), el('span', { class: 'lg diff', style: `--h:${hue(0)}` }, 'واژه‌ی دیگر'),
+      el('span', { class: 'lg ins', style: `--h:${hue(0)}` }, 'افزوده'), el('span', { class: 'lg om' }, '· افتاده'), el('span', { class: 'lg miss' }, 'بخش نیامده'), ubadgeDemo());
+    drawTools(); drawBody(); drawUnits();
+
+    const nPrivate = A.private_variants.length;
+    main.replaceChildren(
+      card('هم‌ترازی متن شاهدها، بخش‌به‌بخش',
+        el('p', { class: 'muted small' }, `${fa(W.length)} شاهد (حدیث مبدأ و شاهدهایی که در مرحله‌ی ۲ انتخاب شدند)، ${fa(A.clauses.length)} بخش. هر ردیف یک شاهد است و از راست به چپ مثل متن خوانده می‌شود؛ هر ستون یک جایگاه واژه. رنگ هر گروه ستون همان رنگ بخش در مرحله‌ی ۲ است. نام کتاب را بزنید تا متن کامل آن را ببینید.`),
+        el('details', { class: 'help' }, el('summary', {}, 'هم‌ترازی چگونه ساخته شد؟'),
+          el('ol', {},
+            el('li', {}, 'جای هر بخش حدیث مبدأ در متن هر شاهد جداگانه پیدا شد، بی‌توجه به ترتیب؛ پس شاهدی که بندها را جابه‌جا آورده هم درست هم‌تراز می‌شود. عبارت‌هایی مثل «قال رسول الله صلی الله علیه وآله» جزو بخش شمرده نمی‌شوند.'),
+            el('li', {}, 'تکه‌ای که در حدیث مبدأ نیست ولی دست‌کم دو شاهد آن را دارند، «بخش افزوده» شد. تکه‌هایی که فقط یک شاهد دارد پایین‌تر فهرست شده‌اند.'),
+            el('li', {}, 'واژه‌های هر بخش در همه‌ی شاهدهای دارای آن بخش با هم هم‌تراز شد (هم‌ترازی چندگانه با یک دور بازبینی برای هر ردیف). واژه‌هایی که فقط در «و/ف/ال» فرق دارند یکسان شمرده می‌شوند، «و» جدانوشته به واژه‌ی بعدش چسبانده می‌شود، و عددها (ستة، سبعة، خمسة…) در یک ستون می‌آیند.'),
+            el('li', {}, 'خانه‌ی خالی پیش از نخستین یا پس از واپسین واژه‌ی یک شاهد یعنی متن آن شاهد آنجا کوتاه‌تر است؛ این «افتادگی» شمرده نمی‌شود. شاهدی که با «وساق الحدیث / بنحوه…» خلاصه شده، برای بخش‌هایی که نیاورده «نامعلوم» است.'),
+            el('li', {}, 'شماره‌های کوچک بالای ستون‌ها واحدهای تغییرند (جدول پایین)؛ با زدن هر کدام، ستون‌ها و شاهدهای هر حالت نشان داده می‌شوند.'))),
+        old && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است (پیش از درست شدن جابه‌جایی برخی ردیف‌ها و هم‌ستون شدن عددها). ',
+          c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
+          el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند؛ اجرای کنونی پاک نمی‌شود.')) : null,
+        tools, pickBox, body),
+      card('واحدهای تغییر: ورودی مدل شجره',
+        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.`),
+        el('details', { class: 'help' }, el('summary', {}, 'این واحدها چه کاری می‌کنند؟'),
+          el('p', {}, 'مدل شجره (مرحله‌ی ۵) هم سندها را می‌بیند و هم این واحدها را. شاهدهایی که در واحدهای بیشتری حالتِ کم‌یاب مشترک دارند (مثلاً «سبعة» به جای «ستة» و پرسشِ «ومن هم یا رسول الله») به احتمال بیشتر از یک منبع یا یک راوی مشترک گرفته‌اند. پس این جدول همان چیزی است که متن‌ها در برآورد «قدیمی‌ترین منبع» می‌گویند.'),
+          el('ul', {},
+            el('li', {}, el('b', {}, 'حضور بخش: '), 'آیا شاهد این بخش را دارد؟ (دارد / ندارد)'),
+            el('li', {}, el('b', {}, 'حضور واژه: '), 'چند واژه‌ی کنار هم که برخی شاهدها دارند و برخی نه.'),
+            el('li', {}, el('b', {}, 'واژه‌ی جایگزین: '), 'در یک جایگاه، شاهدها واژه‌های مختلف دارند؛ هر واژه یک حالت.'),
+            el('li', {}, el('b', {}, 'عدد: '), 'عددی که حدیث می‌گوید (۴، ۵، ۶، ۷…).')),
+          el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست.`)),
+        unitsBox,
+        nPrivate ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(nPrivate)} واحد کنارگذاشته (فقط یک شاهد متفاوت)`),
+          el('div', { class: 'small ar' }, A.private_variants.map(u => u.name.split(':').slice(1).join(':')).join('  ·  '))) : null,
+        A.private_texts.length ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(A.private_texts.length)} تکه‌ی افزوده که فقط در یک شاهد آمده`),
+          A.private_texts.map(t => el('div', { class: 'ar small' }, `${fa(W.findIndex(w => w.wid === t.wid))}. ${(W.find(w => w.wid === t.wid) || {}).title || t.wid}: ${t.text}`))) : null));
   },
 
   /* ----- 4: identities ----- */
@@ -450,6 +580,32 @@ function partsHelp() {
     el('p', {}, 'متن حدیث مبدأ خودکار و فقط با قاعده‌های نگارشی به بخش‌ها بریده شده است (بی‌آنکه معنا فهمیده شود): در نشانه‌های نگارشی (، ؛ . : ؟)، پیش از «و/ف» که اسمی با «ال» را آغاز می‌کند (آغاز هر بند در فهرست‌هایی مثل «و المکذب… و التارک…»)، بخش‌های بلندتر از ۱۲ واژه در نزدیک‌ترین حرف ربط (و، ف، ثم، الذی، من…) به میانه، و بخش یک‌واژه‌ای به همسایه‌اش چسبانده می‌شود. پیش از بریدن، اعراب حذف و املا یکسان می‌شود (ي→ی، ك→ک، ة→ه، أ/إ/آ→ا).'),
     el('p', {}, 'چرا بخش‌به‌بخش؟ روایت‌های یک حدیث بندها را جابه‌جا، کوتاه یا بلند می‌کنند. هر بخش جداگانه جستجو و جداگانه مقایسه می‌شود، پس روایتی که فقط یک بند را دارد یا ترتیب دیگری دارد هم پیدا و درست سنجیده می‌شود. چون بریدن خودکار است، گاهی دو بند در یک بخش می‌مانند یا یک بند دو تکه می‌شود؛ این فقط دقت جستجو را کمی کم می‌کند.'));
 }
+/* ---------- alignment helpers ---------- */
+const mkey = t => { if (t.length > 3 && 'وف'.includes(t[0])) t = t.slice(1); if (t.length > 3 && t.startsWith('ال')) t = t.slice(2); return t; };   // similarity.match_key
+function refTok(g, j, seed) {   // what a cell is compared with: the seed's word, or the column's commonest word in a part the seed lacks
+  if (g.kind === 'seed') return g.columns[j][seed];
+  const n = {}; Object.values(g.columns[j]).forEach(t => n[t] = (n[t] || 0) + 1);
+  return Object.keys(n).sort((a, b) => n[b] - n[a])[0];
+}
+function inExtent(g, w, j) {
+  let lo = -1, hi = -1; g.columns.forEach((col, k) => { if (col[w] != null) { if (lo < 0) lo = k; hi = k; } });
+  return j > lo && j < hi;
+}
+function unitCols(u) {          // stage files written before units carried their columns
+  const m = /^c\d+([ws])(\d+)/.exec(u.name);
+  return m ? [+m[2], +m[2]] : null;
+}
+const UKIND = u => u.unit_kind === 'clause' ? 'حضور بخش' : u.kind === 'presence' ? 'حضور واژه' : u.kind === 'numeric' ? 'عدد' : 'واژه‌ی جایگزین';
+const ulab = l => ({ absent: 'ندارد', present: 'دارد', '*other*': 'دیگر' }[l] || (/^\d+$/.test(l) ? fa(l) : l));
+function uwhere(u, A) {
+  if (u.unit_kind === 'clause') return short(A.clauses[u.clause].text, 40);
+  if (u.kind === 'presence') return '«' + u.name.split(':').slice(1).join(':') + '»';
+  return u.labels.map(ulab).join(' / ');
+}
+const short = (t, n) => t.length > n ? t.slice(0, n) + '…' : t;
+const ubadgeDemo = () => el('span', { class: 'small muted' }, el('span', { class: 'ub' }, '۱'), ' واحد تغییر');
+function pref(k, d) { try { return localStorage.getItem(k) || d; } catch (_) { return d; } }
+function setPref(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
 function candRow(x, S, sel, can, upd) {
   const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', user: 'افزوده‌ی کاربر' };
   return el('tr', { class: sel.has(x.wid) ? 'on' : '' },
