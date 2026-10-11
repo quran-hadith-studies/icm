@@ -3,11 +3,11 @@
   --bg:#f5f3ef;--fg:#243040;--muted:#64748b;--line:#dfe3ea;--card:#fff;--accent:#3b5bdb;--accent-soft:#e8edff;
   --good:#2b8a5a;--warn:#b7791f;--bad:#c0392b;--arabic:#1b2430;
   --c-witness:#2b8a5a;--c-variant:#3b82c4;--c-extended:#7a4bc4;--c-abridged:#c4832b;--c-partial:#8a8f98;--c-different:#c0392b;
-  --st-present:#2b8a5a;--st-partial:#e0b341;--st-changed:#e07a2c;--st-absent:#e5e7eb;
+  --hl-s:85%;--hl-l:86%;--k-s:62%;--k-l:44%;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#15171c;--fg:#e6e8ee;--muted:#9aa3b5;--line:#2c313c;--card:#1d2029;--accent:#8c9bef;--accent-soft:#252b46;--arabic:#e8e6e1;
-  --st-absent:#2c313c}}
+  --hl-s:40%;--hl-l:30%;--k-s:55%;--k-l:58%}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:'Sahel','BLotus','Vazirmatn',Tahoma,system-ui,sans-serif;font-size:14px;line-height:1.7}
 .wrap{max-width:1280px;margin:0 auto;padding-inline:16px}
@@ -35,14 +35,28 @@ th{font-weight:600;color:var(--muted);font-size:12px;position:sticky;top:0;backg
 .chip.high,.chip.exact,.chip.derived{background:var(--good)}.chip.medium{background:var(--warn)}.chip.low{background:var(--bad)}.chip.none{background:var(--muted)}
 .chip.draft,.chip.awaiting{background:var(--warn)}.chip.running{background:var(--accent)}.chip.finalized{background:var(--good)}.chip.failed{background:var(--bad)}
 .steps{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 12px}
-.step{flex:1;min-width:130px;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 10px;font-size:12.5px;text-align:center;cursor:pointer;color:var(--muted)}
+.step{flex:1;min-width:130px;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 10px;font-size:12.5px;text-align:center;cursor:pointer;color:var(--muted);text-decoration:none}
+.step.now::after{content:' ●';color:var(--warn)}
 .step.done{color:var(--good)}.step.cur{border-color:var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}.step.off{opacity:.45;cursor:default}
-.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px}
-@media(max-width:980px){.layout{grid-template-columns:1fr}}
 .bar{height:8px;background:var(--line);border-radius:5px;overflow:hidden;min-width:60px}.bar>i{display:block;height:100%;background:var(--accent)}
+/* clause colours: elements set --h (a hue) per part of the seed */
+.hl{background:hsl(var(--h) var(--hl-s) var(--hl-l));border-radius:4px;padding:1px 0;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.sw{display:inline-block;min-width:22px;border-radius:5px;background:hsl(var(--h) var(--k-s) var(--k-l));color:#fff;text-align:center;font-size:12px;font-weight:600}
 .strip{display:inline-flex;gap:2px;vertical-align:middle}
-.strip i{display:inline-block;width:11px;height:14px;border-radius:2px;background:var(--st-absent)}
-.strip i.present{background:var(--st-present)}.strip i.partial{background:var(--st-partial)}.strip i.changed{background:var(--st-changed)}
+.strip i{display:inline-block;width:12px;height:15px;border-radius:2px;border:1.5px solid hsl(var(--h) var(--k-s) var(--k-l))}
+.strip i.present{background:hsl(var(--h) var(--k-s) var(--k-l))}
+.strip i.partial{background:linear-gradient(to top,hsl(var(--h) var(--k-s) var(--k-l)) 50%,transparent 50%)}
+.strip i.changed{background:repeating-linear-gradient(45deg,hsl(var(--h) var(--k-s) var(--k-l)) 0 2px,transparent 2px 5px)}
+.strip i.absent{border-style:dashed;opacity:.45}
+.sbar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin-top:6px}
+.sbar i{display:block;height:100%}.sbar i.present{background:hsl(var(--h) var(--k-s) var(--k-l))}
+.sbar i.partial,.sbar i.changed{background:hsl(var(--h) var(--k-s) var(--k-l));opacity:.45}.sbar i.absent{background:transparent}
+.seedtext{font-size:19px;line-height:2.3;margin:6px 0}
+.help{border:1px dashed var(--line);border-radius:8px;padding:4px 10px;margin:8px 0;font-size:13px}
+.help summary{cursor:pointer;color:var(--accent)}.help p,.help ol{margin:6px 0}
+table.cands td.txt{min-width:340px;max-width:560px}
+table.cands tr.on{background:var(--accent-soft)}
+table.cands .matn{max-height:150px}
 .flags li{margin:3px 0}.flags{padding-inline-start:18px;margin:6px 0}
 .log{font-size:11.5px;max-height:180px;overflow:auto;color:var(--muted)}
 .grid-wrap{overflow:auto;max-height:420px;border:1px solid var(--line);border-radius:8px}

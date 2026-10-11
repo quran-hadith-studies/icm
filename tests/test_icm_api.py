@@ -67,6 +67,7 @@ def test_pages():
     try:
         c = TestClient(a)
         assert c.get("/icm").status_code == 200 and c.get("/icm/p/abc").status_code == 200
+        assert c.get("/icm/p/abc/selection").status_code == 200 and c.get("/icm/p/abc/r/0000/alignment").status_code == 200
         assert c.get("/icm/static/nope.js").status_code == 404
     finally:
         shutil.rmtree(d)

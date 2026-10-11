@@ -22,7 +22,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from . import corpus, relations
 from .similarity import align_clauses, classify
-from .text import clauses, grams, norm, squeeze, tokens
+from .text import clauses, grams, marks, norm, squeeze, strip_tags, tokens
 
 PRESELECTED = ("witness", "extended", "abridged", "variant")
 
@@ -272,3 +272,29 @@ def _fold_across_corpora(rows: List[dict]) -> List[dict]:
                     a["copies"] = a.get("copies", []) + [b["wid"]] + b.get("copies", [])
                     drop.add(b["wid"])
     return [r for r in rows if r["wid"] not in drop]
+
+
+def with_marks(S: dict) -> dict:
+    """Add ``marks`` (``[start, end, clause]`` character ranges, see ``text.marks``) to the seed and to every
+    candidate of a search result, for display: where each seed clause is in each text. Not stored (stage files
+    stay as computed); the API adds it when serving the stage."""
+    seed = S["seed"]
+    lab = [-1] * len(S["tokens"])
+    for c in S["clauses"]:
+        x, y = c["span"]
+        lab[x:y] = [c["i"]] * (y - x)
+    seed["matn"] = strip_tags(seed["matn"])
+    seed["marks"] = marks(seed["matn"], lab)
+    for cand in S["candidates"]:
+        lab = [-1] * cand["n_tokens"]
+        # the best-matched clause claims a token first (two clauses of the seed may share words)
+        for part in sorted(cand["parts"], key=lambda q: -q["cov"]):
+            if part["state"] == "absent" or not part["window"]:
+                continue
+            x, y = part["window"]
+            for j in range(x, min(y, len(lab))):
+                if lab[j] < 0:
+                    lab[j] = part["clause"]
+        cand["matn"] = strip_tags(cand["matn"])
+        cand["marks"] = marks(cand["matn"], lab)
+    return S

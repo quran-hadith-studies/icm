@@ -139,3 +139,41 @@ def _split_long(toks: Sequence[str], a: int, b: int, max_tokens: int) -> List[Li
     cands = [i for i in range(a + 3, b - 2) if toks[i] in _SPLIT_PARTICLES]
     cut = min(cands, key=lambda i: abs(i - mid)) if cands else mid
     return _split_long(toks, a, cut, max_tokens) + _split_long(toks, cut, b, max_tokens)
+
+
+# ---------------------------------------------------------------------------
+# token positions in the raw text (for highlighting)
+# ---------------------------------------------------------------------------
+_RAW_WORD = re.compile(r"\S+")
+
+
+def token_offsets(raw: str) -> List[Tuple[int, int]]:
+    """For each token of ``tokens(raw)``, the (start, end) character range of the raw word it comes from.
+
+    Several tokens can share one raw word (``بفيء`` → ``بفی ء``). Tags are not displayed by the
+    wizard, so a raw text with tags yields offsets into ``strip_tags(raw)``."""
+    out: List[Tuple[int, int]] = []
+    for m in _RAW_WORD.finditer(strip_tags(raw)):
+        out.extend([(m.start(), m.end())] * len(norm(m.group(0)).split()))
+    return out
+
+
+def marks(raw: str, token_clause: Sequence[int]) -> List[List[int]]:
+    """Merge per-token clause labels (-1 = none) into ``[start, end, clause]`` character ranges of ``raw``.
+
+    Tokens beyond the end of ``raw`` (a truncated text) are ignored."""
+    offs = token_offsets(raw)
+    out: List[List[int]] = []
+    prev = -2
+    for i, c in enumerate(token_clause[:len(offs)]):
+        if c < 0:
+            continue
+        a, b = offs[i]
+        if out and out[-1][2] == c and prev == i - 1:
+            out[-1][1] = b                      # consecutive tokens of one clause: one range, punctuation included
+        else:
+            a = max(a, out[-1][1]) if out else a     # a raw word split between two clauses stays in the first
+            if a < b:
+                out.append([a, b, c])
+        prev = i
+    return out

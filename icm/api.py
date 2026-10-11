@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from hadith_phylogeny.report import finite
 
 from . import config, corpus, jobs, narrator_info, project, viewer
+from . import search as search_mod
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -110,8 +111,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.get("", response_class=HTMLResponse)
     @r.get("/", response_class=HTMLResponse)
     @r.get("/p/{pid}", response_class=HTMLResponse)
+    @r.get("/p/{pid}/{step}", response_class=HTMLResponse)
     @r.get("/p/{pid}/r/{run}", response_class=HTMLResponse)
-    def index_page(pid: str = "", run: str = ""):
+    @r.get("/p/{pid}/r/{run}/{step}", response_class=HTMLResponse)
+    def index_page(pid: str = "", run: str = "", step: str = ""):
         return page()
 
     @r.get("/static/{name}")
@@ -209,6 +212,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         out = project.run_stage(pid, run, src)
         if out is None:
             raise HTTPException(404, "stage not available in this run")
+        if stage == "search":
+            out = search_mod.with_marks(out)
         return finite(out["viz"] if stage == "viz" else out["results"] if stage == "results" else out)
 
     @r.get("/api/narrator/{nid}")

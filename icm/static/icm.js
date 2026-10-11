@@ -96,10 +96,13 @@ let ME = { user: null, admin: false }, timer = null;
 
 function route() {
   const m = location.pathname.slice(BASE.length).split('/').filter(Boolean);
-  if (m[0] === 'p' && m[1]) return { pid: m[1], run: m[2] === 'r' ? m[3] : null };
-  return {};
+  if (m[0] !== 'p' || !m[1]) return {};
+  return m[2] === 'r' ? { pid: m[1], run: m[3] || null, step: m[4] || null } : { pid: m[1], run: null, step: m[2] || null };
 }
+const stepUrl = (pid, run, step) => `/p/${pid}${run ? '/r/' + run : ''}${step ? '/' + step : ''}`;
 function go(path) { history.pushState({}, '', BASE + path); render(); }
+/* after a decision: back to the project's own address, which opens the step that now needs the user */
+function reload(pid) { cache.clear(); history.pushState({}, '', BASE + stepUrl(pid)); render(); }
 window.addEventListener('popstate', render);
 
 /* ---------- top level ---------- */
@@ -149,57 +152,70 @@ function hadithRow(h) {
 }
 
 /* ---------- project ---------- */
-let P = null, viewStep = null;
+let P = null;
 async function project(pid, run) {
   P = await api('/project/' + pid);
   const p = P.project, readonly = !!run, runId = run || p.current_run || 'current';
   const can = ME.user && (ME.user === p.owner || ME.admin) && !readonly;
-  const cur = { search: 'selection', selection: 'selection', identities: 'identities', phylogeny: 'phylogeny', analysis: 'analysis', done: 'analysis' }[p.step] || 'selection';
-  if (!viewStep || viewStep.pid !== pid || run) viewStep = { pid, step: run ? 'analysis' : cur };
-  const reached = s => ({ seed: true, selection: true, alignment: ['identities', 'phylogeny', 'analysis', 'done'].includes(p.step), identities: ['identities', 'phylogeny', 'analysis', 'done'].includes(p.step),
-    phylogeny: ['phylogeny', 'analysis', 'done'].includes(p.step), analysis: ['analysis', 'done'].includes(p.step) })[s];
-  const bar = el('div', { class: 'steps' }, STEPS.map(([k, t]) => el('div', { class: 'step' + (viewStep.step === k ? ' cur' : '') + (reached(k) ? '' : ' off'), onclick: ev => { if (reached(k)) { viewStep.step = k; document.querySelectorAll('.step').forEach(e => e.classList.remove('cur')); ev.currentTarget.classList.add('cur'); panel(); } } }, t)));
-  const runSel = el('select', { onchange: ev => go('/p/' + pid + (ev.target.value === 'current' ? '' : '/r/' + ev.target.value)) },
+  const cur = run ? 'analysis' : ({ search: 'selection', selection: 'selection', identities: 'identities', phylogeny: 'phylogeny', analysis: 'analysis', done: 'analysis' }[p.step] || 'selection');
+  const after = ['identities', 'phylogeny', 'analysis', 'done'];
+  const reached = s => run ? true : ({ seed: true, selection: true, alignment: after.includes(p.step), identities: after.includes(p.step),
+    phylogeny: after.slice(1).includes(p.step), analysis: after.slice(2).includes(p.step) })[s];
+  const want = route().step;
+  let step = STEPS.some(x => x[0] === want) && reached(want) ? want : cur;
+  const tabs = STEPS.map(([k, t]) => reached(k)
+    ? el('a', { class: 'step' + (step === k ? ' cur' : '') + (k === cur && !run ? ' now' : ''), href: BASE + stepUrl(pid, run, k), title: k === cur && !run ? 'مرحله‌ای که منتظر شماست' : '',
+        onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); if (step === k) return;
+          step = k; history.pushState({}, '', BASE + stepUrl(pid, run, k)); tabs.forEach(e => e.classList.toggle('cur', e.dataset.k === k)); draw(); } }, t)
+    : el('div', { class: 'step off', title: 'هنوز به این مرحله نرسیده‌اید' }, t));
+  tabs.forEach((e, i) => e.dataset.k = STEPS[i][0]);
+  const runSel = el('select', { onchange: ev => go(stepUrl(pid, ev.target.value === 'current' ? null : ev.target.value, step)) },
     el('option', { value: 'current' }, 'نسخه‌ی کنونی'), P.runs.slice().reverse().map(r => el('option', { value: r.run, selected: r.run === run }, `${r.run} — ${r.created.replace('T', ' ').slice(0, 16)}`)));
-  const side = el('div'), main = el('div');
+  const status = el('div'), main = el('div');
   $app.replaceChildren(
-    el('div', { class: 'card' }, el('div', { class: 'toolbar' },
+    el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin:0' },
       el('h2', { style: 'margin:0' }, p.title), el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status),
       el('span', { class: 'muted small' }, 'سازنده: ' + p.owner), el('span', { class: 'grow' }), 'نسخه: ', runSel,
-      readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null)),
-    bar, el('div', { class: 'layout' }, main, side));
-  statusBox(side, p, pid);
-  const draw = async () => { try { await panels[viewStep.step](main, { pid, p, runId, can, readonly }); } catch (e) { main.replaceChildren(el('div', { class: 'card' }, e.status === 404 ? 'این مرحله هنوز آماده نیست.' : 'خطا: ' + e.message)); } };
-  window.panel = draw;
+      readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), status),
+    el('nav', { class: 'steps' }, tabs), main);
+  statusBox(status, p, pid);
+  const draw = async () => {
+    main.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
+    try { await panels[step](main, { pid, p, runId, can, readonly }); }
+    catch (e) { main.replaceChildren(el('div', { class: 'card' }, e.status === 404 ? 'این مرحله هنوز آماده نیست.' : 'خطا: ' + e.message)); }
+  };
   await draw();
   if (P.job || p.status === 'running') {
     const poll = async () => {
       const q = await api('/project/' + pid).catch(() => null);
-      if (q && (q.project.step !== p.step || q.project.status !== p.status || q.project.current_run !== p.current_run || (!q.job && P.job))) { cache.clear(); viewStep = null; render(); return; }
-      if (q) { P = q; statusBox(side, q.project, pid); }
+      if (q && (q.project.step !== p.step || q.project.status !== p.status || q.project.current_run !== p.current_run || (!q.job && P.job))) { cache.clear(); render(); return; }
+      if (q) { P = q; statusBox(status, q.project, pid); }
       timer = setTimeout(poll, 3000);
     };
     timer = setTimeout(poll, 3000);
   }
 }
-function statusBox(side, p, pid) {
+/* the project's state, under its title: progress while a job runs, errors, and (folded) decisions and log */
+function statusBox(box, p, pid) {
   const j = P.job, pr = j && j.progress;
-  const flags = (P.last_job && P.last_job.error) ? [P.last_job.error] : [];
-  side.replaceChildren(
-    el('div', { class: 'card' }, el('b', {}, 'وضعیت'),
-      j ? el('div', {}, el('div', { class: 'small' }, (j.status === 'queued' ? 'در صف… ' : '') + (pr ? `${pr.stage}: ${pr.msg || ''}` : '')),
-        el('div', { class: 'bar' }, el('i', { style: `width:${Math.round(100 * (pr ? pr.frac : 0))}%` }))) : el('div', { class: 'small muted' }, STATUS[p.status] || p.status),
-      flags.map(f => el('div', { class: 'small', style: 'color:var(--bad)' }, f)),
-      p.error ? el('div', { class: 'small', style: 'color:var(--bad)' }, p.error) : null,
-      p.status === 'failed' && ME.user && (ME.user === p.owner || ME.admin) ? el('button', { onclick: async () => { await post(`/project/${pid}/rerun`, {}); cache.clear(); viewStep = null; render(); } }, 'اجرای دوباره') : null),
-    el('div', { class: 'card' }, el('b', {}, 'تصمیم‌ها و نسخه‌ها'),
-      ...Object.entries(P.decisions).map(([s, list]) => el('div', { class: 'small' }, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره' }[s] + ': ', list.length ? list.map(d => `v${fa(d.version)} (${d.user})`).join('، ') : '—')),
-      el('div', { class: 'small muted' }, `${fa(P.runs.length)} اجرا — هیچ نسخه‌ای پاک نمی‌شود.`)),
-    el('div', { class: 'card' }, el('b', {}, 'گزارش'), el('div', { class: 'log' }, P.log.slice().reverse().map(l => el('div', {}, `${l.ts.slice(11, 19)} ${l.stage}: ${l.msg}`)))));
+  const err = (P.last_job && P.last_job.error) || p.error;
+  box.replaceChildren(...[
+    j ? el('div', { class: 'toolbar' }, el('span', { class: 'small' }, (j.status === 'queued' ? 'در صف… ' : '') + (pr ? `${pr.stage}: ${pr.msg || ''}` : '')),
+      el('div', { class: 'bar grow' }, el('i', { style: `width:${Math.round(100 * (pr ? pr.frac : 0))}%` }))) : null,
+    err ? el('div', { class: 'small', style: 'color:var(--bad)' }, err) : null,
+    p.status === 'failed' && ME.user && (ME.user === p.owner || ME.admin) ? el('button', { onclick: async () => { await post(`/project/${pid}/rerun`, {}); reload(pid); } }, 'اجرای دوباره') : null,
+    el('details', { class: 'small' }, el('summary', { class: 'muted' }, `تصمیم‌ها و گزارش اجرا (${fa(P.runs.length)} اجرا، هیچ نسخه‌ای پاک نمی‌شود)`),
+      ...Object.entries(P.decisions).map(([s, list]) => el('div', {}, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره' }[s] + ': ', list.length ? list.map(d => `v${fa(d.version)} (${d.user})`).join('، ') : '—')),
+      el('div', { class: 'log' }, P.log.slice().reverse().map(l => el('div', {}, `${l.ts.slice(11, 19)} ${l.stage}: ${l.msg}`))))].filter(Boolean));
 }
 
 const panels = {
-  async seed(main, c) { const S = await stage(c.pid, c.runId, 'search'); main.replaceChildren(card('حدیث مبدأ', hadithBlock(S.seed))); },
+  async seed(main, c) {
+    const S = await stage(c.pid, c.runId, 'search');
+    main.replaceChildren(card('حدیث مبدأ', hadithBlock(S.seed, true), partsHelp(),
+      el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)'].map(t => el('th', {}, t))),
+        S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text))))));
+  },
 
   /* ----- 2: search and selection ----- */
   async selection(main, c) {
@@ -213,28 +229,76 @@ const panels = {
     const clausesSel = new Set(sdec.part_query || S.clauses.map(x => x.i));
     const extra = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث برای افزودن (مثلاً v02:800316143)', dir: 'ltr' });
     const list = el('div'), count = el('span', { class: 'muted' });
-    const draw = () => {
-      const rows = S.candidates.filter(x => show.has(x.suggested) && (!filter || (x.title || '').includes(filter) || x.matn.includes(filter)));
-      count.textContent = `${fa(sel.size)} انتخاب‌شده از ${fa(S.candidates.length)} پیشنهاد`;
-      list.replaceChildren(el('div', { class: 'grid-wrap', style: 'max-height:640px' }, el('table', {},
-        el('tr', {}, ...['', 'دسته', 'کتاب', 'شباهت', 'بخش‌ها', 'متن'].map(t => el('th', {}, t))),
-        rows.map(x => candRow(x, S, sel, c.can, () => count.textContent = `${fa(sel.size)} انتخاب‌شده از ${fa(S.candidates.length)} پیشنهاد`)))));
+    const byClass = {}; S.candidates.forEach(x => byClass[x.suggested] = (byClass[x.suggested] || 0) + 1);
+    const shown = () => S.candidates.filter(x => show.has(x.suggested) && (!filter || (x.title || '').includes(filter) || x.matn.includes(filter)));
+
+    /* per part: in how many of the selected witnesses it is found, and by which queries */
+    const covCells = S.clauses.map(() => el('td', { style: 'min-width:170px' }));
+    const coverage = () => {
+      const chosen = S.candidates.filter(x => sel.has(x.wid));
+      S.clauses.forEach(cl => {
+        const n = { present: 0, partial: 0, changed: 0, absent: 0 };
+        chosen.forEach(x => { const q = x.parts[cl.i]; n[q ? q.state : 'absent']++; });
+        const tot = Math.max(chosen.length, 1);
+        covCells[cl.i].replaceChildren(el('div', { class: 'sbar', style: `--h:${hue(cl.i)}`, title: `کامل ${fa(n.present)} · بخشی ${fa(n.partial)} · دگرگون ${fa(n.changed)} · نیامده ${fa(n.absent)}` },
+          ...['present', 'partial', 'changed', 'absent'].map(k => n[k] ? el('i', { class: k, style: `width:${100 * n[k] / tot}%` }) : null)),
+          el('div', { class: 'small muted' }, `کامل در ${fa(n.present)}، بخشی در ${fa(n.partial + n.changed)}، نیامده در ${fa(n.absent)}`));
+      });
     };
-    const chips = Object.keys(CLS).map(k => el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => { ev.target.checked ? show.add(k) : show.delete(k); draw(); } }), ' ', el('span', { class: 'chip ' + k }, CLS[k]), ' '));
+    const upd = () => { count.textContent = `${fa(sel.size)} انتخاب‌شده از ${fa(S.candidates.length)} نامزد`; coverage(); };
+    const queriesOf = i => S.queries.filter(q => q.round === 1 && q.source === S.seed.wid && q.clause === i);
+    const draw = () => {
+      upd();
+      list.replaceChildren(el('div', { class: 'grid-wrap', style: 'max-height:75vh' }, el('table', { class: 'cands' },
+        el('tr', {}, ...['', 'دسته', 'کتاب و راه یافتن', 'شباهت', 'بخش‌ها', 'متن (رنگ = بخش حدیث مبدأ)'].map(t => el('th', {}, t))),
+        shown().map(x => candRow(x, S, sel, c.can, upd)))));
+    };
+    const chips = Object.keys(CLS).map(k => el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => { ev.target.checked ? show.add(k) : show.delete(k); draw(); } }), ' ', el('span', { class: 'chip ' + k }, `${CLS[k]} ${fa(byClass[k] || 0)}`), ' '));
+    const r1 = S.rounds[0] || {}, r2 = S.rounds[1];
+    const nSig = sig => S.candidates.filter(x => x.signals.includes(sig)).length;
     main.replaceChildren(
-      card('حدیث مبدأ', hadithBlock(S.seed)),
-      card('بخش‌های حدیث مبدأ', el('p', { class: 'muted small' }, 'جستجو بخش‌به‌بخش انجام می‌شود تا حدیثی که فقط بخشی از متن را دارد هم پیدا شود. می‌توانید جستجو را به بخش‌هایی محدود کنید.'),
-        S.clauses.map(cl => el('label', { style: 'display:block' }, el('input', { type: 'checkbox', checked: clausesSel.has(cl.i), disabled: !c.can, onchange: ev => { ev.target.checked ? clausesSel.add(cl.i) : clausesSel.delete(cl.i); } }), ' ', el('span', { class: 'ar' }, cl.text))),
+      card('حدیث مبدأ و بخش‌هایش', hadithBlock(S.seed, true), partsHelp(),
+        el('table', {}, el('tr', {}, el('th', {}, 'بخش'), el('th', { title: 'بخش‌های تیک‌خورده در دور نخست جستجو پرسیده می‌شوند' }, 'در جستجو'), el('th', {}, 'متن بخش'), el('th', {}, 'در شاهدهای انتخاب‌شده'), el('th', {}, 'پرسش‌های جستجو')),
+          S.clauses.map(cl => { const qs = queriesOf(cl.i);
+            return el('tr', {}, el('td', {}, swatch(cl.i)),
+              el('td', {}, el('input', { type: 'checkbox', checked: clausesSel.has(cl.i), disabled: !c.can, title: 'این بخش در جستجو پرسیده شود', onchange: ev => { ev.target.checked ? clausesSel.add(cl.i) : clausesSel.delete(cl.i); } })),
+              el('td', { class: 'ar' }, clauseRaw(S, cl.i)), covCells[cl.i],
+              el('td', {}, qs.length ? el('details', {}, el('summary', { class: 'small' }, `${fa(qs.length)} پرسش، ${fa(qs.reduce((t, q) => t + q.hits, 0))} یافته`),
+                qs.map(q => el('div', { class: 'small', dir: 'ltr', style: 'text-align:left' }, `${q.corpus} · ${q.expr} → ${q.hits}${q.capped ? ' (capped)' : ''}`)))
+                : el('span', { class: 'small muted' }, clausesSel.has(cl.i) ? 'بی‌واژه‌ی کمیاب' : 'پرسیده نشد')));
+          })),
+        el('details', { class: 'help' }, el('summary', {}, 'تیک «در جستجو» برای چیست؟'),
+          el('p', {}, 'فقط برای یافتن نامزدها. هر بخش تیک‌خورده جداگانه در پیکره پرسیده می‌شود. اگر بخشی بسیار رایج باشد (مثل «قال رسول الله») و نامزدهای بی‌ربط بیاورد، تیکش را بردارید، یا اگر فقط حدیث‌هایی را می‌خواهید که بخش خاصی را دارند، فقط آن را نگه دارید؛ سپس «جستجوی دوباره» را بزنید.'),
+          el('p', {}, 'این تیک روی مرحله‌ی بعد اثری ندارد: مقایسه‌ی هر نامزد با حدیث مبدأ و هم‌ترازی همیشه با همه‌ی بخش‌ها انجام می‌شود. آنچه به مرحله‌ی بعد می‌رود، شاهدهایی است که پایین‌تر تیک می‌زنید.')),
         c.can ? el('div', { class: 'toolbar' }, extra, el('button', { onclick: async () => {
           const all = clausesSel.size === S.clauses.length;
           await post(`/project/${c.pid}/decide/search`, { payload: { part_query: all ? null : [...clausesSel], extra_ids: [...(sdec.extra_ids || []), ...(extra.value.trim() ? [extra.value.trim()] : [])] } });
-          cache.clear(); viewStep = null; render();
-        } }, 'جستجوی دوباره')) : null,
+          reload(c.pid);
+        } }, 'جستجوی دوباره با بخش‌های تیک‌خورده')) : null,
         S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
-      card('شاهدهای پیشنهادی', el('div', { class: 'toolbar' }, ...chips, el('input', { type: 'text', placeholder: 'پالایش با نام کتاب یا کلمه', oninput: ev => { filter = ev.target.value; draw(); } }), count),
+      card('نامزدها: حدیث‌هایی که بخشی از حدیث مبدأ را دارند',
+        el('p', { class: 'muted small' }, 'هر نامزد بخش‌به‌بخش با حدیث مبدأ سنجیده شد (بی‌توجه به ترتیب بخش‌ها) و سامانه دسته‌ای پیشنهاد کرد. شاهدهایی که تیک می‌زنید ورودی مرحله‌های بعدند: هم‌ترازی متن‌ها، خواندن سندها و ساخت شجره. چهار دسته‌ی نخست از پیش تیک خورده‌اند؛ تصمیم با شماست.'),
+        el('details', { class: 'help' }, el('summary', {}, 'جستجو چگونه انجام شد و دسته‌ها و ستون‌ها چه معنایی دارند؟'),
+          el('ol', {},
+            el('li', {}, `دور نخست: برای هر بخش، دو واژه‌ی کمیاب آن با هم و یکی دو عبارت سه‌واژه‌ای کمیاب در دو پیکره (v02 و گراف دانش اهل سنت) پرسیده شد (${fa(S.queries.filter(q => q.round === 1).length)} پرسش)، به‌علاوه‌ی گروه‌بندی‌های موجود: گروه/خوشه/مرتبط‌های نور (${fa(nSig('rel:noor_group') + nSig('rel:noor_cluster') + nSig('rel:noor_related'))} نامزد)، مجموعه‌های هم‌خوانی v02 (${fa(nSig('rel:consensus'))}) و گروه‌های گراف دانش (${fa(nSig('rel:kg_group'))}). ${fa(r1.n_candidates || 0)} نامزد پیدا شد.`),
+            r2 ? el('li', {}, `دور دوم: از متن ${fa(Math.min(S.params.expand_max, S.candidates.filter(x => pre.has(x.suggested)).length))} شاهدِ با عبارت‌بندی متفاوت دوباره جستجو شد تا روایت‌هایی که با حدیث مبدأ واژه‌ی مشترک کمتری دارند هم پیدا شوند (${fa(r2.n_candidates)} نامزد خام، ${fa(r2.n_scored)} ماند).`) : null,
+            el('li', {}, `پالایش: نامزدی که کمتر از ${fa(Math.round(S.params.prefilter * 100))}٪ از رشته‌حرف‌های حدیث مبدأ را داشت و هیچ بخشی را هم کامل نداشت، کنار رفت (${fa(S.rounds.reduce((t, r) => t + r.n_dropped, 0))} نامزد). متن‌های کاملاً یکسان یک ردیف شدند.`)),
+          el('table', { class: 'small' },
+            el('tr', {}, el('td', {}, el('span', { class: 'chip witness' }, CLS.witness)), el('td', {}, 'بیشتر حدیث مبدأ (≥۶۰٪) و بیشتر این متن (≥۶۰٪) بر هم منطبق‌اند و واژه‌های جایگزین کم‌اند (≤۲۰٪).')),
+            el('tr', {}, el('td', {}, el('span', { class: 'chip variant' }, CLS.variant)), el('td', {}, 'دست‌کم نیمی از حدیث مبدأ و دو بخش کامل، با افزوده‌ها، افتادگی‌ها یا واژه‌های دیگر (جایگزین ≤۳۰٪).')),
+            el('tr', {}, el('td', {}, el('span', { class: 'chip extended' }, CLS.extended)), el('td', {}, 'حدیث مبدأ (≥۷۵٪) درون متنی بلندتر آمده است.')),
+            el('tr', {}, el('td', {}, el('span', { class: 'chip abridged' }, CLS.abridged)), el('td', {}, 'این متن (≥۷۵٪) بخشی از حدیث مبدأ است، ولی کمتر از ۶۰٪ آن را دارد.')),
+            el('tr', {}, el('td', {}, el('span', { class: 'chip partial' }, CLS.partial)), el('td', {}, 'دست‌کم یک بخش کامل مشترک است؛ بیشتر متن چیز دیگری است.')),
+            el('tr', {}, el('td', {}, el('span', { class: 'chip different' }, CLS.different)), el('td', {}, 'شباهت قابل‌استفاده‌ای نیست (پیش‌فرض پنهان است).'))),
+          el('p', {}, el('b', {}, 'شباهت: '), '«از حدیث مبدأ» = چند درصد واژه‌های حدیث مبدأ در این متن پیدا شد؛ «از این متن» = چند درصد این متن با حدیث مبدأ منطبق شد. اولی پایین یعنی بخش‌هایی نیامده؛ دومی پایین یعنی این متن افزوده دارد.'),
+          el('p', {}, el('b', {}, 'بخش‌ها: '), 'یک خانه برای هر بخش حدیث مبدأ به رنگ همان بخش: ', strip([{ clause: 0, state: 'present', cov: 1 }], S), ' کامل (≥۸۰٪ واژه‌ها)، ', strip([{ clause: 0, state: 'partial', cov: .5 }], S), ' بخشی (۴۰–۸۰٪)، ', strip([{ clause: 0, state: 'changed', cov: 0 }], S), ' دگرگون (واژه‌های جایگزین)، ', strip([{ clause: 0, state: 'absent', cov: 0 }], S), ' نیامده.'),
+          el('p', {}, el('b', {}, 'متن: '), 'جای هر بخش در متن نامزد به رنگ همان بخش است؛ متن بی‌رنگ در حدیث مبدأ نیست (افزوده‌ی این روایت).')),
+        el('div', { class: 'toolbar' }, ...chips, el('input', { type: 'text', placeholder: 'پالایش با نام کتاب یا کلمه', oninput: ev => { filter = ev.target.value; draw(); } }), count,
+          c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.add(x.wid)); draw(); } }, 'تیک همه‌ی نمایش‌داده‌ها') : null,
+          c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک نمایش‌داده‌ها') : null),
         list,
         el('div', { class: 'toolbar' }, c.can ? el('button', { class: 'primary', disabled: !sel.size, onclick: async () => {
-          await post(`/project/${c.pid}/decide/selection`, { payload: { selected: [...sel] } }); cache.clear(); viewStep = null; render();
+          await post(`/project/${c.pid}/decide/selection`, { payload: { selected: [...sel] } }); reload(c.pid);
         } }, 'تأیید انتخاب و ادامه') : el('span', { class: 'muted' }, ME.user ? 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.' : 'برای تصمیم‌گیری وارد شوید.'),
           el('span', { class: 'small muted' }, `اجرای جستجو ${fa(S.seconds)} ثانیه؛ دورهای گسترش: ${fa(S.rounds.length)}`))));
     draw();
@@ -288,7 +352,7 @@ const panels = {
             const und = undecided();
             if (und && !confirm(`${und} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`)) return;
             cards.forEach(cd => { if (!(cd.key in choices)) choices[cd.key] = cd.default || 'none'; });
-            await post(`/project/${c.pid}/decide/identities`, { payload: { choices } }); cache.clear(); viewStep = null; render();
+            await post(`/project/${c.pid}/decide/identities`, { payload: { choices } }); reload(c.pid);
           } }, 'تأیید راویان و ساخت شجره') : null),
         I.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
       list);
@@ -303,7 +367,7 @@ const panels = {
     const preset = el('select', {}, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
     const computeSel = el('select', {}, ...[['browser', 'در مرورگر من (سریع، موازی)'], ['helper', 'رایانه‌ی کمکی مدیر'], ['server', 'روی سرور (کند، نزدیک یک ساعت)']].map(([v, t]) => el('option', { value: v, selected: (dec.compute || 'browser') === v }, t)));
     const undated = Object.entries(G.nodes).filter(([n, i]) => !i.date_source || i.date_source === 'interpolated').slice(0, 60);
-    main.replaceChildren(
+    main.replaceChildren(...[
       card('شجره‌ی انتقال ثبت‌شده', el('p', { class: 'muted small' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند، ${fa(G.stats.name_only)} فقط نام‌اند. محور افقی زمان است (راست = قدیم‌تر).`),
         graphSvg(G)),
       G.flags.length ? card('هشدارها', el('ul', { class: 'flags' }, G.flags.slice(0, 60).map(f => el('li', {}, flagText(f))))) : null,
@@ -312,9 +376,9 @@ const panels = {
           el('input', { type: 'number', placeholder: 'تا', style: 'width:90px', value: (dates[n] || [])[1] ?? '', oninput: ev => setDate(dates, n, 1, ev.target.value) })))) : null,
       card('تأیید', c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset, ' محاسبه: ', computeSel,
         el('button', { class: 'primary', onclick: async () => {
-          await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: cleanDates(dates), preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); cache.clear(); viewStep = null; render();
+          await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: cleanDates(dates), preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); reload(c.pid);
         } }, 'تأیید شجره و اجرای تحلیل')) : el('span', { class: 'muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تأیید کند.'),
-        P.project.step === 'done' ? el('p', { class: 'small muted' }, 'تحلیل این شجره انجام شده است.') : null));
+        P.project.step === 'done' ? el('p', { class: 'small muted' }, 'تحلیل این شجره انجام شده است.') : null)].filter(Boolean));
   },
 
   /* ----- 6: analysis ----- */
@@ -339,7 +403,7 @@ async function awaitingPanel(main, c) {
   let running = false;
   const start = async () => {
     if (running) return; running = true; btn.disabled = true;
-    try { await computeInBrowser(c.pid, ui); ui('انجام شد؛ در حال ثبت…', 1); setTimeout(() => { cache.clear(); viewStep = null; render(); }, 2500); }
+    try { await computeInBrowser(c.pid, ui); ui('انجام شد؛ در حال ثبت…', 1); setTimeout(() => { reload(c.pid); }, 2500); }
     catch (e) { running = false; btn.disabled = false; msg.textContent = 'خطا: ' + e.message; }
   };
   const btn = el('button', { class: 'primary', disabled: !c.can, onclick: start }, 'شروع محاسبه در مرورگر من');
@@ -348,28 +412,57 @@ async function awaitingPanel(main, c) {
     el('div', { class: 'toolbar' }, btn, c.can ? el('button', { onclick: async () => {
       if (!confirm('محاسبه روی سرور نزدیک یک ساعت طول می‌کشد. ادامه؟')) return;
       const d = await api(`/project/${c.pid}/decision/phylogeny`);
-      await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: d.dates || {}, preset: d.preset || null, compute: 'server' } }); cache.clear(); viewStep = null; render();
+      await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: d.dates || {}, preset: d.preset || null, compute: 'server' } }); reload(c.pid);
     } }, 'اجرا روی سرور (کند)') : null), bar, msg));
   if (c.can && sessionStorage.getItem('icm_auto') === c.pid) { sessionStorage.removeItem('icm_auto'); start(); }
 }
 
 /* ---------- pieces ---------- */
 function card(title, ...kids) { return el('div', { class: 'card' }, el('h2', {}, title), ...kids); }
-function hadithBlock(h) {
+function hadithBlock(h, colored) {
   return el('div', {}, el('div', { class: 'small muted' }, [h.title, h.author, h.death ? 'ف ' + fa(h.death) : '', h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', h.wid].filter(Boolean).join(' · ')),
-    h.sanad ? el('div', { class: 'ar small matn' }, h.sanad) : null, el('div', { class: 'ar' }, h.matn));
+    h.sanad ? el('div', { class: 'ar small matn' }, h.sanad) : null, colored && h.marks ? marked(h.matn, h.marks, 'ar seedtext') : el('div', { class: 'ar' }, h.matn));
+}
+/* clause colours: one hue per part of the seed, the same everywhere (seed, strips, candidate texts) */
+const HUES = [210, 28, 140, 330, 48, 268, 178, 0, 95, 300, 235, 15];
+const hue = i => HUES[i % HUES.length];
+const swatch = i => el('span', { class: 'sw', style: `--h:${hue(i)}`, title: 'بخش ' + fa(i + 1) }, fa(i + 1));
+function marked(text, marks, cls, S) {
+  const cp = Array.from(text), out = el('div', { class: cls });
+  let at = 0;
+  for (const [a, b, k] of marks) {
+    if (a < at) continue;
+    if (a > at) out.append(cp.slice(at, a).join(''));
+    out.append(el('span', { class: 'hl', style: `--h:${hue(k)}`, title: 'بخش ' + fa(k + 1) + (S ? ': ' + S.clauses[k].text : '') }, cp.slice(a, b).join('')));
+    at = b;
+  }
+  if (at < cp.length) out.append(cp.slice(at).join(''));
+  return out;
+}
+function clauseRaw(S, i) {   // the seed's own spelling of part i (falls back to the normalised text)
+  const m = (S.seed.marks || []).filter(x => x[2] === i), cp = Array.from(S.seed.matn);
+  return m.length ? m.map(([a, b]) => cp.slice(a, b).join('')).join(' … ') : S.clauses[i].text;
+}
+const STATE_FA = { present: 'کامل', partial: 'بخشی', changed: 'دگرگون', absent: 'نیامده' };
+const strip = (parts, S) => el('span', { class: 'strip' }, parts.map(p => el('i', { class: p.state, style: `--h:${hue(p.clause)}`, title: `بخش ${fa(p.clause + 1)}: ${S.clauses[p.clause].text} — ${STATE_FA[p.state]} ${pct(p.cov)}` })));
+function partsHelp() {
+  return el('details', { class: 'help' }, el('summary', {}, 'بخش‌ها چگونه ساخته شدند؟'),
+    el('p', {}, 'متن حدیث مبدأ خودکار و فقط با قاعده‌های نگارشی به بخش‌ها بریده شده است (بی‌آنکه معنا فهمیده شود): در نشانه‌های نگارشی (، ؛ . : ؟)، پیش از «و/ف» که اسمی با «ال» را آغاز می‌کند (آغاز هر بند در فهرست‌هایی مثل «و المکذب… و التارک…»)، بخش‌های بلندتر از ۱۲ واژه در نزدیک‌ترین حرف ربط (و، ف، ثم، الذی، من…) به میانه، و بخش یک‌واژه‌ای به همسایه‌اش چسبانده می‌شود. پیش از بریدن، اعراب حذف و املا یکسان می‌شود (ي→ی، ك→ک، ة→ه، أ/إ/آ→ا).'),
+    el('p', {}, 'چرا بخش‌به‌بخش؟ روایت‌های یک حدیث بندها را جابه‌جا، کوتاه یا بلند می‌کنند. هر بخش جداگانه جستجو و جداگانه مقایسه می‌شود، پس روایتی که فقط یک بند را دارد یا ترتیب دیگری دارد هم پیدا و درست سنجیده می‌شود. چون بریدن خودکار است، گاهی دو بند در یک بخش می‌مانند یا یک بند دو تکه می‌شود؛ این فقط دقت جستجو را کمی کم می‌کند.'));
 }
 function candRow(x, S, sel, can, upd) {
-  const exp = el('div', { class: 'ar matn', hidden: true }, x.matn);
-  return el('tr', {},
-    el('td', {}, el('input', { type: 'checkbox', checked: sel.has(x.wid), disabled: !can, onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); upd(); } })),
+  const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', user: 'افزوده‌ی کاربر' };
+  return el('tr', { class: sel.has(x.wid) ? 'on' : '' },
+    el('td', {}, el('input', { type: 'checkbox', checked: sel.has(x.wid), disabled: !can, onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); ev.target.closest('tr').classList.toggle('on', ev.target.checked); upd(); } })),
     el('td', {}, el('span', { class: 'chip ' + x.suggested }, CLS[x.suggested]), x.score.reordered ? el('div', { class: 'small muted' }, 'ترتیب بخش‌ها فرق دارد') : null),
-    el('td', {}, el('b', {}, x.title || x.book), el('div', { class: 'small muted' }, [x.author, x.tradition === 'sunni' ? 'سنی' : 'شیعه', x.page ? 'ص ' + fa(x.page) : ''].filter(Boolean).join(' · ')),
-      x.copies && x.copies.length ? el('div', { class: 'small muted' }, `+${fa(x.copies.length)} نسخه‌ی یکسان`) : null, el('div', { class: 'small muted', dir: 'ltr' }, x.wid)),
+    el('td', {}, el('b', {}, x.title || x.book), el('div', { class: 'small muted' }, [x.author, x.tradition === 'sunni' ? 'سنی' : 'شیعه', x.vol ? 'ج ' + fa(x.vol) : '', x.page ? 'ص ' + fa(x.page) : ''].filter(Boolean).join(' · ')),
+      x.copies && x.copies.length ? el('div', { class: 'small muted', title: x.copies.join(' ') }, `+${fa(x.copies.length)} نسخه‌ی یکسان`) : null, el('div', { class: 'small muted', dir: 'ltr' }, x.wid),
+      el('div', { class: 'small muted', title: x.signals.join(' ') }, 'یافته با: ', x.signals.map(g => SIG[g] || g).join('، '), x.round > 1 ? ` (دور ${fa(x.round)}، از متن ${x.via})` : '')),
     el('td', {}, el('div', { class: 'small' }, 'از حدیث مبدأ ', pct(x.score.cov_seed)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_seed}%` })),
       el('div', { class: 'small' }, 'از این متن ', pct(x.score.cov_cand)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_cand}%` }))),
-    el('td', {}, el('span', { class: 'strip' }, x.parts.map(p => el('i', { class: p.state, title: `${S.clauses[p.clause].text} — ${p.state} ${pct(p.cov)}` })))),
-    el('td', {}, el('a', { href: '#', onclick: ev => { ev.preventDefault(); exp.hidden = !exp.hidden; } }, 'متن'), exp));
+    el('td', {}, strip(x.parts, S)),
+    el('td', { class: 'txt' }, x.marks ? marked(x.matn, x.marks, 'ar matn', S) : el('div', { class: 'ar matn' }, x.matn),
+      x.matn_len > x.matn.length ? el('div', { class: 'small muted' }, `… (${fa(x.matn_len)} نویسه، ${fa(x.matn.length)} نخست نمایش داده شد)`) : null));
 }
 function cardBox(cd, val, can, set, chainOf) {
   const und = val === undefined;

@@ -514,6 +514,10 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    together with Noor's own groups/clusters, v02's consensus sets and the KG's meaning groups. Every candidate
    is scored order-free per clause (witnesses reorder clauses): `witness`, `variant`, `extended`, `abridged`,
    `partial`, `different`. The class is a suggestion; the user ticks the witnesses.
+   The page colours each clause of the seed and the same clause inside every candidate's text (`marks`: character
+   ranges added by `search.with_marks` when the API serves the stage; stage files are unchanged). The «در جستجو»
+   ticks beside the clauses only restrict which clauses are *queried* in round 1 (`part_query`, "search again");
+   scoring and alignment always use every clause.
 3. **Alignment**: per-clause multiple alignment of the selected witnesses and the variant units of the model
    (clause present/absent, words some witnesses omit, substituted words, number words), `icm/align.py`.
 4. **Narrators**: chains are read from Noor's parsed isnāds, the KG's chains or, for everything else, the
@@ -535,6 +539,9 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    confirmed graph (normalised posterior, same preset, seed and narrator count), but it is **not re-computed**
    by the server: it is trusted as far as the logged-in user (or the helper token) is. The viewer says where a
    result was computed. `python3 -m icm build model` regenerates the zip; a test fails when it is stale.
+
+Every step has its own address: `/icm/p/<pid>/<step>` (`seed`, `selection`, `alignment`, `identities`, `phylogeny`,
+`analysis`) and `/icm/p/<pid>/r/<run>/<step>` for an earlier run; `/icm/p/<pid>` opens the step that waits for the user.
 
 Every decision is a new, numbered file; nothing is overwritten or deleted. Stage outputs are stored by the hash
 of their inputs, so changing an identity recomputes only what depends on it, and every earlier run stays

@@ -67,6 +67,21 @@ def test_unrelated_text_is_different():
     assert cls == "different"
 
 
+
+def test_marks_point_at_the_raw_words():
+    from icm.text import marks, token_offsets
+    raw = "سِتَّةٌ لَعَنَهُمُ اَللَّهُ ، وَ اَلْمُكَذِّبُ بِقَدَرِ اَللَّهِ وَ اَلْمُسْتَأْثِرُ بِفَيْ‌ءِ"
+    assert len(token_offsets(raw)) == len(tokens(raw))
+    toks, spans = clauses(raw)
+    lab = [-1] * len(toks)
+    for k, (x, y) in enumerate(spans):
+        lab[x:y] = [k] * (y - x)
+    m = marks(raw, lab)
+    assert [c for _, _, c in m] == list(range(len(spans)))
+    assert raw[m[0][0]:m[0][1]] == "سِتَّةٌ لَعَنَهُمُ اَللَّهُ" and raw[m[-1][1] - 1] == "ءِ"[-1]
+    assert all(a < b for a, b, _ in m) and all(m[i][1] <= m[i + 1][0] for i in range(len(m) - 1))
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
