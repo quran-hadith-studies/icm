@@ -137,7 +137,7 @@ class GraphPrior:
         """{v: parent choices}; the choice UNKNOWN is expanded by ``expand``."""
         act = set(self.active_nodes(s)) | ({UNKNOWN} if UNKNOWN in self.space.nodes else set())
         out: Dict[str, List[str]] = {}
-        for v in act:
+        for v in sorted(act):           # a fixed order: the samplers draw in it (same numbers in every process)
             if v == s or v == UNKNOWN:
                 continue
             ps = [u for u in self.space.parents.get(v, []) if u in act and u != v]
