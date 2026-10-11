@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, jobs, narrator_info, project, viewer
+from . import config, corpus, identity, jobs, narrator_info, project, viewer
 from . import search as search_mod
 from .text import norm
 
@@ -221,6 +221,17 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.get("/api/narrator/{nid}")
     def narrator(nid: str):
         return narrator_info.card(nid)
+
+    @r.get("/api/narrators")
+    def narrators(q: str, death: Optional[int] = None):
+        """Narrators of both databases whose name matches ``q`` (the step-4 search)."""
+        q = (q or "").strip()[:80]
+        if len(norm(q)) < 2:
+            return []
+        out = [dict(c, db="noor") for c in identity.noor_candidates(q, k=15)]
+        out += [dict(c, db="kg") for c in identity.kg_candidates(q, death, k=15)]
+        out.sort(key=lambda d: -d["score"])
+        return out[:25]
 
     # -- write -----------------------------------------------------------------------------------
     @r.post("/api/project")

@@ -455,6 +455,8 @@ const panels = {
   },
 
   /* ----- 4: identities ----- */
+  /* three parts: (1) the hadiths and their state, (2) the chain of the chosen hadith, (3) the chosen name: its places,
+     then its options and a search of both narrator databases */
   async identities(main, c) {
     const [I, A, S, dec] = await Promise.all([stage(c.pid, c.runId, 'identify'), stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search'),
       api(`/project/${c.pid}/decision/identities`)]);
@@ -467,12 +469,16 @@ const panels = {
     const chainOf = Object.fromEntries(I.chains.map(ch => [ch.aid, ch]));
     const wtitle = wid => { const w = W.find(x => x.wid === wid); return `${wid in num ? fa(num[wid]) + '. ' : ''}${(w && w.title) || wid}`; };
     const hadith = wid => wid === S.seed.wid ? S.seed : S.candidates.find(x => x.wid === wid || (x.copies || []).includes(wid));
-    /* the cards in the order they first appear in the hadiths, then along the chain */
     const seq = []; order.forEach(wid => byWid[wid].forEach(ch => ch.elems.forEach(e => { if (e.card && !seq.includes(e.card)) seq.push(e.card); })));
     const relOnly = cd => cd.kind === 'relative';         // «عن أبيه» means a different person in every chain: decided per place
-    let view = pref('icm.idview', 'hadith'), onlyUnd = false, q = '', pick = null;
+    const splitOcc = occ => { const k = occ.lastIndexOf('|'); const ch = chainOf[occ.slice(0, k)]; return [ch, ch.elems[+occ.slice(k + 1)]]; };
+    const extraLabel = {};                                // labels of people chosen from a search
+    const qs = new URLSearchParams(location.search);
+    let cur = byWid[qs.get('h')] ? qs.get('h') : null, pick = null;
+    if (cur && qs.get('n')) { try { const [ch, e] = splitOcc(qs.get('n')); if (ch.wid === cur && e.card) pick = { key: e.card, occ: qs.get('n') }; } catch (_) {} }
+    let listView = pref('icm.idlist', 'hadith'), onlyUnd = false, q = '', scopeHere = false, sq = '', sres = null, sbusy = false;
 
-    /* what a place in a chain resolves to: {st, id}; st = exact | anon | user | auto | und (and id 'none' = name only) */
+    /* what a place in a chain resolves to: {st, id}; st = exact | anon | user | auto | und (id 'none' = name only) */
     const stateOf = (ch, e) => {
       const occ = `${ch.aid}|${e.i}`;
       if (e.exact) return { st: 'exact', id: e.exact };
@@ -484,150 +490,197 @@ const panels = {
       if (cd && cd.default && !relOnly(cd)) return { st: 'auto', id: cd.default };
       return { st: 'und' };
     };
-    const labelOf = (id, e, cd) => { const k = [...(e ? e.cands : []), ...(cd ? cd.candidates : [])].find(x => x.id === id); return k ? k.label : id; };
+    const stOf = s => s.id === 'none' ? 'none' : s.st;
+    const labelOf = (id, e, cd) => { const k = [...(e ? e.cands : []), ...(cd ? cd.candidates : [])].find(x => x.id === id); return k ? k.label : extraLabel[id] || id; };
+    const isGap = e => e.exact && /^موضع (تعليق|إرسال|ارسال)/.test(e.name);
     const cardState = cd => {
-      const sts = cd.occurrences.map(([aid, i]) => stateOf(chainOf[aid], chainOf[aid].elems[i]).st);
+      const sts = cd.occurrences.map(o => stateOf(...splitOcc(o.join('|'))).st);
       return sts.includes('und') ? 'und' : sts.includes('user') ? 'user' : 'auto';
     };
     const counts = () => { const n = { auto: 0, user: 0, und: 0 }; Object.values(cards).forEach(cd => n[cardState(cd)]++); return n; };
     const dirty = () => JSON.stringify([choices, overrides]) !== JSON.stringify([saved.choices, saved.overrides]);
+    /* the state of a hadith: the states of all the names in its chains */
+    const hstate = wid => {
+      const sts = byWid[wid].flatMap(ch => ch.elems.filter(e => !isGap(e)).map(e => stOf(stateOf(ch, e))));
+      const n = k => sts.filter(s => s === k).length;
+      const [st, txt] = n('und') ? ['und', `${fa(n('und'))} بی‌تصمیم`] : sts.every(s => s === 'exact') ? ['exact', 'همه قطعی']
+        : n('none') + n('anon') ? ['none', 'همه تصمیم‌گرفته'] : ['auto', 'همه شناخته'];
+      return { sts, st, txt, tip: ['exact', 'auto', 'user', 'und', 'none', 'anon'].filter(k => n(k)).map(k => `${fa(n(k))} ${ST[k]}`).join('، ') };
+    };
 
     const ST = { exact: 'قطعی (از منبع)', auto: 'خودکار', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم' };
-    const isGap = e => e.exact && /^موضع (تعليق|إرسال|ارسال)/.test(e.name);
     const chip = (ch, e) => {
       if (isGap(e)) return el('span', { class: 'gapm', title: 'جایی که منبع راوی‌ای را نیاورده است' }, '‹' + e.name.replace('موضع ', '') + '›');
-      const s = stateOf(ch, e), cd = cards[e.card], st = s.id === 'none' ? 'none' : s.st;
+      const s = stateOf(ch, e), cd = cards[e.card], st = stOf(s), occ = `${ch.aid}|${e.i}`;
       const n = cd && !relOnly(cd) ? cd.occurrences.length : 1;
       const sub = st === 'exact' ? '✓' : st === 'und' ? 'بی‌تصمیم' : st === 'none' ? 'فقط نام' : st === 'anon' ? 'نامعلوم' : labelOf(s.id, e, cd);
-      const b = el('button', { class: `nc ${st}` + (pick && e.card && pick.key === e.card ? (pick.occ === `${ch.aid}|${e.i}` ? ' pk pk2' : ' pk') : ''),
+      return el('button', { class: `nc ${st}` + (pick && e.card && pick.key === e.card ? (pick.occ === occ ? ' pk pk2' : ' pk') : ''),
         title: `${ST[st]}${s.here ? ' — فقط همین جا' : ''}${s.id && s.id !== 'none' ? ' — ' + s.id : ''}`,
-        onclick: () => { if (e.card) setPick(e.card, `${ch.aid}|${e.i}`); else if (s.id) narratorCard(s.id); } },
+        onclick: () => { if (e.card) setPick(e.card, occ); else if (s.id) narratorCard(s.id); } },
         el('span', { class: 'n ar', title: e.raw || e.name }, st === 'exact' ? short(e.raw || e.name, 34) : e.raw || e.name, n > 1 ? el('sup', {}, ' ×' + fa(n)) : null),
         el('span', { class: 'id' + (st === 'exact' ? '' : ' ar') }, s.here ? '◆ ' : '', sub));
-      return b;
     };
-    const speaker = sp => sp ? el('span', { class: 'nc spk' }, el('span', { class: 'n ar' }, sp.kind === 'prophet' ? 'پیامبر (ص)' : (sp.raw || 'امام')), el('span', { class: 'id' }, 'گوینده')) : null;
     const SRC = { noor_slots: 'سند از پیوندهای نور', kg: 'سند از گراف دانش', text: 'سند خوانده‌شده از متن' };
-    const editorAt = {};                                  // aid -> the element after which the editor sits
-    const hadithBox = wid => {
-      const h = hadith(wid), w = W.find(x => x.wid === wid) || h || {};
-      const chs = byWid[wid];
-      return el('div', { class: 'hw' },
-        el('div', { class: 'hwh' }, el('button', { class: 'lnk', onclick: () => h && modal(hadithBlock(h, true)) }, el('span', { class: 'dot ' + (w.cls || '') }), el('b', {}, wtitle(wid))),
-          el('span', { class: 'small muted' }, [w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', SRC[chs[0].source]].filter(Boolean).join(' · ')),
-          chs.some(ch => ch.flags.length) ? el('span', { class: 'small', style: 'color:var(--warn)', title: chs.flatMap(ch => ch.flags).join(' ') }, '⚠ سند ناقص یا نامعمول') : null),
-        chs.flatMap((ch, k) => {
-          const row = el('div', { class: 'chain' }, chs.length > 1 ? el('span', { class: 'small muted' }, `سند ${fa(k + 1)}:`) : null,
-            ch.elems.flatMap((e, j) => [j ? el('span', { class: 'tm' }, e.term || '←') : null, chip(ch, e)]),
-            ch.speaker ? [el('span', { class: 'tm' }, ch.speaker.term || '←'), speaker(ch.speaker)] : null);
-          return pick && pick.occ.startsWith(ch.aid + '|') ? [row, editor()] : row;
-        }),
-        h && h.sanad ? el('details', { class: 'small' }, el('summary', { class: 'muted' }, 'متن سند'), el('div', { class: 'ar' }, h.sanad)) : null);
-    };
+    const strip2 = sts => el('span', { class: 'ststrip' }, sts.map(s => el('i', { class: s, title: ST[s] })));
 
-    /* the editor of one name, opened from one of its places */
+    /* navigation; the hadith and the name are kept in the address */
+    const keepUrl = () => { const u = new URLSearchParams(); if (cur) u.set('h', cur); if (pick) u.set('n', pick.occ); history.replaceState(history.state, '', location.pathname + (cur ? '?' + u : '')); };
+    const setCur = wid => { cur = wid; if (pick && splitOcc(pick.occ)[0].wid !== wid) pick = null; keepUrl(); draw(); part2.scrollIntoView({ block: 'start', behavior: 'smooth' }); };
+    const setPick = (key, occ) => {
+      if (!pick || pick.key !== key) { scopeHere = false; sq = cards[key].name; sres = null; }
+      pick = { key, occ }; cur = splitOcc(occ)[0].wid; keepUrl(); draw();
+      part3.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    };
     const setVal = (cd, occ, here, v) => {
       if (here) { if (v === undefined) delete overrides[occ]; else overrides[occ] = v; }
       else { if (v === undefined) delete choices[cd.key]; else choices[cd.key] = v; delete overrides[occ]; }
-      redraw();
+      draw();
     };
-    let scopeHere = false;
-    const editor = () => {
-      const cd = cards[pick.key], occ = pick.occ, [aid, i] = [occ.slice(0, occ.lastIndexOf('|')), +occ.slice(occ.lastIndexOf('|') + 1)];
-      const ch = chainOf[aid], e = ch.elems[i], s = stateOf(ch, e), n = cd.occurrences.length;
+
+    /* part 1: the hadiths (or the names) */
+    const listBox = el('div', { class: 'hlist' });
+    const drawList = () => {
+      const top = listBox.scrollTop;
+      if (listView === 'hadith') {
+        const rows = order.map(wid => [wid, hstate(wid)]).filter(([, h]) => !onlyUnd || h.st === 'und')
+          .filter(([wid]) => !q || byWid[wid].some(ch => ch.elems.some(e => (e.raw || e.name).includes(q))) || wtitle(wid).includes(q));
+        fill(listBox, rows.length ? el('table', { class: 'hl' }, el('tbody', {}, rows.map(([wid, h]) => {
+          const w = W.find(x => x.wid === wid) || hadith(wid) || {};
+          return el('tr', { class: wid === cur ? 'on' : '', onclick: () => setCur(wid) },
+            el('td', {}, el('span', { class: 'dot ' + (w.cls || '') }), el('b', {}, wtitle(wid))),
+            el('td', { class: 'small muted hide-sm' }, [w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه'].filter(Boolean).join(' · ')),
+            el('td', { title: h.tip }, strip2(h.sts)), el('td', {}, el('span', { class: 'chip ' + h.st }, h.txt)));
+        }))) : el('p', { class: 'muted' }, 'حدیثی نیست.'));
+      } else {
+        const ks = seq.filter(k => (!onlyUnd || cardState(cards[k]) === 'und') && (!q || cards[k].name.includes(q)));
+        fill(listBox, ks.length ? el('table', { class: 'hl' }, el('tbody', {}, ks.map(k => {
+          const cd = cards[k], st = cardState(cd), o = cd.occurrences[0].join('|');
+          return el('tr', { class: pick && pick.key === k ? 'on' : '', onclick: () => setPick(k, pick && pick.key === k ? pick.occ : o) },
+            el('td', {}, el('b', { class: 'ar' }, cd.name), cd.kind === 'collector' ? el('span', { class: 'small muted' }, ' (گردآورنده)') : null),
+            el('td', { class: 'small muted' }, `${fa(cd.occurrences.length)} جا · بهترین نامزد: ${TIER[cd.tier] || cd.tier}`),
+            el('td', { class: 'small muted hide-sm' }, 'نخست در ' + wtitle(chainOf[cd.occurrences[0][0]].wid)),
+            el('td', {}, el('span', { class: 'chip ' + st }, ST[st])));
+        }))) : el('p', { class: 'muted' }, 'نامی نیست.'));
+      }
+      listBox.scrollTop = top;
+      const hs = order.map(hstate), n = k => hs.filter(h => h.st === k).length;
+      listSum.textContent = `${fa(order.length)} حدیث: ${fa(n('exact'))} همه قطعی، ${fa(n('auto'))} همه شناخته، ${fa(n('none'))} همه تصمیم‌گرفته (برخی فقط نام)، ${fa(n('und'))} با نام بی‌تصمیم.`;
+      seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === listView));
+    };
+
+    /* part 2: the chain(s) of the chosen hadith */
+    const part2 = el('div', { class: 'card' });
+    const drawChain = () => {
+      if (!cur) { fill(part2, el('h2', {}, '۲. راویان حدیث'), el('p', { class: 'muted' }, 'از فهرست بالا یک حدیث را برگزینید.')); return; }
+      const h = hadith(cur), w = W.find(x => x.wid === cur) || h || {}, chs = byWid[cur], k = order.indexOf(cur), hs = hstate(cur);
+      fill(part2, 
+        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۲. راویان ', el('button', { class: 'lnk', style: 'font-size:inherit;font-weight:700', title: 'متن کامل', onclick: () => h && modal(hadithBlock(h, true)) }, wtitle(cur))),
+          el('span', { class: 'chip ' + hs.st, title: hs.tip }, hs.txt), el('span', { class: 'grow' }),
+          el('button', { class: 'small', disabled: k <= 0, onclick: () => setCur(order[k - 1]) }, '→ قبلی'), el('button', { class: 'small', disabled: k >= order.length - 1, onclick: () => setCur(order[k + 1]) }, 'بعدی ←')),
+        el('div', { class: 'small muted' }, [w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', SRC[chs[0].source], hs.tip].filter(Boolean).join(' · ')),
+        chs.some(ch => ch.flags.length) ? el('div', { class: 'small', style: 'color:var(--warn)', title: chs.flatMap(ch => ch.flags).join(' ') }, '⚠ سند ناقص یا نامعمول خوانده شد') : null,
+        chs.map((ch, j) => el('div', { class: 'chain' }, chs.length > 1 ? el('span', { class: 'small muted' }, `سند ${fa(j + 1)}:`) : null,
+          ch.elems.flatMap((e, i) => [i ? el('span', { class: 'tm' }, e.term || '←') : null, chip(ch, e)]),
+          ch.speaker ? [el('span', { class: 'tm' }, ch.speaker.term || '←'), el('span', { class: 'nc spk' }, el('span', { class: 'n ar' }, ch.speaker.kind === 'prophet' ? 'پیامبر (ص)' : (ch.speaker.raw || 'امام')), el('span', { class: 'id' }, 'گوینده'))] : null)),
+        el('p', { class: 'small muted' }, pick ? 'نام برگزیده زرد است؛ جاهای دیگرش و گزینه‌هایش در بخش ۳.' : 'یک نام را بزنید تا جاهای دیگرش و گزینه‌هایش را ببینید. نام‌های «قطعی» را منبع تعیین کرده است (با زدن، کارت راوی باز می‌شود).'),
+        h && h.sanad ? el('details', { class: 'small' }, el('summary', { class: 'muted' }, 'متن سند'), el('div', { class: 'ar' }, h.sanad)) : null);
+    };
+
+    /* part 3: the chosen name: all its places first, then the choice */
+    const part3 = el('div', { class: 'card edcard' });
+    const meta = k => [k.db === 'kg' || k.id.startsWith('kg:') ? 'گراف دانش' : 'نور', k.death ? 'ف ' + fa(k.death) : '', k.mazhab, k.grade || k.rank, k.tabaka ? 'طبقه ' + fa(k.tabaka) : ''].filter(Boolean).join(' · ');
+    const drawEd = () => {
+      if (!pick) { part3.hidden = true; return; }
+      part3.hidden = false;
+      const cd = cards[pick.key], occ = pick.occ, [ch, e] = splitOcc(occ), s = stateOf(ch, e), n = cd.occurrences.length;
       const here = relOnly(cd) || n === 1 ? true : scopeHere || !!s.here;
-      const val = here ? (occ in overrides ? overrides[occ] : undefined) : choices[cd.key];
-      const cur = s.id;
-      const ctx = ([a, k]) => { const x = chainOf[a].elems; return `${x[k - 1] ? x[k - 1].name + ' ← ' : ''}«${x[k].name}»${x[k + 1] ? ' ← ' + x[k + 1].name : ''}`; };
-      const meta = k => [k.id.startsWith('noor:') ? 'نور' : 'گراف دانش', k.death ? 'ف ' + fa(k.death) : '', k.mazhab, k.grade || k.rank, k.tabaka ? 'طبقه ' + fa(k.tabaka) : ''].filter(Boolean).join(' · ');
-      const radio = (id, kids) => el('label', { class: 'cand' + (cur === id ? ' sel' : '') },
-        el('input', { type: 'radio', name: 'ed', checked: cur === id, disabled: !c.can, onchange: () => setVal(cd, occ, here, id) }), ...kids);
-      const cands = [...cd.candidates]; e.cands.forEach(k => { if (!cands.some(x => x.id === k.id)) cands.push(k); });
-      return el('div', { class: 'edbox' },
-        el('div', { class: 'toolbar' }, el('b', { class: 'ar', style: 'font-size:16px' }, e.raw || e.name),
-          el('span', { class: 'chip ' + (s.id === 'none' ? 'none' : s.st) }, ST[s.id === 'none' ? 'none' : s.st] + (s.here ? ' — فقط همین جا' : '')),
-          el('span', { class: 'small muted' }, `بهترین نامزد: ${TIER[cd.tier] || cd.tier}`), el('span', { class: 'grow' }),
-          el('button', { class: 'small', onclick: () => { pick = null; redraw(); } }, 'بستن')),
-        n > 1 ? el('details', { class: 'small' }, el('summary', {}, `این نام در ${fa(n)} جا آمده است`),
-          cd.occurrences.map(o => el('div', {}, el('button', { class: 'lnk small' + (`${o[0]}|${o[1]}` === occ ? ' on' : ''), onclick: () => setPick(cd.key, `${o[0]}|${o[1]}`) }, wtitle(chainOf[o[0]].wid)), ': ', el('span', { class: 'ar' }, ctx(o)),
-            ` — ${ST[(x => x.id === 'none' ? 'none' : x.st)(stateOf(chainOf[o[0]], chainOf[o[0]].elems[o[1]]))]}`))) : null,
+      const val = here ? overrides[occ] : choices[cd.key], curId = s.id;
+      const radio = (id, kids) => el('label', { class: 'cand' + (curId === id ? ' sel' : '') },
+        el('input', { type: 'radio', name: 'ed', checked: curId === id, disabled: !c.can, onchange: () => setVal(cd, occ, here, id) }), ...kids);
+      const candLine = k => radio(k.id, [el('span', { class: 'ar', style: 'font-size:15px' }, k.label),
+        k.tier || k.derived ? el('span', { class: 'chip ' + (k.derived ? 'derived' : k.tier) }, TIER[k.derived ? 'derived' : k.tier]) : null,
+        el('span', { class: 'small muted' }, `هم‌خوانی نام ${pct(k.cov || 0)}${k.ctx != null ? ' · هم‌نشین ' + fa(k.ctx) : ''} · ${fa(k.n || 0)} روایت`), el('span', { class: 'small muted' }, meta(k)),
+        k.reason ? el('span', { class: 'small muted' }, k.reason) : null, cd.default === k.id && !relOnly(cd) ? el('span', { class: 'small', style: 'color:var(--good)' }, 'انتخاب خودکار') : null,
+        el('button', { class: 'small', onclick: ev => { ev.preventDefault(); narratorCard(k.id); } }, 'کارت راوی')]);
+      const cands = relOnly(cd) ? [...e.cands] : [...cd.candidates]; e.cands.forEach(k => { if (!cands.some(x => x.id === k.id)) cands.push(k); });
+      const snippet = o => { const [c2, e2] = splitOcc(o), x = c2.elems, i = e2.i;
+        return el('span', { class: 'chain mini' }, i > 1 ? el('span', { class: 'tm' }, '…') : null, x[i - 1] ? [chip(c2, x[i - 1]), el('span', { class: 'tm' }, e2.term || '←')] : null, chip(c2, e2),
+          x[i + 1] ? [el('span', { class: 'tm' }, x[i + 1].term || '←'), chip(c2, x[i + 1])] : null, i + 2 < x.length ? el('span', { class: 'tm' }, '…') : null); };
+      const go3 = (q3) => { sq = q3; sbusy = true; sres = null; drawEd();
+        api('/narrators?q=' + encodeURIComponent(q3)).then(r => { sres = r; }, err => { sres = { error: err.message }; }).finally(() => { sbusy = false; drawEd(); }); };
+      const sIn = el('input', { type: 'text', value: sq, placeholder: 'نام راوی', class: 'ar', oninput: ev => { sq = ev.target.value; }, onkeydown: ev => { if (ev.key === 'Enter') go3(sq.trim()); } });
+      fill(part3, 
+        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, e.raw || e.name)),
+          el('span', { class: 'chip ' + stOf(s) }, ST[stOf(s)] + (s.here ? ' — فقط همین جا' : '')),
+          el('span', { class: 'small muted' }, `در ${wtitle(ch.wid)} · بهترین نامزد: ${TIER[cd.tier] || cd.tier}`), el('span', { class: 'grow' }),
+          el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
+        el('h3', {}, n > 1 ? `این نام در ${fa(n)} جا آمده است` : 'این نام فقط همین جا آمده است'),
+        relOnly(cd) ? el('p', { class: 'small muted' }, '«پدرش / جدش» در هر سند کس دیگری است؛ این جاها فقط برای مقایسه آمده‌اند و انتخاب فقط برای همین جاست.') : null,
+        el('div', { class: 'occs' }, cd.occurrences.map(o => o.join('|')).map(o => { const [c2, e2] = splitOcc(o), s2 = stateOf(c2, e2);
+          return el('div', { class: 'occ' + (o === occ ? ' on' : '') },
+            el('button', { class: 'lnk small', onclick: () => setPick(cd.key, o) }, o === occ ? '● ' : '', wtitle(c2.wid), byWid[c2.wid].length > 1 ? ` (سند ${fa(byWid[c2.wid].indexOf(c2) + 1)})` : ''),
+            snippet(o), el('span', { class: 'small ' + stOf(s2) + 'c' }, ST[stOf(s2)], s2.id && s2.id !== 'none' && s2.st !== 'exact' ? ': ' + labelOf(s2.id, e2, cd) : '', s2.here ? ' ◆' : ''));
+        })),
+        el('h3', {}, 'گزینش شخص'),
         c.can && n > 1 && !relOnly(cd) ? el('div', { class: 'toolbar small' }, 'انتخاب برای: ',
-          el('label', {}, el('input', { type: 'radio', name: 'scope', checked: !here, onchange: () => { scopeHere = false; if (occ in overrides) { delete overrides[occ]; } redraw(); } }), ` همه‌ی ${fa(n)} جا`),
-          el('label', {}, el('input', { type: 'radio', name: 'scope', checked: here, onchange: () => { scopeHere = true; redraw(); } }), ' فقط همین جا (' + wtitle(ch.wid) + ')')) : null,
-        relOnly(cd) ? el('p', { class: 'small muted' }, '«پدرش / او» در هر سند کس دیگری است؛ انتخاب فقط برای همین جاست.') : null,
-        cands.length ? null : el('p', { class: 'small muted' }, 'برای این نام نامزدی در پایگاه‌ها پیدا نشد.'),
-        cands.map(k => radio(k.id, [el('span', { class: 'ar', style: 'font-size:15px' }, k.label), el('span', { class: 'chip ' + (k.derived ? 'derived' : k.tier || 'none') }, TIER[k.derived ? 'derived' : k.tier] || ''),
-          el('span', { class: 'small muted' }, `هم‌خوانی نام ${pct(k.cov || 0)} · هم‌نشین ${fa(k.ctx || 0)} · ${fa(k.n || 0)} روایت`), el('span', { class: 'small muted' }, meta(k)),
-          k.reason ? el('span', { class: 'small muted' }, k.reason) : null, cd.default === k.id ? el('span', { class: 'small', style: 'color:var(--good)' }, 'انتخاب خودکار') : null,
-          el('button', { class: 'small', onclick: ev => { ev.preventDefault(); narratorCard(k.id); } }, 'کارت راوی')])),
+          el('label', {}, el('input', { type: 'radio', name: 'scope', checked: !here, onchange: () => { scopeHere = false; delete overrides[occ]; draw(); } }), ` همه‌ی ${fa(n)} جا`),
+          el('label', {}, el('input', { type: 'radio', name: 'scope', checked: here, onchange: () => { scopeHere = true; draw(); } }), ' فقط همین جا (' + wtitle(ch.wid) + ')')) : null,
+        el('div', { class: 'small muted' }, 'نامزدهای پیشنهادی:'),
+        cands.length ? cands.map(candLine) : el('p', { class: 'small muted' }, 'برای این نام نامزدی در پایگاه‌ها پیدا نشد؛ جستجو کنید.'),
         radio('none', ['هیچ‌کدام (فقط نام)']),
+        el('div', { class: 'toolbar' }, el('span', { class: 'small muted' }, 'جستجو در راویان نور و گراف دانش:'), sIn,
+          el('button', { class: 'small', disabled: sbusy, onclick: () => go3(sq.trim()) }, sbusy ? 'در حال جستجو…' : 'جستجو')),
+        sres && sres.error ? el('p', { class: 'small', style: 'color:var(--bad)' }, 'خطا: ' + sres.error) : null,
+        Array.isArray(sres) ? (sres.length ? sres.filter(k => !cands.some(x => x.id === k.id)).map(k => { extraLabel[k.id] = k.label; return candLine(k); })
+          .concat(sres.some(k => cands.some(x => x.id === k.id)) ? [el('div', { class: 'small muted' }, 'نتیجه‌هایی که در نامزدهای بالا هست تکرار نشد.')] : [])
+          : el('p', { class: 'small muted' }, 'راوی‌ای با این نام پیدا نشد. بخشی از نام را بنویسید (مثلاً «زيد بن علي»).')) : null,
         c.can ? el('div', { class: 'toolbar' },
-          el('input', { type: 'text', placeholder: 'شناسه‌ی دیگر، مثلاً noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setVal(cd, occ, here, v); else if (v) alert('قالب شناسه نادرست است'); } }),
-          val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null) : null);
-    };
-    const setPick = (key, occ) => {
-      if (!pick || pick.key !== key) scopeHere = false;
-      pick = { key, occ }; if (view !== 'hadith') { view = 'hadith'; setPref('icm.idview', view); }
-      redraw();
-      const ed = body.querySelector('.edbox'); if (ed) ed.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setVal(cd, occ, here, v); else if (v) alert('قالب شناسه نادرست است'); } }),
+          val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default && !relOnly(cd) || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null) : null);
     };
 
-    /* the list of names, in the order they first appear */
-    const nameBox = key => {
-      const cd = cards[key], st = cardState(cd);
-      return el('div', { class: 'cardbox' + (st === 'und' ? ' und' : '') },
-        el('div', { class: 'toolbar' }, el('b', { class: 'ar' }, cd.name), el('span', { class: 'chip ' + st }, ST[st]),
-          el('span', { class: 'small muted' }, `بهترین نامزد: ${TIER[cd.tier] || cd.tier} · ${fa(cd.occurrences.length)} جا · ${cd.tradition === 'sunni' ? 'اهل سنت' : 'شیعه'}`),
-          cd.kind === 'collector' ? el('span', { class: 'chip partial' }, 'گردآورنده') : null),
-        el('div', { class: 'small' }, cd.occurrences.map(([aid, i]) => {
-          const ch = chainOf[aid], s = stateOf(ch, ch.elems[i]);
-          return el('button', { class: 'lnk small', onclick: () => setPick(key, `${aid}|${i}`) }, `${wtitle(ch.wid)}: `,
-            el('span', { class: 'ar' }, s.id === 'none' ? 'فقط نام' : s.id ? labelOf(s.id, ch.elems[i], cd) : 'بی‌تصمیم'), s.here ? ' ◆' : '');
-        }).flatMap((b, k) => k ? [' · ', b] : [b])));
-    };
-
-    const status = el('div', { class: 'small' }), body = el('div'), save = el('span');
-    const redraw = () => {
+    const status = el('div', { class: 'small' }), save = el('div', { class: 'toolbar' }), listSum = el('div', { class: 'small muted' });
+    const drawStatus = () => {
       const n = counts();
-      status.replaceChildren(`${fa(Object.keys(cards).length)} نام برای تصمیم: ${fa(n.auto)} خودکار، ${fa(n.user)} انتخاب کاربر، ${fa(n.und)} بی‌تصمیم. `,
+      fill(status, `${fa(Object.keys(cards).length)} نام برای تصمیم: ${fa(n.auto)} خودکار، ${fa(n.user)} انتخاب کاربر، ${fa(n.und)} بی‌تصمیم. `,
         el('span', { class: 'muted' }, `${fa(I.stats.exact)} از ${fa(I.stats.elements)} جای سند را خود منبع به راوی‌ای پیوند داده است (قطعی). `),
         dec.version ? el('span', { class: 'muted' }, `آخرین تصمیم ذخیره‌شده: نسخه‌ی ${fa(dec.version)}، ${dec.user}${dec.note === 'auto' ? ' (پذیرش خودکار)' : ''}.`) : null);
-      save.replaceChildren(...[c.can ? el('button', { class: 'primary', onclick: async () => {
+      fill(save, [c.can ? el('button', { class: 'primary', onclick: async () => {
         const nu = counts().und;
         if (nu && !confirm(`${fa(nu)} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`)) return;
         await post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides } }); reload(c.pid);
-      } }, 'تأیید راویان و ساخت شجره') : null, dirty() ? el('span', { class: 'small', style: 'color:var(--warn)' }, ' تغییرهای ذخیره‌نشده') : null].filter(Boolean));
-      viewSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
-      und.hidden = view !== 'names'; filt.hidden = view !== 'names';
-      if (view === 'hadith') body.replaceChildren(...order.map(hadithBox));
-      else {
-        const ks = seq.filter(k => (!onlyUnd || cardState(cards[k]) === 'und') && (!q || cards[k].name.includes(q)));
-        body.replaceChildren(...(ks.length ? ks.map(nameBox) : [el('p', { class: 'muted' }, 'نامی نیست.')]));
-      }
+      } }, 'تأیید راویان و ساخت شجره') : el('span', { class: 'muted small' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.'),
+        dirty() ? el('span', { class: 'small', style: 'color:var(--warn)' }, 'تغییرهای ذخیره‌نشده') : null]);
     };
-    const viewSeg = el('span', { class: 'seg' }, [['hadith', 'روی حدیث‌ها'], ['names', 'فهرست نام‌ها']].map(([v, t]) => {
-      const b = el('button', { class: 'small', onclick: () => { view = v; setPref('icm.idview', v); redraw(); } }, t); b.dataset.v = v; return b; }));
-    const und = el('label', { class: 'small' }, el('input', { type: 'checkbox', onchange: ev => { onlyUnd = ev.target.checked; redraw(); } }), ' فقط بی‌تصمیم‌ها');
-    const filt = el('input', { type: 'text', placeholder: 'پالایش نام', oninput: ev => { q = ev.target.value; redraw(); } });
-    const legend = el('span', { class: 'small' }, 'راهنما: ', ['exact', 'auto', 'user', 'und', 'none'].map(s => el('span', { class: 'nc demo ' + s }, ST[s])), el('span', { class: 'muted' }, ' ◆ = فقط همین جا'));
+    const draw = () => { drawStatus(); drawList(); drawChain(); drawEd(); };
+
+    const seg = el('span', { class: 'seg' }, [['hadith', 'حدیث‌ها'], ['names', 'نام‌ها']].map(([v, t]) => {
+      const b = el('button', { class: 'small', onclick: () => { listView = v; setPref('icm.idlist', v); drawList(); } }, t); b.dataset.v = v; return b; }));
+    const legend = el('div', { class: 'small' }, 'راهنما: ', ['exact', 'auto', 'user', 'und', 'none'].map(s => el('span', { class: 'nc demo ' + s }, ST[s])), el('span', { class: 'muted' }, ' ◆ = فقط همین جا'));
     const oldRun = (I.stage_version || 1) < 2;
     main.replaceChildren(
-      card('راویان هر حدیث',
-        el('p', { class: 'muted small' }, 'سند هر شاهد به ترتیب مرحله‌ی ۳، از گردآورنده (راست) تا گوینده (چپ). هر نام را بزنید تا گزینه‌هایش را ببینید و شخص درست را برگزینید؛ همان نام در سندهای دیگر هم پررنگ می‌شود. زیر هر نام شخصی آمده که اکنون برایش در نظر گرفته شده است.'),
+      card('تعیین هویت راویان',
+        el('p', { class: 'muted small' }, 'یک حدیث را در بخش ۱ برگزینید؛ سندش در بخش ۲ می‌آید. یک نام را بزنید؛ در بخش ۳ نخست همه‌ی جاهای دیگر آن نام در سندهای دیگر می‌آید و سپس گزینه‌ها و جستجو برای انتخاب شخص.'),
         el('details', { class: 'help' }, el('summary', {}, 'این گزینه‌ها از کجا می‌آیند؟'),
           el('ul', {},
             el('li', {}, el('b', {}, 'قطعی: '), 'منبع (نور یا گراف دانش) خودش این نام را به یک راوی پیوند داده است؛ تصمیمی لازم نیست.'),
-            el('li', {}, el('b', {}, 'نامزدها: '), 'برای نام‌های دیگر، راویانی که نامشان می‌خواند از دو پایگاه آمده‌اند: فهرست راویان نور (شیعه) و رجال گراف دانش (اهل سنت). پس یک شخص ممکن است دو بار بیاید (مثلاً «زيد بن علي» یک بار از نور و یک بار از گراف دانش)؛ اگر پایگاه راویان آن دو را یکی دانسته باشد، در شجره یکی می‌شوند.'),
+            el('li', {}, el('b', {}, 'نامزدها: '), 'برای نام‌های دیگر، راویانی که نامشان می‌خواند از دو پایگاه آمده‌اند: فهرست راویان نور (شیعه) و رجال گراف دانش (اهل سنت). پس یک شخص ممکن است دو بار بیاید (مثلاً «زيد بن علي» یک بار از نور و یک بار از گراف دانش)؛ اگر پایگاه راویان آن دو را یکی دانسته باشد، در شجره یکی می‌شوند. اگر شخص درست در نامزدها نیست، جستجو کنید.'),
             el('li', {}, el('b', {}, 'رتبه‌بندی: '), '«هم‌خوانی نام» = چه اندازه نام سند با نام راوی می‌خواند؛ «هم‌نشین» = چند همسایه‌ی این نام در همین سند، در سندهای دیگر هم استاد یا شاگرد این راوی‌اند؛ «روایت» = شمار روایت‌های او.'),
             el('li', {}, el('b', {}, 'بالا / متوسط / پایین: '), 'اطمینان به نامزد نخست. «بالا» = نام دست‌کم ۸۸٪ می‌خواند، دست‌کم یک همسایه او را تأیید می‌کند و از نامزد بعدی آشکارا جلوتر است؛ چنین نامزدی خودکار انتخاب می‌شود. «متوسط» و «پایین» خودکار انتخاب نمی‌شوند.'),
+            el('li', {}, el('b', {}, 'وضع حدیث: '), '«همه قطعی» = منبع همه‌ی راویان را تعیین کرده؛ «همه شناخته» = هر نام یا قطعی است یا (خودکار یا با انتخاب کاربر) به شخصی پیوند دارد؛ «همه تصمیم‌گرفته» = برخی نام‌ها عمداً «فقط نام» یا نامعلوم‌اند؛ وگرنه شمار نام‌های بی‌تصمیم.'),
             el('li', {}, el('b', {}, 'خودکار / انتخاب کاربر / بی‌تصمیم: '), 'نامی که کسی برایش انتخاب نکرده، اگر نامزد «بالا» داشته باشد خودکار همان را می‌گیرد؛ وگرنه بی‌تصمیم است و فقط با نامش به شجره می‌رود. انتخاب شما برای همه‌ی جاهای همان نام است، مگر «فقط همین جا» را بزنید.'))),
-        oldRun && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند (نامی که در یک سند نامزد «بالا» داشت، گاهی «پایین» نمایش داده می‌شد، مثل «زید بن علی»). ',
+        oldRun && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند (مثلاً «زید بن علی» «پایین» نمایش داده می‌شد و «عن أبيه» در همه‌ی سندها امام باقر گرفته می‌شد). ',
           c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
           el('span', { class: 'small muted' }, ' انتخاب‌های ذخیره‌شده می‌مانند؛ شجره دوباره ساخته می‌شود و باید دوباره تأیید شود.')) : null,
-        status, el('div', { class: 'toolbar' }, viewSeg, und, filt, legend), el('div', { class: 'toolbar' }, save),
+        status, legend, save,
         I.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, `${wtitle(f.ref)}: ${flagText(f)}`))),
-      el('div', { class: 'card' }, body));
-    redraw();
+      el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۱. حدیث‌ها'), seg,
+          el('label', { class: 'small' }, el('input', { type: 'checkbox', onchange: ev => { onlyUnd = ev.target.checked; drawList(); } }), ' فقط با نام بی‌تصمیم'),
+          el('input', { type: 'text', placeholder: 'پالایش با نام راوی یا کتاب', oninput: ev => { q = ev.target.value.trim(); drawList(); } })),
+        listSum, listBox),
+      part2, part3);
+    draw();
+    if (cur) (pick ? part3 : part2).scrollIntoView({ block: 'start' });
   },
 
   /* ----- 5: phylogeny ----- */
@@ -689,6 +742,7 @@ async function awaitingPanel(main, c) {
 }
 
 /* ---------- pieces ---------- */
+const fill = (node, ...kids) => node.replaceChildren(...kids.flat(2).filter(x => x != null && x !== false));
 function card(title, ...kids) { return el('div', { class: 'card' }, el('h2', {}, title), ...kids); }
 function hadithBlock(h, colored) {
   return el('div', {}, el('div', { class: 'small muted' }, [h.title, h.author, h.death ? 'ف ' + fa(h.death) : '', h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', h.wid].filter(Boolean).join(' · ')),

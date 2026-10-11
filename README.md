@@ -532,9 +532,12 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    father/son guard, chain context from Noor/KG adjacency, popularity). Names whose identity the source gives
    are *exact*; the others become **name cards** (one per tradition and normalised name; a candidate keeps its
    best tier over the card's places, and the list is ordered by tier, then score). A card whose top candidate is
-   `high` is chosen automatically. The page shows every witness's chain in the step-3 order, each name marked
-   exact / automatic / user's choice / undecided / name only; clicking a name opens its candidates there and
-   highlights its other places. A choice applies to every place of the name, or to one place (`overrides`);
+   `high` is chosen automatically. The page has three parts: (1) the hadiths in the step-3 order with their
+   state (all exact / all identified / all decided / n undecided) and one square per name, or the list of
+   names; (2) the chosen hadith's chains, each name marked exact / automatic / user's choice / undecided / name
+   only; (3) the chosen name: all its places in other chains first, then its candidates and a search of both
+   narrator databases (`/api/narrators?q=`). The hadith and the name are kept in the address (`?h=&n=`).
+   A choice applies to every place of the name, or to one place (`overrides`);
    «عن أبيه» is resolved per chain only (the father of an Imam), never from the card. The narrator card
    (grade, dated facts with evidence, rijāl entries, teachers/students) is one click away.
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death

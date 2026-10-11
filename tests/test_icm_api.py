@@ -57,6 +57,9 @@ def test_search_and_hadith():
         assert c.get("/icm/api/hadith/v02:800316143").json()["title"] == "الخصال"
         assert c.get("/icm/api/hadith/v02:abc").status_code == 400
         assert c.get("/icm/api/narrator/noor:2107").json()["infallible"] is True
+        n = c.get("/icm/api/narrators", params={"q": "زيد بن علي"}).json()
+        assert {"noor:2607", "kg:3151"} <= {x["id"] for x in n} and {x["db"] for x in n} == {"noor", "kg"}
+        assert c.get("/icm/api/narrators", params={"q": "ز"}).json() == []
         assert c.get("/icm/api/project/..%2Fetc").status_code in (400, 404)
     finally:
         shutil.rmtree(d)
