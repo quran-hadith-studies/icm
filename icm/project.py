@@ -20,6 +20,8 @@ import tempfile
 import time
 from typing import Dict, List, Optional
 
+from hadith_phylogeny.report import finite
+
 from . import config
 
 STEPS = ("search", "selection", "identities", "phylogeny")      # steps with decisions
@@ -44,7 +46,8 @@ def atomic_write(path: str, obj) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, separators=(",", ":"), default=float)
+        # JSON has no infinity: a source with zero evidence has log Z = -inf, stored as null (read as -inf)
+        json.dump(finite(obj), f, ensure_ascii=False, separators=(",", ":"), default=float, allow_nan=False)
     os.replace(tmp, path)
 
 

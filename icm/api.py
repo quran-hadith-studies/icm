@@ -16,7 +16,9 @@ from typing import Callable, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from . import config, corpus, jobs, narrator_info, project, search as search_mod, viewer
+from hadith_phylogeny.report import finite
+
+from . import config, corpus, jobs, narrator_info, project, viewer
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -160,11 +162,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         out = project.run_stage(pid, run, src)
         if out is None:
             raise HTTPException(404, "stage not available in this run")
-        if stage == "viz":
-            return out["viz"]
-        if stage == "results":
-            return out["results"]
-        return out
+        return finite(out["viz"] if stage == "viz" else out["results"] if stage == "results" else out)
 
     @r.get("/api/narrator/{nid}")
     def narrator(nid: str):

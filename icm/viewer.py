@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 import os
 
+from hadith_phylogeny.report import finite
+
 from . import config
 
 _mod = None
@@ -16,4 +18,4 @@ def render(bundle: dict) -> str:
         spec = importlib.util.spec_from_file_location("icm_make_html", path)
         _mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_mod)
-    return _mod.render(bundle, standalone=True)
+    return _mod.render(finite(bundle), standalone=True)     # JSON has no -Infinity: null is read as -inf
