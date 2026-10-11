@@ -77,6 +77,8 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         say("graph", 0.6, "building the graph")
         ph_in = dict(dates=phdec.get("dates", {}), chain_edits=phdec.get("chain_edits", {}))
         iddec_in = dict(choices=iddec.get("choices", {}), overrides=iddec.get("overrides", {}), merges=iddec.get("merges", []))
+        if iddec.get("dates"):                                    # only then, so older graphs keep their keys
+            iddec_in["dates"] = iddec["dates"]
         k_graph = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
         G = _get_or_run(pid, "graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S), hashes)
         if phdec.get("confirmed") != k_graph:
@@ -114,6 +116,14 @@ def _identify(S: dict, A: dict) -> dict:
 
 def _graph(A: dict, I: dict, iddec: dict, ph: dict, S: dict) -> dict:
     res = identity.resolve(I, iddec)
+    if iddec.get("dates"):                     # step 4 dates a person (noor:/kg:) or the name at one place (occ:<aid>|<i>)
+        occ = {f"{c['aid']}|{e['i']}": e["nid"] for c in res["chains"] for e in c["elems"]}
+        dates = dict(ph.get("dates", {}))
+        for k, v in iddec["dates"].items():
+            nid = occ.get(k[4:]) if k.startswith("occ:") else res["same_person"].get(k, k)
+            if nid:
+                dates[nid] = v
+        ph = dict(ph, dates=dates)
     g = graph_mod.run(A, res, ph)
     g["undecided"] = res["undecided"]
     g["title"] = S["seed"].get("title") or "ICM"

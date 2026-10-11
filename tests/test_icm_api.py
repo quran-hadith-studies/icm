@@ -43,6 +43,11 @@ def test_permissions_and_validation():
         assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"choices": {"x": "evil"}}}, headers=H("alice")).status_code == 400
         assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"choices": {"x": "noor:12"}}}, headers=H("root")).status_code == 200   # admin
         assert project.decision(pid, "identities")["choices"] == {"x": "noor:12"}
+        dated = {"choices": {}, "dates": {"noor:12": [120, 125], "occ:v02:1#t|3": [200, 200]}}
+        assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": dated}, headers=H("alice")).status_code == 200
+        assert project.decision(pid, "identities")["dates"] == dated["dates"]
+        for bad in ({"x": [1, 2]}, {"noor:12": [130, 120]}, {"noor:12": ["a", 2]}, {"noor:12": [1]}):
+            assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"dates": bad}}, headers=H("alice")).status_code == 400, bad
         assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"confirmed": "nope"}}, headers=H("alice")).status_code == 409
     finally:
         shutil.rmtree(d)
@@ -60,6 +65,8 @@ def test_search_and_hadith():
         n = c.get("/icm/api/narrators", params={"q": "زيد بن علي"}).json()
         assert {"noor:2607", "kg:3151"} <= {x["id"] for x in n} and {x["db"] for x in n} == {"noor", "kg"}
         assert c.get("/icm/api/narrators", params={"q": "ز"}).json() == []
+        dd = c.get("/icm/api/narrators/deaths", params={"ids": "kg:3151,noor:2607,bad,kg:999999999"}).json()
+        assert dd["kg:3151"]["death"] == [122, 122] and "noor:2607" in dd and "bad" not in dd and "kg:999999999" not in dd
         assert c.get("/icm/api/project/..%2Fetc").status_code in (400, 404)
     finally:
         shutil.rmtree(d)

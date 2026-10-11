@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from hadith_phylogeny.report import finite
 
 from . import config, corpus, identity, jobs, narrator_info, project, viewer
+from . import graph as graph_mod
 from . import search as search_mod
 from .text import norm
 
@@ -222,6 +223,12 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     def narrator(nid: str):
         return narrator_info.card(nid)
 
+    @r.get("/api/narrators/deaths")
+    def narrator_deaths(ids: str = ""):
+        """Death dates the databases give, for ``ids`` = comma-separated noor:/kg: ids (the step-4 page)."""
+        nids = [i for i in ids.split(",") if ID_RE.match(i)][:3000]
+        return graph_mod.known_deaths(nids)
+
     @r.get("/api/narrators")
     def narrators(q: str, death: Optional[int] = None):
         """Narrators of both databases whose name matches ``q`` (the step-4 search)."""
@@ -329,7 +336,13 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             for d in (ch, ov):
                 if not isinstance(d, dict) or not all(v in (None, "none") or (isinstance(v, str) and ID_RE.match(v)) for v in d.values()):
                     raise HTTPException(400, "choices must map to noor:<id>, kg:<id> or none")
-            return dict(choices=ch, overrides=ov, merges=[])
+            dates = pl.get("dates", {})
+            if not (isinstance(dates, dict) and len(dates) <= 2000 and all(
+                    isinstance(k, str) and len(k) <= 300 and (ID_RE.match(k) or k.startswith("occ:")) and isinstance(v, list) and len(v) == 2
+                    and all(isinstance(x, (int, float)) and not isinstance(x, bool) and -100 <= x <= 1500 for x in v) and v[0] <= v[1]
+                    for k, v in dates.items())):
+                raise HTTPException(400, "dates must map noor:<id>, kg:<id> or occ:<place> to [lo, hi] hijri years")
+            return dict(choices=ch, overrides=ov, merges=[], dates=dates)
         if step == "phylogeny":
             dates = pl.get("dates", {})
             edits = pl.get("chain_edits", {})

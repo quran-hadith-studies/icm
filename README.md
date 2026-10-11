@@ -544,11 +544,14 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    whom Noor's slots titled «أبيه…» after that narrator are linked to; «عن أبيه عن جده» is the father's father).
    It is taken automatically when that narrator is certain and Noor names the same person ≥80% of the time,
    or when its context makes it `high`. Slot titles that are rare for a narrator (Noor's own linking slips),
-   relative or anonymous are not used as forms of his name. The narrator card
+   relative or anonymous are not used as forms of his name. Under every name is its death date (narrator
+   database, KG, or the work's author for a collector; `/api/narrators/deaths`); part 3 takes a date for the
+   person (`noor:`/`kg:`, every chain) or for a name-only place (`occ:<aid>|<i>`), saved as `dates` in the
+   `identities` decision and applied by the graph stage before interpolation (step 5 points here). The narrator card
    (grade, dated facts with evidence, rijāl entries, teachers/students) is one click away.
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
-   intervals from the narrator database / KG, interpolation along chains), with chronology warnings. The user
-   confirms *this exact graph* (its hash) and may enter dates.
+   intervals from the narrator database / KG, the dates entered on step 4, interpolation along chains), with
+   chronology warnings. The user confirms *this exact graph* (its hash).
 6. **Analysis**: the earliest-source model (annealed SMC per candidate source) and the viewer. The user chooses
    where it runs when confirming the graph:
    * **in the user's browser** (default): the model code (`icm/static/model.zip`: `hadith_phylogeny/` and

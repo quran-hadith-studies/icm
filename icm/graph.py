@@ -160,6 +160,24 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
                    units=len(variants)))
 
 
+def known_deaths(nids: Sequence[str]) -> Dict[str, dict]:
+    """{nid: {death: [lo, hi], source}} for the narrators the databases date (what ``run`` uses before the user's dates)."""
+    noor = sorted({int(n.split(":")[1]) for n in nids if n.startswith("noor:") and n.split(":")[1].isdigit()})
+    kg = sorted({int(n.split(":")[1]) for n in nids if n.startswith("kg:") and n.split(":")[1].isdigit()})
+    out: Dict[str, dict] = {}
+    if noor:
+        nc = _nconn()
+        for rid, f in resolve_facts(nc, noor).items():
+            if f.get("death"):
+                out[f"noor:{rid}"] = dict(death=list(f["death"]), source=f.get("death_source"))
+        nc.close()
+    if kg:
+        kc = corpus.conn("kg")
+        for r in kc.execute("select id, death_year from rawis where death_year is not null and id in (%s)" % ",".join("?" * len(kg)), kg):
+            out[f"kg:{r[0]}"] = dict(death=[float(r[1]), float(r[1])], source="hadith-kg")
+    return out
+
+
 def info_out(info: Dict[str, dict]) -> Dict[str, dict]:
     out = {}
     for n, i in info.items():

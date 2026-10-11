@@ -458,10 +458,12 @@ const panels = {
   /* three parts: (1) the hadiths and their state, (2) the chain of the chosen hadith, (3) the chosen name: its places,
      then its options and a search of both narrator databases */
   async identities(main, c) {
-    const [I, A, S, dec] = await Promise.all([stage(c.pid, c.runId, 'identify'), stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search'),
-      api(`/project/${c.pid}/decision/identities`)]);
-    const saved = { choices: dec.choices || {}, overrides: dec.overrides || {} };
-    const choices = { ...saved.choices }, overrides = { ...saved.overrides };
+    const [I, A, S, dec, phd] = await Promise.all([stage(c.pid, c.runId, 'identify'), stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search'),
+      api(`/project/${c.pid}/decision/identities`), api(`/project/${c.pid}/decision/phylogeny`)]);
+    /* dates entered on step 5 before they moved here are carried over (those keyed by a person id) */
+    const oldDates = Object.fromEntries(Object.entries(phd.dates || {}).filter(([k]) => /^(noor|kg):\d+$/.test(k)));
+    const saved = { choices: dec.choices || {}, overrides: dec.overrides || {}, dates: { ...oldDates, ...(dec.dates || {}) } };
+    const choices = { ...saved.choices }, overrides = { ...saved.overrides }, dates = { ...saved.dates };
     const cards = I.cards, W = A.witnesses;
     const num = Object.fromEntries(W.map((w, i) => [w.wid, i]));
     const byWid = {}; I.chains.forEach(ch => (byWid[ch.wid] ||= []).push(ch));
@@ -473,12 +475,13 @@ const panels = {
     const relOnly = cd => cd.kind === 'relative';         // «عن أبيه» means a different person in every chain: decided per place
     const prevName = cd => { const [aid, i] = cd.occurrences[0]; const p = chainOf[aid].elems[i - 1]; return p ? p.raw || p.name : ''; };
     const cname = cd => relOnly(cd) && cd.occurrences.length === 1 && prevName(cd) ? `${cd.name} — پس از ${prevName(cd)}` : cd.name;
+    const keyOf = e => e.card || (e.exact ? 'id:' + e.exact : null);   // what clicking a name opens: its card, or the person the source fixed
     const splitOcc = occ => { const k = occ.lastIndexOf('|'); const ch = chainOf[occ.slice(0, k)]; return [ch, ch.elems[+occ.slice(k + 1)]]; };
     const extraLabel = {};                                // labels of people chosen from a search
     const qs = new URLSearchParams(location.search);
     let cur = byWid[qs.get('h')] ? qs.get('h') : null, pick = null;
-    if (cur && qs.get('n')) { try { const [ch, e] = splitOcc(qs.get('n')); if (ch.wid === cur && e.card) pick = { key: e.card, occ: qs.get('n') }; } catch (_) {} }
-    let listView = pref('icm.idlist', 'hadith'), onlyUnd = false, q = '', scopeHere = false, sq = '', sres = null, sbusy = false;
+    if (cur && qs.get('n')) { try { const [ch, e] = splitOcc(qs.get('n')); if (ch.wid === cur && keyOf(e)) pick = { key: keyOf(e), occ: qs.get('n') }; } catch (_) {} }
+    let listView = pref('icm.idlist', 'hadith'), onlyUnd = false, onlyUndated = false, q = '', scopeHere = false, sq = '', sres = null, sbusy = false;
 
     /* what a place in a chain resolves to: {st, id}; st = exact | anon | user | auto | und (id 'none' = name only) */
     const stateOf = (ch, e) => {
@@ -494,33 +497,56 @@ const panels = {
     };
     const stOf = s => s.id === 'none' ? 'none' : s.st;
     const labelOf = (id, e, cd) => { const k = [...(e ? e.cands : []), ...(cd ? cd.candidates : [])].find(x => x.id === id); return k ? k.label : extraLabel[id] || id; };
-    const isGap = e => e.exact && /^موضع (تعليق|إرسال|ارسال)/.test(e.name);
+    const isGap = e => e.exact && /^(موضع |اسم مبهم)/.test(e.name);      // the KG's placeholders: a gap, a cut, an unnamed man
     const cardState = cd => {
       const sts = cd.occurrences.map(o => stateOf(...splitOcc(o.join('|'))).st);
       return sts.includes('und') ? 'und' : sts.includes('user') ? 'user' : 'auto';
     };
     const counts = () => { const n = { auto: 0, user: 0, und: 0 }; Object.values(cards).forEach(cd => n[cardState(cd)]++); return n; };
-    const dirty = () => JSON.stringify([choices, overrides]) !== JSON.stringify([saved.choices, saved.overrides]);
+    const dirty = () => JSON.stringify([choices, overrides, dates]) !== JSON.stringify([saved.choices, saved.overrides, saved.dates]);
+    /* death dates: the user's, else the databases' (fetched per id), else the work's author for a collector */
+    const known = {}, asked = new Set();
+    const fetchDeaths = async ids => {
+      ids = [...new Set(ids)].filter(i => /^(noor|kg):\d+$/.test(i) && !asked.has(i)); if (!ids.length) return false;
+      ids.forEach(i => asked.add(i));
+      for (let k = 0; k < ids.length; k += 150) Object.assign(known, await api('/narrators/deaths?ids=' + ids.slice(k, k + 150).join(',')).catch(() => ({})));
+      return true;
+    };
+    const dateKey = (ch, e, s) => s.id && /^(noor|kg):\d+$/.test(s.id) ? s.id : `occ:${ch.aid}|${e.i}`;
+    const dateOf = (ch, e) => {
+      const s = stateOf(ch, e), k = dateKey(ch, e, s);
+      if (dates[k]) return { death: dates[k], src: 'user', key: k };
+      if (s.id && known[s.id]) return { death: known[s.id].death, src: known[s.id].source, key: k };
+      const w = W.find(x => x.wid === ch.wid);
+      if (e.i === 0 && w && w.death) return { death: [w.death, w.death], src: 'author', key: k };
+      return { death: null, key: k };
+    };
+    const yr = d => d[0] === d[1] ? fa(Math.round(d[0])) : `${fa(Math.round(d[0]))}–${fa(Math.round(d[1]))}`;
+    const SRCD = { user: 'واردشده‌ی کاربر', author: 'تاریخ درگذشت مؤلف کتاب', 'hadith-kg': 'گراف دانش' };
     /* the state of a hadith: the states of all the names in its chains */
     const hstate = wid => {
-      const sts = byWid[wid].flatMap(ch => ch.elems.filter(e => !isGap(e)).map(e => stOf(stateOf(ch, e))));
+      const els = byWid[wid].flatMap(ch => ch.elems.filter(e => !isGap(e)).map(e => [ch, e]));
+      const sts = els.map(([ch, e]) => stOf(stateOf(ch, e)));
+      const nund = els.filter(([ch, e]) => e.kind !== 'anon' && !dateOf(ch, e).death).length;
       const n = k => sts.filter(s => s === k).length;
       const [st, txt] = n('und') ? ['und', `${fa(n('und'))} بی‌تصمیم`] : sts.every(s => s === 'exact') ? ['exact', 'همه قطعی']
         : n('none') + n('anon') ? ['none', 'همه تصمیم‌گرفته'] : ['auto', 'همه شناخته'];
-      return { sts, st, txt, tip: ['exact', 'auto', 'user', 'und', 'none', 'anon'].filter(k => n(k)).map(k => `${fa(n(k))} ${ST[k]}`).join('، ') };
+      return { sts, st, txt, nund, tip: ['exact', 'auto', 'user', 'und', 'none', 'anon'].filter(k => n(k)).map(k => `${fa(n(k))} ${ST[k]}`).join('، ') + (nund ? `، ${fa(nund)} بی‌تاریخ` : '') };
     };
 
     const ST = { exact: 'قطعی (از منبع)', auto: 'خودکار', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم' };
     const chip = (ch, e) => {
-      if (isGap(e)) return el('span', { class: 'gapm', title: 'جایی که منبع راوی‌ای را نیاورده است' }, '‹' + e.name.replace('موضع ', '') + '›');
+      if (isGap(e)) return el('span', { class: 'gapm', title: 'جایی که منبع راوی‌ای را نیاورده است' }, '‹' + e.name.replace('موضع ', '').replace('اسم مبهم', 'بی‌نام') + '›');
       const s = stateOf(ch, e), cd = cards[e.card], st = stOf(s), occ = `${ch.aid}|${e.i}`;
       const n = cd && !relOnly(cd) ? cd.occurrences.length : 1;
       const sub = st === 'exact' ? '✓' : st === 'und' ? 'بی‌تصمیم' : st === 'none' ? 'فقط نام' : st === 'anon' ? 'نامعلوم' : labelOf(s.id, e, cd);
-      return el('button', { class: `nc ${st}` + (pick && e.card && pick.key === e.card ? (pick.occ === occ ? ' pk pk2' : ' pk') : ''),
+      const hit = pick && (pick.key === keyOf(e) || pick.key.startsWith('id:') && s.id === pick.key.slice(3));
+      return el('button', { class: `nc ${st}` + (hit ? (pick.occ === occ ? ' pk pk2' : ' pk') : ''),
         title: `${ST[st]}${s.here ? ' — فقط همین جا' : ''}${s.id && s.id !== 'none' ? ' — ' + s.id : ''}`,
-        onclick: () => { if (e.card) setPick(e.card, occ); else if (s.id) narratorCard(s.id); } },
+        onclick: () => { if (keyOf(e)) setPick(keyOf(e), occ); } },
         el('span', { class: 'n ar', title: e.raw || e.name }, st === 'exact' ? short(e.raw || e.name, 34) : e.raw || e.name, n > 1 ? el('sup', {}, ' ×' + fa(n)) : null),
-        el('span', { class: 'id' + (st === 'exact' ? '' : ' ar') }, s.here ? '◆ ' : '', sub));
+        el('span', { class: 'id' + (st === 'exact' ? '' : ' ar') }, s.here ? '◆ ' : '', sub),
+        st === 'anon' ? null : (d => el('span', { class: 'dt' + (d.death ? (d.src === 'user' ? ' u' : '') : ' no') }, d.death ? 'ف ' + yr(d.death) : 'بی‌تاریخ'))(dateOf(ch, e)));
     };
     const SRC = { noor_slots: 'سند از پیوندهای نور', kg: 'سند از گراف دانش', text: 'سند خوانده‌شده از متن' };
     const strip2 = sts => el('span', { class: 'ststrip' }, sts.map(s => el('i', { class: s, title: ST[s] })));
@@ -529,7 +555,7 @@ const panels = {
     const keepUrl = () => { const u = new URLSearchParams(); if (cur) u.set('h', cur); if (pick) u.set('n', pick.occ); history.replaceState(history.state, '', location.pathname + (cur ? '?' + u : '')); };
     const setCur = wid => { cur = wid; if (pick && splitOcc(pick.occ)[0].wid !== wid) pick = null; keepUrl(); draw(); part2.scrollIntoView({ block: 'start', behavior: 'smooth' }); };
     const setPick = (key, occ) => {
-      if (!pick || pick.key !== key) { scopeHere = false; sq = cards[key].name; sres = null; }
+      if (!pick || pick.key !== key) { scopeHere = false; sq = cards[key] ? cards[key].name : ''; sres = null; }
       pick = { key, occ }; cur = splitOcc(occ)[0].wid; keepUrl(); draw();
       part3.scrollIntoView({ block: 'start', behavior: 'smooth' });
     };
@@ -544,14 +570,14 @@ const panels = {
     const drawList = () => {
       const top = listBox.scrollTop;
       if (listView === 'hadith') {
-        const rows = order.map(wid => [wid, hstate(wid)]).filter(([, h]) => !onlyUnd || h.st === 'und')
+        const rows = order.map(wid => [wid, hstate(wid)]).filter(([, h]) => (!onlyUnd || h.st === 'und') && (!onlyUndated || h.nund))
           .filter(([wid]) => !q || byWid[wid].some(ch => ch.elems.some(e => (e.raw || e.name).includes(q))) || wtitle(wid).includes(q));
         fill(listBox, rows.length ? el('table', { class: 'hl' }, el('tbody', {}, rows.map(([wid, h]) => {
           const w = W.find(x => x.wid === wid) || hadith(wid) || {};
           return el('tr', { class: wid === cur ? 'on' : '', onclick: () => setCur(wid) },
             el('td', {}, el('span', { class: 'dot ' + (w.cls || '') }), el('b', {}, wtitle(wid))),
             el('td', { class: 'small muted hide-sm' }, [w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه'].filter(Boolean).join(' · ')),
-            el('td', { title: h.tip }, strip2(h.sts)), el('td', {}, el('span', { class: 'chip ' + h.st }, h.txt)));
+            el('td', { title: h.tip }, strip2(h.sts), h.nund ? el('div', { class: 'small muted' }, `${fa(h.nund)} بی‌تاریخ`) : null), el('td', {}, el('span', { class: 'chip ' + h.st }, h.txt)));
         }))) : el('p', { class: 'muted' }, 'حدیثی نیست.'));
       } else {
         const ks = seq.filter(k => (!onlyUnd || cardState(cards[k]) === 'und') && (!q || cards[k].name.includes(q)));
@@ -591,9 +617,32 @@ const panels = {
     /* part 3: the chosen name: all its places first, then the choice */
     const part3 = el('div', { class: 'card edcard' });
     const meta = k => [k.db === 'kg' || k.id.startsWith('kg:') ? 'گراف دانش' : 'نور', k.death ? 'ف ' + fa(k.death) : '', k.mazhab, k.grade || k.rank, k.tabaka ? 'طبقه ' + fa(k.tabaka) : ''].filter(Boolean).join(' · ');
+    const snippet = o => { const [c2, e2] = splitOcc(o), x = c2.elems, i = e2.i;
+      return el('span', { class: 'chain mini' }, i > 1 ? el('span', { class: 'tm' }, '…') : null, x[i - 1] ? [chip(c2, x[i - 1]), el('span', { class: 'tm' }, e2.term || '←')] : null, chip(c2, e2),
+        x[i + 1] ? [el('span', { class: 'tm' }, x[i + 1].term || '←'), chip(c2, x[i + 1])] : null, i + 2 < x.length ? el('span', { class: 'tm' }, '…') : null); };
+    const occRow = (o, cur0, label) => { const [c2, e2] = splitOcc(o), s2 = stateOf(c2, e2);
+      return el('div', { class: 'occ' + (o === cur0 ? ' on' : '') },
+        el('button', { class: 'lnk small', onclick: () => setPick(pick.key, o) }, o === cur0 ? '● ' : '', wtitle(c2.wid), byWid[c2.wid].length > 1 ? ` (سند ${fa(byWid[c2.wid].indexOf(c2) + 1)})` : ''),
+        snippet(o), el('span', { class: 'small ' + stOf(s2) + 'c' }, ST[stOf(s2)], label && s2.id && s2.id !== 'none' && s2.st !== 'exact' ? ': ' + labelOf(s2.id, e2, cards[e2.card]) : '', s2.here ? ' ◆' : ''));
+    };
+    /* a name the source fixed: the person's places in all chains and his date */
+    const drawPerson = () => {
+      const id = pick.key.slice(3), occ = pick.occ, [ch, e] = splitOcc(occ), s = stateOf(ch, e);
+      const places = I.chains.flatMap(c2 => c2.elems.filter(e2 => stateOf(c2, e2).id === id).map(e2 => `${c2.aid}|${e2.i}`));
+      fill(part3,
+        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, e.raw || e.name)),
+          el('span', { class: 'chip exact' }, ST.exact), el('span', { class: 'small muted', dir: 'ltr' }, id), el('span', { class: 'grow' }),
+          el('button', { class: 'small', onclick: () => narratorCard(id) }, 'کارت راوی'), el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
+        el('p', { class: 'small muted' }, `${id.startsWith('kg:') ? 'گراف دانش' : 'نور'} خودش این نام را به این راوی پیوند داده است؛ تصمیمی لازم نیست.`),
+        el('h3', {}, places.length > 1 ? `این شخص در ${fa(places.length)} جا آمده است` : 'این شخص فقط همین جا آمده است'),
+        el('div', { class: 'occs' }, places.map(o => occRow(o, occ, false))),
+        dateBox(ch, e, s));
+      fetchDeaths([id]).then(more => { if (more) draw(); });
+    };
     const drawEd = () => {
       if (!pick) { part3.hidden = true; return; }
       part3.hidden = false;
+      if (pick.key.startsWith('id:')) return drawPerson();
       const cd = cards[pick.key], occ = pick.occ, [ch, e] = splitOcc(occ), s = stateOf(ch, e), n = cd.occurrences.length;
       const here = relOnly(cd) || n === 1 ? true : scopeHere || !!s.here;
       const val = here ? overrides[occ] : choices[cd.key], curId = s.id;
@@ -605,9 +654,6 @@ const panels = {
         k.reason ? el('span', { class: 'small muted' }, k.reason) : null, cd.default === k.id && !relOnly(cd) ? el('span', { class: 'small', style: 'color:var(--good)' }, 'انتخاب خودکار') : null,
         el('button', { class: 'small', onclick: ev => { ev.preventDefault(); narratorCard(k.id); } }, 'کارت راوی')]);
       const cands = relOnly(cd) ? [...e.cands] : [...cd.candidates]; e.cands.forEach(k => { if (!cands.some(x => x.id === k.id)) cands.push(k); });
-      const snippet = o => { const [c2, e2] = splitOcc(o), x = c2.elems, i = e2.i;
-        return el('span', { class: 'chain mini' }, i > 1 ? el('span', { class: 'tm' }, '…') : null, x[i - 1] ? [chip(c2, x[i - 1]), el('span', { class: 'tm' }, e2.term || '←')] : null, chip(c2, e2),
-          x[i + 1] ? [el('span', { class: 'tm' }, x[i + 1].term || '←'), chip(c2, x[i + 1])] : null, i + 2 < x.length ? el('span', { class: 'tm' }, '…') : null); };
       const go3 = (q3) => { sq = q3; sbusy = true; sres = null; drawEd();
         api('/narrators?q=' + encodeURIComponent(q3)).then(r => { sres = r; }, err => { sres = { error: err.message }; }).finally(() => { sbusy = false; drawEd(); }); };
       const sIn = el('input', { type: 'text', value: sq, placeholder: 'نام راوی', class: 'ar', oninput: ev => { sq = ev.target.value; }, onkeydown: ev => { if (ev.key === 'Enter') go3(sq.trim()); } });
@@ -618,11 +664,7 @@ const panels = {
           el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
         el('h3', {}, relOnly(cd) ? 'نسبت، نه نام' : n > 1 ? `این نام در ${fa(n)} جا آمده است` : 'این نام فقط همین جا آمده است'),
         relOnly(cd) ? el('p', { class: 'small muted' }, `«${e.raw || e.name}» نام نیست، نسبت است (پدر، جد، برادر… راوی پیشین)، پس در هر سند کس دیگری است و جداگانه تعیین می‌شود. پیشنهادها از سندهای نور آمده‌اند که برای همان راوی پیشین همین نسبت را به نام آورده‌اند (پدر و جد امامان از جدول امامان). «عن أبيه عن جده» یعنی پدرِ همان پدر.`) : null,
-        el('div', { class: 'occs' }, cd.occurrences.map(o => o.join('|')).map(o => { const [c2, e2] = splitOcc(o), s2 = stateOf(c2, e2);
-          return el('div', { class: 'occ' + (o === occ ? ' on' : '') },
-            el('button', { class: 'lnk small', onclick: () => setPick(cd.key, o) }, o === occ ? '● ' : '', wtitle(c2.wid), byWid[c2.wid].length > 1 ? ` (سند ${fa(byWid[c2.wid].indexOf(c2) + 1)})` : ''),
-            snippet(o), el('span', { class: 'small ' + stOf(s2) + 'c' }, ST[stOf(s2)], s2.id && s2.id !== 'none' && s2.st !== 'exact' ? ': ' + labelOf(s2.id, e2, cd) : '', s2.here ? ' ◆' : ''));
-        })),
+        el('div', { class: 'occs' }, cd.occurrences.map(o => occRow(o.join('|'), occ, true))),
         el('h3', {}, 'گزینش شخص'),
         c.can && n > 1 && !relOnly(cd) ? el('div', { class: 'toolbar small' }, 'انتخاب برای: ',
           el('label', {}, el('input', { type: 'radio', name: 'scope', checked: !here, onchange: () => { scopeHere = false; delete overrides[occ]; draw(); } }), ` همه‌ی ${fa(n)} جا`),
@@ -637,8 +679,28 @@ const panels = {
           .concat(sres.some(k => cands.some(x => x.id === k.id)) ? [el('div', { class: 'small muted' }, 'نتیجه‌هایی که در نامزدهای بالا هست تکرار نشد.')] : [])
           : el('p', { class: 'small muted' }, 'راوی‌ای با این نام پیدا نشد. بخشی از نام را بنویسید (مثلاً «زيد بن علي»).')) : null,
         c.can ? el('div', { class: 'toolbar' },
-          el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setVal(cd, occ, here, v); else if (v) alert('قالب شناسه نادرست است'); } }),
-          val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default && !relOnly(cd) || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null) : null);
+          el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setTimeout(() => setVal(cd, occ, here, v)); else if (v) alert('قالب شناسه نادرست است'); } }),
+          val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default && !relOnly(cd) || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null) : null,
+        dateBox(ch, e, s));
+      if (s.id || cands.length) fetchDeaths([s.id, ...cands.map(k => k.id)].filter(Boolean)).then(more => { if (more) draw(); });
+    };
+    /* the death date of the person (or the name) at the chosen place */
+    const dateBox = (ch, e, s) => {
+      const d = dateOf(ch, e), k = d.key, isPerson = !k.startsWith('occ:'), mine = dates[k];
+      const kn = s.id && known[s.id] ? known[s.id] : null;
+      const set = (lo, hi) => { if (lo == null && hi == null) delete dates[k]; else { lo = lo ?? hi; hi = hi ?? lo; dates[k] = [Math.min(lo, hi), Math.max(lo, hi)]; } setTimeout(draw); };   // after the input's own blur/change
+      const num = v => v === '' || isNaN(+v) ? null : +v;
+      const lo = el('input', { type: 'number', placeholder: 'از', style: 'width:90px', value: mine ? mine[0] : '', disabled: !c.can });
+      const hi = el('input', { type: 'number', placeholder: 'تا', style: 'width:90px', value: mine ? mine[1] : '', disabled: !c.can });
+      lo.onchange = hi.onchange = () => set(num(lo.value), num(hi.value));
+      return [el('h3', {}, 'تاریخ وفات (اختیاری)'),
+        el('p', { class: 'small' }, d.death && d.src !== 'user' ? `ف ${yr(d.death)} — ${SRCD[d.src] || d.src || 'پایگاه راویان'}. ` : '',
+          kn && mine ? `پایگاه: ف ${yr(kn.death)}. ` : '',
+          !d.death ? el('span', { class: 'undc' }, 'تاریخی در پایگاه‌ها نیست؛ در شجره از روی جایش در سندها (میان استاد و شاگرد) برآورد می‌شود. ') : null,
+          el('span', { class: 'muted' }, isPerson ? `تاریخی که بنویسید برای «${labelOf(s.id, e, cards[e.card])}» در همه‌ی سندها به کار می‌رود و بر تاریخ پایگاه مقدم است.`
+            : 'این نام به شخصی پیوند نخورده است؛ تاریخ برای همین نام (گره «فقط نام») در شجره به کار می‌رود.')),
+        el('div', { class: 'toolbar' }, 'سال هجری: ', lo, hi, mine && c.can ? el('button', { class: 'small', onclick: () => set(null, null) }, 'پاک کردن') : null,
+          el('span', { class: 'small muted' }, 'یک سال یا یک بازه؛ با «تأیید راویان» ذخیره می‌شود.'))];
     };
 
     const status = el('div', { class: 'small' }), save = el('div', { class: 'toolbar' }), listSum = el('div', { class: 'small muted' });
@@ -650,7 +712,7 @@ const panels = {
       fill(save, [c.can ? el('button', { class: 'primary', onclick: async () => {
         const nu = counts().und;
         if (nu && !confirm(`${fa(nu)} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`)) return;
-        await post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides } }); reload(c.pid);
+        await post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides, dates } }); reload(c.pid);
       } }, 'تأیید راویان و ساخت شجره') : el('span', { class: 'muted small' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.'),
         dirty() ? el('span', { class: 'small', style: 'color:var(--warn)' }, 'تغییرهای ذخیره‌نشده') : null]);
     };
@@ -671,6 +733,7 @@ const panels = {
             el('li', {}, el('b', {}, 'رتبه‌بندی: '), '«هم‌خوانی نام» = چه اندازه نام سند با نام راوی می‌خواند؛ «هم‌نشین» = چند همسایه‌ی این نام در همین سند، در سندهای دیگر هم استاد یا شاگرد این راوی‌اند؛ «روایت» = شمار روایت‌های او.'),
             el('li', {}, el('b', {}, 'بالا / متوسط / پایین: '), 'اطمینان به نامزد نخست. «بالا» = نام دست‌کم ۸۸٪ می‌خواند، دست‌کم یک همسایه او را تأیید می‌کند و از نامزد بعدی آشکارا جلوتر است؛ چنین نامزدی خودکار انتخاب می‌شود. «متوسط» و «پایین» خودکار انتخاب نمی‌شوند.'),
             el('li', {}, el('b', {}, 'وضع حدیث: '), '«همه قطعی» = منبع همه‌ی راویان را تعیین کرده؛ «همه شناخته» = هر نام یا قطعی است یا (خودکار یا با انتخاب کاربر) به شخصی پیوند دارد؛ «همه تصمیم‌گرفته» = برخی نام‌ها عمداً «فقط نام» یا نامعلوم‌اند؛ وگرنه شمار نام‌های بی‌تصمیم.'),
+            el('li', {}, el('b', {}, 'تاریخ: '), 'زیر هر نام سال وفات او آمده است (از پایگاه راویان، گراف دانش یا تاریخ مؤلف برای گردآورنده). «بی‌تاریخ» در شجره از روی جایش در سندها برآورد می‌شود؛ اگر تاریخ را می‌دانید، در بخش ۳ بنویسید.'),
             el('li', {}, el('b', {}, 'خودکار / انتخاب کاربر / بی‌تصمیم: '), 'نامی که کسی برایش انتخاب نکرده، اگر نامزد «بالا» داشته باشد خودکار همان را می‌گیرد؛ وگرنه بی‌تصمیم است و فقط با نامش به شجره می‌رود. انتخاب شما برای همه‌ی جاهای همان نام است، مگر «فقط همین جا» را بزنید.'))),
         oldRun && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند: «عن أبيه / عن جده» یک نام شمرده می‌شد (و در همه‌ی سندها امام باقر گرفته می‌شد)، و برخی نام‌ها به راوی نادرست می‌خوردند (مثلاً «علی بن ابراهیم» به محمد بن یحیی). برنامه‌ی تازه هر نسبت را در سند خودش و از روی سندهای نور تعیین می‌کند. ',
           c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
@@ -679,31 +742,32 @@ const panels = {
         I.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, `${wtitle(f.ref)}: ${flagText(f)}`))),
       el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۱. حدیث‌ها'), seg,
           el('label', { class: 'small' }, el('input', { type: 'checkbox', onchange: ev => { onlyUnd = ev.target.checked; drawList(); } }), ' فقط با نام بی‌تصمیم'),
+          el('label', { class: 'small' }, el('input', { type: 'checkbox', onchange: ev => { onlyUndated = ev.target.checked; drawList(); } }), ' فقط با راوی بی‌تاریخ'),
           el('input', { type: 'text', placeholder: 'پالایش با نام راوی یا کتاب', oninput: ev => { q = ev.target.value.trim(); drawList(); } })),
         listSum, listBox),
       part2, part3);
     draw();
     if (cur) (pick ? part3 : part2).scrollIntoView({ block: 'start' });
+    if (await fetchDeaths(I.chains.flatMap(ch => ch.elems.map(e => stateOf(ch, e).id)).filter(Boolean))) draw();
   },
 
   /* ----- 5: phylogeny ----- */
   async phylogeny(main, c) {
     const G = await stage(c.pid, c.runId, 'graph');
     const dec = await api(`/project/${c.pid}/decision/phylogeny`);
-    const dates = Object.assign({}, dec.dates || {});
     const preset = el('select', {}, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
     const computeSel = el('select', {}, ...[['browser', 'در مرورگر من (سریع، موازی)'], ['helper', 'رایانه‌ی کمکی مدیر'], ['server', 'روی سرور (کند، نزدیک یک ساعت)']].map(([v, t]) => el('option', { value: v, selected: (dec.compute || 'browser') === v }, t)));
-    const undated = Object.entries(G.nodes).filter(([n, i]) => !i.date_source || i.date_source === 'interpolated').slice(0, 60);
+    const undated = Object.entries(G.nodes).filter(([n, i]) => (!i.date_source || i.date_source === 'interpolated') && !/^anon:/.test(n) && !/^(موضع |اسم مبهم|من ذكره)/.test(i.name || ''));
     main.replaceChildren(...[
       card('شجره‌ی انتقال ثبت‌شده', el('p', { class: 'muted small' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند، ${fa(G.stats.name_only)} فقط نام‌اند. محور افقی زمان است (راست = قدیم‌تر).`),
         graphSvg(G)),
       G.flags.length ? card('هشدارها', el('ul', { class: 'flags' }, G.flags.slice(0, 60).map(f => el('li', {}, flagText(f))))) : null,
-      c.can && undated.length ? card('تاریخ راویان بی‌تاریخ (اختیاری)', el('p', { class: 'muted small' }, 'اگر تاریخ وفات را می‌دانید، بازه‌ی سال هجری را بنویسید؛ در غیر این صورت برآورد از زنجیره‌ها می‌آید.'),
-        undated.map(([n, i]) => el('div', { class: 'toolbar' }, el('span', { style: 'min-width:260px' }, i.name), el('input', { type: 'number', placeholder: 'از', style: 'width:90px', value: (dates[n] || [])[0] ?? '', oninput: ev => setDate(dates, n, 0, ev.target.value) }),
-          el('input', { type: 'number', placeholder: 'تا', style: 'width:90px', value: (dates[n] || [])[1] ?? '', oninput: ev => setDate(dates, n, 1, ev.target.value) })))) : null,
+      undated.length ? card('راویان بی‌تاریخ', el('p', { class: 'small' }, `${fa(undated.length)} راوی تاریخ وفات ندارند و تاریخشان از روی جایشان در سندها برآورد شده است. `,
+        'تاریخ را در ', el('a', { href: BASE + stepUrl(c.pid, null, 'identities') }, 'مرحله‌ی ۴ (راویان)'), ' وارد کنید: حدیث را برگزینید، نام را بزنید، و در بخش ۳ «تاریخ وفات» را بنویسید.'),
+        el('div', { class: 'small muted ar' }, undated.slice(0, 80).map(([, i]) => i.name).join('  ·  ') + (undated.length > 80 ? ' …' : ''))) : null,
       card('تأیید', c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset, ' محاسبه: ', computeSel,
         el('button', { class: 'primary', onclick: async () => {
-          await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: cleanDates(dates), preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); reload(c.pid);
+          await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: dec.dates || {}, preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); reload(c.pid);
         } }, 'تأیید شجره و اجرای تحلیل')) : el('span', { class: 'muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تأیید کند.'),
         P.project.step === 'done' ? el('p', { class: 'small muted' }, 'تحلیل این شجره انجام شده است.') : null)].filter(Boolean));
   },
@@ -824,17 +888,15 @@ async function narratorCard(id) {
   const box = el('div', {}, el('h2', { class: 'ar' }, n.name || id), el('div', { class: 'small muted', dir: 'ltr' }, id));
   if (n.kind === 'name-only') { box.append(el('p', {}, n.note)); return modal(box); }
   box.append(el('dl', { class: 'kv' }, ...(n.kind === 'noor'
-    ? [...kv('مذهب', n.mazhab), ...kv('درجه', n.grade), ...kv('کنیه', n.kunya), ...kv('لقب', n.laqab), ...kv('طبقه', n.tabaqa && n.tabaqa.map(t => t.text || t).join('، ')), ...kv('جمع‌بندی', n.eval_summary), ...kv('تعداد روایت', n.n_slots)]
+    ? [...kv('مذهب', n.mazhab), ...kv('درجه', n.grade), ...kv('کنیه', n.kunya), ...kv('لقب', Array.isArray(n.laqab) ? n.laqab.map(l => l && l.text || l).join('، ') : n.laqab), ...kv('طبقه', n.tabaqa && n.tabaqa.map(t => t.text || t).join('، ')), ...kv('جمع‌بندی', n.eval_summary), ...kv('تعداد روایت', n.n_slots)]
     : [...kv('نام مشهور', n.nickname), ...kv('رتبه', n.rank), ...kv('طبقه', n.tabaka), ...kv('تولد', n.birth), ...kv('وفات', n.death), ...kv('اقامت', n.iqama), ...kv('محل وفات', n.death_place), ...kv('تدلیس', n.has_tadlis ? 'دارد' : ''), ...kv('اختلاط', n.has_ikhtilat ? 'دارد' : ''), ...kv('تعداد روایت', n.narrations)])));
   if (n.facts && n.facts.length) box.append(el('h3', {}, 'داده‌های استخراج‌شده'), el('table', {}, n.facts.map(f => el('tr', {}, el('td', {}, f.kind), el('td', {}, f.value || (f.lo != null ? `${f.lo}–${f.hi}` : '')), el('td', { class: 'small muted' }, f.source), el('td', { class: 'ar small' }, f.evidence || '')))));
   if (n.entries && n.entries.length) box.append(el('h3', {}, 'مدخل‌های رجالی'), n.entries.map(e => el('div', { class: 'card' }, el('b', {}, `${e.book} — ${e.heading}`), el('span', { class: 'chip ' + e.confidence }, e.confidence), el('div', { class: 'ar small matn', style: 'max-height:200px' }, e.body))));
   if (n.aqwal && n.aqwal.length) box.append(el('h3', {}, 'اقوال علمای رجال'), n.aqwal.map(a => el('div', { class: 'small' }, `${a.alem}${a.death ? ' (' + fa(a.death) + ')' : ''}: ${a.qawl}`)));
   const nb = (t, l) => l && l.length ? [el('h3', {}, t), l.map(x => el('div', { class: 'small' }, `${x.name} — ${fa(x.n)}`))] : [];
-  box.append(...nb('استادان پرتکرار', n.teachers), ...nb('شاگردان پرتکرار', n.students));
+  box.append(...nb('استادان پرتکرار', n.teachers).flat(), ...nb('شاگردان پرتکرار', n.students).flat());
   modal(box);
 }
-function setDate(d, n, i, v) { d[n] = d[n] || [null, null]; d[n][i] = v === '' ? null : +v; }
-function cleanDates(d) { const o = {}; for (const [n, [a, b]] of Object.entries(d)) { if (a != null || b != null) o[n] = [a ?? b, b ?? a]; } return o; }
 
 function graphSvg(G) {
   const nodes = G.narrators, atts = G.attestations;
