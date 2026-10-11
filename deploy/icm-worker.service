@@ -1,0 +1,31 @@
+[Unit]
+Description=ICM — hadith-family analysis worker (quran-hadith-studies/icm)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ebadollah/icm
+EnvironmentFile=/home/ubuntu/ebadollah/config.env
+Environment=PYTHONUNBUFFERED=1
+Environment=ICM_DATA_DIR=/home/ubuntu/ebadollah/data/icm
+Environment=ICM_CACHE_DIR=/home/ubuntu/ebadollah/data/icm/cache
+Environment=ICM_V02_DB=/home/ubuntu/ebadollah/data/v02/hadith.sqlite
+Environment=ICM_CONSENSUS_DB=/home/ubuntu/ebadollah/web/quran/data/hadith/v02/consensus.sqlite
+Environment=ICM_NARRATORS_DB=/home/ubuntu/ebadollah/data/icm/narrators.sqlite
+# The cache is a plain directory here; the laptop pulls it and pushes to quran-hadith-studies/icm-cache
+# (`python3 -m icm sync --server ubuntu@132.145.99.75:ebadollah/data/icm/cache`). To let the server push by
+# itself, make data/icm/cache a clone of the repository, give it a write credential, and drop ICM_GIT=0.
+Environment=ICM_GIT=0
+ExecStart=/home/ubuntu/.venv-ebad/bin/python -m icm.worker
+# the box has ~450 MB free: the model needs ~50 MB, the SQLite page cache the rest
+MemoryHigh=380M
+MemoryMax=450M
+Nice=10
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

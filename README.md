@@ -567,6 +567,121 @@ What to keep in mind when reading a result:
 * The isnād parser reads grammar only. Anonymous narrators («عدة من أصحابنا»), anaphora («عنه») and a name with
   no candidate stay name-only nodes; they are shown, never guessed.
 
+## ICM maintainer guide
+
+Everything another person (or chat) needs to change the wizard safely. Read "The ICM wizard" above first.
+
+### Where things are
+
+| What | Where |
+|---|---|
+| Code (this repo) | `github.com/quran-hadith-studies/icm` (public), local `/Users/mfo19/Downloads/hadith-project/analysis` |
+| Results cache | `github.com/quran-hadith-studies/icm-cache` (public), local `/Users/mfo19/Downloads/hadith-project/icm-cache` |
+| Live site | `https://ebadollah.ir/icm`, FastAPI app of the ebadollah workspace, uvicorn on `127.0.0.1:8078` behind nginx + Cloudflare |
+| Server | `ubuntu@132.145.99.75` (hostname `rezaei`, 2 cores, 951 MB RAM, Python 3.14 venv `~/.venv-ebad`) |
+| Server code | `~/ebadollah/icm` (git clone of this repo; update with `git -C ~/ebadollah/icm pull --ff-only`, then `sudo systemctl restart icm-worker ebadollah-web`) |
+| Server data | `~/ebadollah/data/icm/` (`narrators.sqlite`, `kg.sqlite`, `noor_relations.sqlite`, `termdf.sqlite`, `books_meta.json`, `icm_jobs.sqlite`, and `cache/` = the results, a plain directory) |
+| Corpus the server reads | `~/ebadollah/data/v02/hadith.sqlite` (the /h database, 4.3 GB) and `~/ebadollah/web/quran/data/hadith/v02/consensus.sqlite` |
+| Site-side glue (outside this repo) | `deploy/` here holds reference copies, see `deploy/README.md` |
+| Secrets | helper token: `~/.icm_helper_token` on the laptop and `EBAD_ICM_HELPER_TOKEN` in the server's `config.env`. Never put either in git |
+
+### Module map (`icm/`)
+
+| Module | Job |
+|---|---|
+| `config.py` | all paths (env-overridable), SMC presets (`quick` 60/8/2, `standard` 150/15/3, `thorough` 300/20/4, `tiny` for tests), `DATA_VERSION` |
+| `text.py` | `norm()` (byte-identical to `ebadollah/lib/hadith_text.normalize`, a test checks it), tokens, clause segmentation |
+| `msa.py` | star alignment with affine gaps (copy of `hadith-hub/src/msa.py`, memoised similarity) |
+| `similarity.py` | pair scoring: order-free per-clause alignment, classes `witness/variant/extended/abridged/partial/different` |
+| `corpus.py`, `relations.py` | read-only access to v02 and the KG; Noor/consensus/KG relation signals |
+| `search.py` | step 2: candidate generation (per-clause FTS + relation signals) and scoring |
+| `align.py` | step 3: per-clause grids, extra-clause discovery, variant units (`X` rows) |
+| `sanad_parse.py` | rule-based isnād grammar; data in `icm/data/*.json` |
+| `identity.py` | step 4: chains per corpus, name to person candidates, name cards, `resolve()` of the user's choices |
+| `narrator_info.py` | narrator cards (facts with evidence, rijāl entries, teachers/students, KG judgements) |
+| `graph.py` | step 5: the model's `Family`, dates, cities, teachers, chronology flags |
+| `infer.py` | step 6: `Ctx` (shared context), per-source `source_evidence`, `assemble` (posterior, summaries, viewer bundle), `run` (whole run, server path) |
+| `client.py` | the entry points Pyodide and the helper call (`init`, `source`, `graphs`, `finish`) |
+| `helper.py` | `python3 -m icm helper` (laptop, outbound polling) |
+| `project.py` | storage: projects, append-only decisions, content-addressed stage files, runs, indexes |
+| `pipeline.py` | `advance(pid)`: runs stages until a user decision is needed; the `awaiting` state |
+| `jobs.py`, `worker.py` | SQLite queue; one worker process (sets `PYTHONHASHSEED=0`) |
+| `api.py` | FastAPI router (`make_router(get_user)`), validation, permissions, compute-input/result, helper claim |
+| `cache.py`, `cli.py`, `evaluate.py`, `viewer.py`, `devserver.py` | git sync, commands, search evaluation, results page, local dev server |
+| `static/` | `icm.html/css/js` (the wizard, vanilla JS, Persian RTL), `model_worker.js`, `model.zip`, `viewer.css/js` |
+| `build/` | laptop-only builders: `kg_extract`, `noor_relations`, `termdf`, `books_meta`, `model_zip` |
+
+### Data flow and files
+
+`search` → [user selects witnesses] → `align` and `identify` → [user decides name cards] → `graph` →
+[user confirms *this graph's hash* and chooses where to compute] → `infer`. Each stage is a pure function of the
+previous stage plus the decisions it depends on. In the cache:
+
+* `projects/<pid>/decisions/<step>/<nnnn>.json`: append-only, the complete state each time (`search`, `selection`,
+  `identities`, `phylogeny`). Never edit or delete.
+* `projects/<pid>/stages/<stage>/<hash>.json`: the output, named by the hash of its inputs (`pipeline.py`:
+  `h(stage, upstream hashes, decisions, STAGE_VERSIONS[stage], DATA_VERSION)`). Never overwritten.
+* `projects/<pid>/runs/<run>/manifest.json`: which stage files a combination of decision versions used.
+* `project.json`: `status` (`running`, `draft` = waiting for a user decision, `awaiting` = waiting for an uploaded
+  computation, `finalized`, `failed`), `step`, `current_run`, `graph_hash`, `awaiting`.
+* `index.json`, `hadith_index.json`: regenerated by `project.refresh_indexes()`.
+
+### How to change things
+
+* **Change what a stage computes:** edit the module, bump `STAGE_VERSIONS[stage]` in `icm/__init__.py`. Old results stay;
+  new runs recompute that stage and everything downstream of it.
+* **Change corpus files** (`kg.sqlite`, etc.): bump `config.DATA_VERSION`, rebuild with `python3 -m icm build <what>`,
+  upload with `deploy/sync-icm-data.sh --yes` of the ebadollah workspace.
+* **Change anything the browser or helper runs** (`hadith_phylogeny/*`, `icm/infer.py`, `icm/client.py`, `icm/config.py`):
+  run `python3 -m icm build model` and commit `icm/static/model.zip`. `tests/test_icm_client.py` fails if the zip is stale.
+  Bump `STAGE_VERSIONS["infer"]` if results change.
+* **Change the model itself** (`hadith_phylogeny/`): `python3 tests/test_core.py`, and remember the inference is
+  stochastic: the same inputs reproduce only with `PYTHONHASHSEED=0` (the worker, helper and Pyodide workers set it).
+* **Change the UI:** `icm/static/icm.js` / `icm.css` / `icm.html`. No build step. Text goes in with `textContent`/`el()`
+  only, never `innerHTML` (names and matns come from the corpus). Test with the dev server below.
+* **Deploy:** push to GitHub, `git -C ~/ebadollah/icm pull --ff-only` on the server, restart `icm-worker` and `ebadollah-web`.
+  Changes to `web/icm_routes.py`, nginx or the unit are site-side; see `deploy/README.md`.
+
+### Run and test locally
+
+```
+python3 -m icm build all                      # data files into external/icm/ (kg first; takes a few minutes)
+python3 -m icm build model                    # icm/static/model.zip
+ICM_CACHE_DIR=/tmp/c ICM_JOBS_DB=/tmp/c/jobs.sqlite ICM_GIT=0 ICM_DEV_USER=alice uvicorn icm.devserver:app --port 8099
+ICM_CACHE_DIR=/tmp/c ICM_JOBS_DB=/tmp/c/jobs.sqlite ICM_GIT=0 python3 -m icm worker
+python3 tests/test_core.py; for t in tests/test_icm_*.py; do python3 $t; done      # API tests need fastapi + httpx
+python3 -m icm eval                           # search recall; needs the corpora on this machine
+```
+
+Tests that need the corpora or FastAPI skip themselves when those are absent. The UI was driven end to end in headless
+Chrome with Playwright (search, selection, identities, graph, browser compute, results); there is no stored UI test, so
+re-check the wizard after UI changes. Cloudflare blocks Python's default user agent (error 1010): any script that calls
+the live site must send its own.
+
+### Syncing results to GitHub
+
+The server has no GitHub credential (the organisation has deploy keys disabled). From the laptop:
+`python3 -m icm sync --server ubuntu@132.145.99.75:ebadollah/data/icm/cache` copies the server's cache, commits and pushes
+`icm-cache`. To let the server push itself: enable deploy keys in the organisation settings (or give a machine-user
+token), make `~/ebadollah/data/icm/cache` a clone of `icm-cache`, and remove `ICM_GIT=0` from `icm-worker.service`.
+
+### Known limits and open work
+
+* The identity suggestions are not decisions: one narrator appearing as two nodes can flip the best source. The user
+  must decide the cards; there is no automatic merge of name-only nodes that refer to the same person.
+* `identities` decisions are keyed by the normalised name of a card, so one choice applies to every chain with that name;
+  per-occurrence overrides exist in the payload (`overrides`) but the UI does not offer them.
+* `merges` and `split_nodes` appear in the plan but are not implemented; `chain_edits` and `dates` are (dates in the UI).
+* Results computed in a browser or by the helper are checked for consistency but not recomputed by the server.
+* Per-line (companion branch) results, the matn-only ablation and the sensitivity/permutation runs of the diagram case
+  are not part of the wizard's analysis step (`infer.matn_only` exists but is not wired in).
+* Search recall is measured only on the sitta family and on random v02 consensus sets (`icm eval`). The sanad parser is
+  grammar only; anaphora and anonymous narrators stay name-only nodes.
+* `work_aliases.json` does not exist: the same book in v02 and the KG is folded only when the matn is identical and one
+  title is contained in the other (`search._fold_across_corpora`). Independence groups use the book title.
+* Pyodide is loaded from `cdn.jsdelivr.net` (version pinned in `model_worker.js`); hosting it on the site would remove that dependency.
+* The server run of the model takes about an hour for ~230 narrators; the model code is pure Python loops.
+
 ## The HTML viewer
 
 
