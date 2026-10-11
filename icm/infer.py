@@ -15,7 +15,7 @@ import numpy as np
 from hadith_phylogeny.candidates import UNKNOWN, build_candidate_space
 from hadith_phylogeny.data import Family, family_from_dict
 from hadith_phylogeny.graph_model import GraphPrior
-from hadith_phylogeny.inference import (SourcePosterior, ancestral_state_posterior, calculate_source_posterior,
+from hadith_phylogeny.inference import (Evidence, SourcePosterior, ancestral_state_posterior, calculate_source_posterior,
                                         logsumexp, posterior_summary, smc_source_evidence)
 from hadith_phylogeny.report import build_bundle
 from hadith_phylogeny.sanad_model import SanadModel
@@ -52,62 +52,101 @@ def source_set(fam: Family, space, max_heads: int = MAX_HEADS, n_common: int = M
     return heads + commons + [UNKNOWN]
 
 
-def run(graph: dict, texts: Dict[str, str], preset: Optional[str] = None, seed: int = 0,
-        progress: Optional[Callable[[int, int, str], None]] = None, sanad_weight: float = 1.0) -> dict:
-    fam = make_family(graph, texts)
-    space = build_candidate_space(fam)
-    space.sources = source_set(fam, space)
-    flags: List[dict] = []
-    if len(fam.companions) > MAX_HEADS:
-        flags.append(dict(kind="heads_capped", ref=None,
-                          message=f"{len(fam.companions)} chain heads; the {MAX_HEADS} with most witnesses are candidate sources"))
-    preset = preset or config.preset_for(len(fam.narrators))
-    params = preset_params(preset)
-    tmodel = VariantModel(fam.variant_specs)
-    phi = SanadModel(weight=sanad_weight)
-    prior = GraphPrior(fam, space)
-    names = {n: fam.narrators[n].name for n in fam.narrators}
-    names[UNKNOWN] = "UNKNOWN (source above all recorded narrators)"
+class Ctx:
+    """Everything derived from the confirmed graph that the per-source runs share.
 
-    t0 = time.time()
-    ev = {}
-    for i, s in enumerate(space.sources):
-        if progress:
-            progress(i, len(space.sources), names.get(s, s))
-        ev[s] = smc_source_evidence(fam, space, s, tmodel, phi, prior, seed=seed, **params)
-    src_prior = {s: 1.0 / len(space.sources) for s in space.sources}
-    lp = {s: math.log(src_prior[s]) for s in space.sources}
+    Deterministic given (graph, texts): a browser worker, the helper and the server each build
+    their own copy and obtain the same candidate sources in the same order."""
+
+    def __init__(self, graph: dict, texts: Dict[str, str], preset: Optional[str] = None, seed: int = 0,
+                 sanad_weight: float = 1.0):
+        self.graph, self.texts, self.seed = graph, texts, seed
+        self.fam = make_family(graph, texts)
+        self.space = build_candidate_space(self.fam)
+        self.space.sources = source_set(self.fam, self.space)
+        self.flags: List[dict] = []
+        if len(self.fam.companions) > MAX_HEADS:
+            self.flags.append(dict(kind="heads_capped", ref=None,
+                                   message=f"{len(self.fam.companions)} chain heads; the {MAX_HEADS} with most witnesses are candidate sources"))
+        self.preset = preset or config.preset_for(len(self.fam.narrators))
+        self.params = preset_params(self.preset)
+        self.tmodel = VariantModel(self.fam.variant_specs)
+        self.phi = SanadModel(weight=sanad_weight)
+        self.prior = GraphPrior(self.fam, self.space)
+        self.names = {n: self.fam.narrators[n].name for n in self.fam.narrators}
+        self.names[UNKNOWN] = "UNKNOWN (source above all recorded narrators)"
+
+    @property
+    def sources(self) -> List[str]:
+        return self.space.sources
+
+    def source_evidence(self, i: int) -> Evidence:
+        """Annealed SMC for candidate source number ``i`` (independent of the others)."""
+        return smc_source_evidence(self.fam, self.space, self.sources[i], self.tmodel, self.phi, self.prior,
+                                   seed=self.seed, **self.params)
+
+
+def evidence_to_json(ev: Evidence, with_graphs: bool = True) -> dict:
+    d = dict(source=ev.source, log_Z=ev.log_Z, method=ev.method, n_graphs=ev.n_graphs, ess=ev.ess)
+    if with_graphs:
+        d["graphs"] = [dict(root=g.root, parent=g.parent, anchors=g.anchors) for g in ev.graphs]
+        d["log_w"] = list(ev.log_w)
+    return d
+
+
+def evidence_from_json(d: dict) -> Evidence:
+    from hadith_phylogeny.graph_model import Graph
+    inf = lambda x: float("-inf") if x is None else x
+    graphs = [Graph(g["root"], g["parent"], anchors=g["anchors"]) for g in d.get("graphs", [])]
+    return Evidence(d["source"], inf(d["log_Z"]), d["method"], d["n_graphs"], float("nan") if d["ess"] is None else d["ess"],
+                    graphs, [inf(x) for x in d.get("log_w", [])])
+
+
+def assemble(ctx: Ctx, ev: Dict[str, Evidence], seconds: float, provenance: Optional[dict] = None) -> dict:
+    """Source posterior, summaries under the best source, results and the viewer bundle."""
+    fam, space, names = ctx.fam, ctx.space, ctx.names
+    lp = {s: math.log(1.0 / len(space.sources)) for s in space.sources}
     scores = {s: lp[s] + ev[s].log_Z for s in space.sources}
     tot = logsumexp(list(scores.values()))
     post = SourcePosterior(list(space.sources), {s: ev[s].log_Z for s in space.sources}, lp,
                            {s: (math.exp(v - tot) if tot > -np.inf else 0.0) for s, v in scores.items()}, ev)
     best = post.map_source()
-    summ = posterior_summary(fam, ev[best], tmodel, phi, prior, seed=seed)
-    secs = round(time.time() - t0, 1)
-
+    summ = posterior_summary(fam, ev[best], ctx.tmodel, ctx.phi, ctx.prior, seed=ctx.seed)
     rest = [s for s in post.sources if s != best]
     results = dict(
-        family=fam.name, preset=preset, **params, seconds=secs, seed=seed,
+        family=fam.name, preset=ctx.preset, **ctx.params, seconds=seconds, seed=ctx.seed,
         n_narrators=len(fam.narrators), n_attestations=len(fam.attestations),
         variants=[s.name for s in fam.variant_specs],
         posterior={names[s]: post.posterior[s] for s in post.sources},
         log_Z={names[s]: post.log_Z[s] for s in post.sources},
         ess={names[s]: post.evidences[s].ess for s in post.sources},
         map_source=names[best], map_source_id=best,
-        credible_set_95=[names[s] for s in post.credible_set(0.95)],
-        flags=flags)
+        credible_set_95=[names[s] for s in post.credible_set(0.95)], flags=ctx.flags)
+    if provenance:
+        results["provenance"] = provenance
     if rest:
         runner = max(rest, key=lambda s: post.log_Z[s])
         results["bayes_factor_top_vs_next"] = dict(pair=[names[best], names[runner]],
                                                    log_BF=post.log_Z[best] - post.log_Z[runner])
-    anc = ancestral_state_posterior(fam, ev[best], tmodel, best, seed=seed)
+    anc = ancestral_state_posterior(fam, ev[best], ctx.tmodel, best, seed=ctx.seed)
     results["ancestral_matn_at_map_source"] = {fam.variant_specs[k].name: [round(float(x), 3) for x in v] for k, v in anc.items()}
-
-    links = _links_from_nodes(graph.get("nodes", {}))
-    bundle = build_bundle(fam, space, prior, post, summ, best, links=links, texts=fam.texts, seconds=secs,
-                          title=graph.get("title", "ICM"), heading=graph.get("heading", fam.name),
-                          extras=dict(global_results=results))
+    bundle = build_bundle(fam, space, ctx.prior, post, summ, best, links=_links_from_nodes(ctx.graph.get("nodes", {})),
+                          texts=fam.texts, seconds=seconds, title=ctx.graph.get("title", "ICM"),
+                          heading=ctx.graph.get("heading", fam.name), extras=dict(global_results=results))
     return dict(results=results, bundle=bundle)
+
+
+def run(graph: dict, texts: Dict[str, str], preset: Optional[str] = None, seed: int = 0,
+        progress: Optional[Callable[[int, int, str], None]] = None, sanad_weight: float = 1.0) -> dict:
+    """The whole analysis in this process (the server's slow path)."""
+    ctx = Ctx(graph, texts, preset, seed, sanad_weight)
+    t0 = time.time()
+    ev = {}
+    for i, s in enumerate(ctx.sources):
+        if progress:
+            progress(i, len(ctx.sources), ctx.names.get(s, s))
+        ev[s] = ctx.source_evidence(i)
+    return assemble(ctx, ev, round(time.time() - t0, 1), dict(kind="server"))
 
 
 def matn_only(graph: dict, texts: Dict[str, str], weights: Sequence[float] = (0.0, 0.1), preset: str = "quick",

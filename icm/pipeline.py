@@ -84,6 +84,11 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         # --- analysis ---------------------------------------------------------------------------
         preset = phdec.get("preset") or config.preset_for(len(G["narrators"]))
         k_infer = h("infer", k_graph, preset, STAGE_VERSIONS["infer"])
+        compute = phdec.get("compute") or "server"
+        if compute != "server" and project.stage_get(pid, "infer", k_infer) is None:
+            # the user (browser) or the helper computes; they upload the result under this key
+            _set(pid, awaiting=dict(key=k_infer, graph_hash=k_graph, preset=preset, compute=compute, since=project.now(), claimed=None))
+            return _finish(pid, vers, hashes, "awaiting", "analysis", graph_hash=k_graph)
         say("infer", 0.7, "running the model")
 
         def run_infer():
@@ -118,4 +123,5 @@ def _graph(A: dict, I: dict, iddec: dict, ph: dict, S: dict) -> dict:
 
 def _finish(pid: str, vers, hashes, status: str, step: str, graph_hash: Optional[str] = None) -> dict:
     rid = project.write_run(pid, project.versions(pid), hashes)
-    return _set(pid, status=status, step=step, current_run=rid, error=None, graph_hash=graph_hash)
+    kw = dict(awaiting=None) if status != "awaiting" else {}
+    return _set(pid, status=status, step=step, current_run=rid, error=None, graph_hash=graph_hash, **kw)

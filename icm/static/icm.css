@@ -33,7 +33,7 @@ th{font-weight:600;color:var(--muted);font-size:12px;position:sticky;top:0;backg
 .chip.witness{background:var(--c-witness)}.chip.variant{background:var(--c-variant)}.chip.extended{background:var(--c-extended)}
 .chip.abridged{background:var(--c-abridged)}.chip.partial{background:var(--c-partial)}.chip.different{background:var(--c-different)}
 .chip.high,.chip.exact,.chip.derived{background:var(--good)}.chip.medium{background:var(--warn)}.chip.low{background:var(--bad)}.chip.none{background:var(--muted)}
-.chip.draft{background:var(--warn)}.chip.running{background:var(--accent)}.chip.finalized{background:var(--good)}.chip.failed{background:var(--bad)}
+.chip.draft,.chip.awaiting{background:var(--warn)}.chip.running{background:var(--accent)}.chip.finalized{background:var(--good)}.chip.failed{background:var(--bad)}
 .steps{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 12px}
 .step{flex:1;min-width:130px;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 10px;font-size:12.5px;text-align:center;cursor:pointer;color:var(--muted)}
 .step.done{color:var(--good)}.step.cur{border-color:var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}.step.off{opacity:.45;cursor:default}

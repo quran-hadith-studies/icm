@@ -28,7 +28,8 @@ JOBS_DB = os.environ.get("ICM_JOBS_DB", os.path.join(DATA_DIR, "icm_jobs.sqlite"
 NOOR_OFFSET = 800_000_000
 
 # SMC presets: (n_particles, n_steps, n_mcmc) by number of narrator nodes
-PRESETS = {"thorough": (300, 20, 4), "standard": (150, 15, 3), "quick": (60, 8, 2)}
+PRESETS = {"thorough": (300, 20, 4), "standard": (150, 15, 3), "quick": (60, 8, 2),
+           "tiny": (16, 4, 1)}          # tests and smoke runs only; the UI does not offer it
 
 
 def preset_for(n_nodes: int) -> str:

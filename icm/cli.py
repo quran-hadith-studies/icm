@@ -7,6 +7,7 @@
   replay PID                     advance an existing project once
   status [PID]                   list projects or show one
   sync [--server U@H:PATH]       commit and push the cache; with --server, first copy the server's cache here
+  helper [--server URL] [--token-file F]   compute waiting projects on this machine (see icm/helper.py)
   eval                           recall of the search against the diagram witnesses and the consensus sets
   build kg|noor|termdf|books     (re)build the laptop-side data files
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from . import cache, config, pipeline, project, search
@@ -45,7 +47,15 @@ def main(argv=None) -> int:
     st = sub.add_parser("status"); st.add_argument("pid", nargs="?")
     sy = sub.add_parser("sync"); sy.add_argument("--server", help="user@host:path of the server's cache directory; copied here first")
     sub.add_parser("eval")
-    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "all"])
+    hp = sub.add_parser("helper", add_help=False)   # own parser in icm.helper
+    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "model", "all"])
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "helper":                 # the helper has its own options; fix the hash seed first
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            os.environ["PYTHONHASHSEED"] = "0"
+            os.execv(sys.executable, [sys.executable, "-m", "icm", *argv])
+        from .helper import main as hmain
+        return hmain(argv[1:])
     a = ap.parse_args(argv)
     if a.cmd == "worker":
         from .worker import main as wmain
@@ -73,7 +83,10 @@ def main(argv=None) -> int:
         print(json.dumps(evaluate.sitta(), ensure_ascii=False, indent=1))
         print(json.dumps(evaluate.consensus_oracle(), indent=1))
     elif a.cmd == "build":
-        from .build import books_meta, kg_extract, noor_relations, termdf
+        from .build import books_meta, kg_extract, model_zip, noor_relations, termdf
+        if a.what == "model":
+            print(model_zip.build())
+            return 0
         for name, mod in (("books", books_meta), ("noor", noor_relations), ("kg", kg_extract), ("termdf", termdf)):
             if a.what in (name, "all"):
                 mod.run()

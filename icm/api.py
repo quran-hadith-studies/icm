@@ -9,8 +9,11 @@ sent cross-site without a CORS pre-flight, which keeps cookie-authenticated writ
 """
 from __future__ import annotations
 
+import hmac
+import math
 import os
 import re
+import time
 from typing import Callable, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -46,6 +49,49 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         if p["owner"] != u["username"] and not u.get("is_admin"):
             raise HTTPException(403, "only the owner or an admin may change this project")
         return u, p
+
+    def helper_ok(request: Request) -> bool:
+        tok = os.environ.get("EBAD_ICM_HELPER_TOKEN") or os.environ.get("ICM_HELPER_TOKEN") or ""
+        got = request.headers.get("x-icm-helper", "")
+        return bool(tok) and len(tok) >= 20 and hmac.compare_digest(tok.encode(), got.encode())
+
+    def _compute_input(pid: str, p: dict) -> dict:
+        aw = p.get("awaiting")
+        if p.get("status") != "awaiting" or not aw:
+            raise HTTPException(409, "this project is not waiting for a computation")
+        G = project.stage_get(pid, "graph", aw["graph_hash"])
+        run = p.get("current_run")
+        S = project.run_stage(pid, run, "search") if run else None
+        if G is None or S is None:
+            raise HTTPException(500, "stage files are missing")
+        texts = {S["seed"]["wid"]: S["seed"]["matn"]}
+        texts.update({c["wid"]: c["matn"] for c in S["candidates"]})
+        used = {a["wid"] for a in G["attestations"]}
+        return dict(pid=pid, key=aw["key"], graph_hash=aw["graph_hash"], preset=aw["preset"], seed=0,
+                    graph=finite(G), texts={w: t for w, t in texts.items() if w in used})
+
+    def _accept_result(pid: str, p: dict, body: dict, provenance: dict) -> dict:
+        aw = p.get("awaiting")
+        if p.get("status") != "awaiting" or not aw or body.get("key") != aw["key"]:
+            raise HTTPException(409, "the project no longer waits for this computation")
+        res, viz = body.get("results"), body.get("viz")
+        if not isinstance(res, dict) or not isinstance(viz, dict):
+            raise HTTPException(400, "results and viz are required")
+        G = project.stage_get(pid, "graph", aw["graph_hash"])
+        post = res.get("posterior")
+        ok = (isinstance(post, dict) and post and all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in post.values())
+              and abs(sum(post.values()) - 1) < 1e-3 and res.get("preset") == aw["preset"] and res.get("seed") == 0
+              and res.get("n_narrators") == len(G["narrators"]) and res.get("map_source") in post
+              and isinstance(res.get("log_Z"), dict) and set(res["log_Z"]) == set(post)
+              and all(v is None or (isinstance(v, (int, float)) and math.isfinite(v)) for v in res["log_Z"].values())
+              and "narrators" in viz and "edges" in viz and "source_posterior" in viz)
+        if not ok:
+            raise HTTPException(400, "the result is not consistent with this project's graph")
+        res["provenance"] = provenance
+        out = dict(results=res, viz=viz, stage_version=1, inputs_hash=aw["key"], generated=project.now())
+        project.stage_put(pid, "infer", aw["key"], finite(out))
+        jobs.enqueue(pid)                                   # the worker finalises (cheap: every stage is cached)
+        return dict(ok=True)
 
     def _project(pid: str) -> dict:
         try:
@@ -195,6 +241,46 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         jobs.enqueue(pid)
         return dict(version=n)
 
+    @r.get("/api/project/{pid}/compute-input")
+    def compute_input(request: Request, pid: str):
+        p = _project(pid)
+        if not helper_ok(request):
+            u = get_user(request)
+            if not u or (p["owner"] != u["username"] and not u.get("is_admin")):
+                raise HTTPException(401, "owner, admin or helper token required")
+        return _compute_input(pid, p)
+
+    @r.post("/api/project/{pid}/compute-result")
+    async def compute_result(request: Request, pid: str):
+        p = _project(pid)
+        body = await request.json()
+        if helper_ok(request):
+            prov = dict(kind="helper", **{k: body.get("provenance", {}).get(k) for k in ("workers", "seconds", "platform")})
+        else:
+            u, p = own_project(request, pid)
+            prov = dict(kind="browser", user=u["username"], **{k: body.get("provenance", {}).get(k) for k in ("workers", "seconds", "agent")})
+        for k, v in list(prov.items()):
+            if isinstance(v, str):
+                prov[k] = v[:120]
+        return _accept_result(pid, p, body, prov)
+
+    @r.post("/api/helper/claim")
+    def helper_claim(request: Request):
+        if not helper_ok(request):
+            raise HTTPException(401, "helper token required")
+        now = project.now()
+        for p in sorted(project.list_projects(), key=lambda x: x["updated"]):
+            aw = p.get("awaiting")
+            if p.get("status") == "awaiting" and aw and aw.get("compute") == "helper":
+                if aw.get("claimed") and aw["claimed"] > time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3 * 3600)):
+                    continue                                # claimed within the last three hours
+                with project.lock(p["pid"]):
+                    q = project.load(p["pid"])
+                    q["awaiting"]["claimed"] = now
+                    project.save(q)
+                return _compute_input(p["pid"], q)
+        return JSONResponse(None)
+
     @r.post("/api/project/{pid}/rerun")
     async def rerun(request: Request, pid: str):
         own_project(request, pid)
@@ -236,7 +322,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             preset = pl.get("preset")
             if preset is not None and preset not in config.PRESETS:
                 raise HTTPException(400, "unknown preset")
-            out = dict(dates=dates, chain_edits=edits, preset=preset)
+            compute = pl.get("compute", "browser")
+            if compute not in ("browser", "helper", "server"):
+                raise HTTPException(400, "unknown compute mode")
+            out = dict(dates=dates, chain_edits=edits, preset=preset, compute=compute)
             if pl.get("confirmed"):
                 if pl["confirmed"] != p.get("graph_hash"):
                     raise HTTPException(409, "the graph changed; confirm the one on screen")

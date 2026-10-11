@@ -6,6 +6,48 @@ const FA = '۰۱۲۳۴۵۶۷۸۹';
 const fa = x => String(x).replace(/[0-9]/g, d => FA[d]);
 const pct = x => fa(Math.round(100 * x)) + '٪';
 
+
+/* ---------- computing in the user's browser ---------- */
+const STATUS_EXTRA = { awaiting: 'منتظر محاسبه' };
+function rpc(w, msg) {
+  return new Promise((res, rej) => {
+    const id = Math.random().toString(36).slice(2);
+    const on = e => { if (e.data.id !== id) return; w.removeEventListener('message', on); e.data.ok ? res(e.data.value) : rej(new Error(e.data.error)); };
+    w.addEventListener('message', on); w.postMessage({ id, ...msg });
+  });
+}
+async function computeInBrowser(pid, ui) {
+  const t0 = performance.now();
+  const inp = await api(`/project/${pid}/compute-input`);
+  const nW = Math.max(1, Math.min((navigator.hardwareConcurrency || 2) - 1, 6));
+  const workers = Array.from({ length: nW }, () => new Worker(BASE + '/static/model_worker.js'));
+  try {
+    ui(`بارگذاری مفسر پایتون در ${fa(nW)} پردازه…`, 0.02);
+    await Promise.all(workers.map(w => rpc(w, { cmd: 'boot', base: BASE })));
+    const payload = JSON.stringify({ graph: inp.graph, texts: inp.texts, preset: inp.preset, seed: inp.seed });
+    const infos = await Promise.all(workers.map(w => rpc(w, { cmd: 'init', payload })));
+    const n = infos[0].sources.length;
+    const light = new Array(n), owner = new Array(n);
+    let next = 0, done = 0;
+    await Promise.all(workers.map(async w => {
+      while (next < n) {
+        const i = next++;
+        light[i] = JSON.parse(await rpc(w, { cmd: 'source', i })); owner[i] = w;
+        done++; ui(`${fa(done)} از ${fa(n)} نامزد منبع محاسبه شد (${infos[0].sources[i].slice(0, 28)})`, 0.05 + 0.9 * done / n);
+      }
+    }));
+    let best = 0;
+    light.forEach((d, i) => { if ((d.log_Z ?? -Infinity) > (light[best].log_Z ?? -Infinity)) best = i; });
+    ui('ساخت خلاصه‌ی پسین…', 0.96);
+    const bj = await rpc(owner[best], { cmd: 'graphs', i: best });
+    const secs = (performance.now() - t0) / 1000;
+    const prov = { workers: nW, seconds: Math.round(secs), agent: navigator.userAgent.slice(0, 100) };
+    const out = JSON.parse(await rpc(workers[0], { cmd: 'finish', light: JSON.stringify(light), best: bj, seconds: secs, provenance: JSON.stringify({ kind: 'browser', ...prov }) }));
+    ui('ارسال نتیجه…', 0.99);
+    await post(`/project/${pid}/compute-result`, { key: inp.key, results: out.results, viz: out.bundle, provenance: prov });
+  } finally { workers.forEach(w => w.terminate()); }
+}
+
 /* ---------- helpers ---------- */
 function el(tag, attrs, ...kids) {
   const e = document.createElement(tag);
@@ -38,7 +80,7 @@ function modal(content) {
 }
 document.getElementById('modal-x').onclick = () => document.getElementById('modal').hidden = true;
 document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') e.target.hidden = true; });
-const STATUS = { draft: 'منتظر تصمیم شما', running: 'در حال اجرا', finalized: 'نهایی', failed: 'خطا' };
+const STATUS = { draft: 'منتظر تصمیم شما', running: 'در حال اجرا', finalized: 'نهایی', failed: 'خطا', awaiting: 'منتظر محاسبه' };
 const CLS = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت' };
 const TIER = { exact: 'قطعی', high: 'بالا', medium: 'متوسط', low: 'پایین', derived: 'استنباطی', none: 'بی‌نامزد' };
 const STEPS = [['seed', '۱ حدیث مبدأ'], ['selection', '۲ جستجو و انتخاب'], ['alignment', '۳ هم‌ترازی'], ['identities', '۴ راویان'], ['phylogeny', '۵ شجره'], ['analysis', '۶ تحلیل']];
@@ -112,10 +154,10 @@ async function project(pid, run) {
   P = await api('/project/' + pid);
   const p = P.project, readonly = !!run, runId = run || p.current_run || 'current';
   const can = ME.user && (ME.user === p.owner || ME.admin) && !readonly;
-  const cur = { search: 'selection', selection: 'selection', identities: 'identities', phylogeny: 'phylogeny', done: 'analysis' }[p.step] || 'selection';
+  const cur = { search: 'selection', selection: 'selection', identities: 'identities', phylogeny: 'phylogeny', analysis: 'analysis', done: 'analysis' }[p.step] || 'selection';
   if (!viewStep || viewStep.pid !== pid || run) viewStep = { pid, step: run ? 'analysis' : cur };
-  const reached = s => ({ seed: true, selection: true, alignment: ['identities', 'phylogeny', 'done'].includes(p.step) || (p.step === 'identities'), identities: ['identities', 'phylogeny', 'done'].includes(p.step),
-    phylogeny: ['phylogeny', 'done'].includes(p.step), analysis: p.step === 'done' })[s];
+  const reached = s => ({ seed: true, selection: true, alignment: ['identities', 'phylogeny', 'analysis', 'done'].includes(p.step), identities: ['identities', 'phylogeny', 'analysis', 'done'].includes(p.step),
+    phylogeny: ['phylogeny', 'analysis', 'done'].includes(p.step), analysis: ['analysis', 'done'].includes(p.step) })[s];
   const bar = el('div', { class: 'steps' }, STEPS.map(([k, t]) => el('div', { class: 'step' + (viewStep.step === k ? ' cur' : '') + (reached(k) ? '' : ' off'), onclick: ev => { if (reached(k)) { viewStep.step = k; document.querySelectorAll('.step').forEach(e => e.classList.remove('cur')); ev.currentTarget.classList.add('cur'); panel(); } } }, t)));
   const runSel = el('select', { onchange: ev => go('/p/' + pid + (ev.target.value === 'current' ? '' : '/r/' + ev.target.value)) },
     el('option', { value: 'current' }, 'نسخه‌ی کنونی'), P.runs.slice().reverse().map(r => el('option', { value: r.run, selected: r.run === run }, `${r.run} — ${r.created.replace('T', ' ').slice(0, 16)}`)));
@@ -259,6 +301,7 @@ const panels = {
     const dec = await api(`/project/${c.pid}/decision/phylogeny`);
     const dates = Object.assign({}, dec.dates || {});
     const preset = el('select', {}, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
+    const computeSel = el('select', {}, ...[['browser', 'در مرورگر من (سریع، موازی)'], ['helper', 'رایانه‌ی کمکی مدیر'], ['server', 'روی سرور (کند، نزدیک یک ساعت)']].map(([v, t]) => el('option', { value: v, selected: (dec.compute || 'browser') === v }, t)));
     const undated = Object.entries(G.nodes).filter(([n, i]) => !i.date_source || i.date_source === 'interpolated').slice(0, 60);
     main.replaceChildren(
       card('شجره‌ی انتقال ثبت‌شده', el('p', { class: 'muted small' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند، ${fa(G.stats.name_only)} فقط نام‌اند. محور افقی زمان است (راست = قدیم‌تر).`),
@@ -267,25 +310,48 @@ const panels = {
       c.can && undated.length ? card('تاریخ راویان بی‌تاریخ (اختیاری)', el('p', { class: 'muted small' }, 'اگر تاریخ وفات را می‌دانید، بازه‌ی سال هجری را بنویسید؛ در غیر این صورت برآورد از زنجیره‌ها می‌آید.'),
         undated.map(([n, i]) => el('div', { class: 'toolbar' }, el('span', { style: 'min-width:260px' }, i.name), el('input', { type: 'number', placeholder: 'از', style: 'width:90px', value: (dates[n] || [])[0] ?? '', oninput: ev => setDate(dates, n, 0, ev.target.value) }),
           el('input', { type: 'number', placeholder: 'تا', style: 'width:90px', value: (dates[n] || [])[1] ?? '', oninput: ev => setDate(dates, n, 1, ev.target.value) })))) : null,
-      card('تأیید', c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset,
+      card('تأیید', c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset, ' محاسبه: ', computeSel,
         el('button', { class: 'primary', onclick: async () => {
-          await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: cleanDates(dates), preset: preset.value || null } }); cache.clear(); viewStep = null; render();
+          await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: cleanDates(dates), preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); cache.clear(); viewStep = null; render();
         } }, 'تأیید شجره و اجرای تحلیل')) : el('span', { class: 'muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تأیید کند.'),
         P.project.step === 'done' ? el('p', { class: 'small muted' }, 'تحلیل این شجره انجام شده است.') : null));
   },
 
   /* ----- 6: analysis ----- */
   async analysis(main, c) {
+    if (c.p.status === 'awaiting' && !c.readonly) return awaitingPanel(main, c);
     const R = await stage(c.pid, c.runId, 'results');
     const rows = Object.entries(R.posterior).sort((a, b) => b[1] - a[1]).slice(0, 12);
     main.replaceChildren(
       card('نتیجه', el('p', {}, 'بهترین‌پشتیبانی‌شده: ', el('b', { class: 'ar' }, R.map_source), ' — مجموعه‌ی اطمینان ۹۵٪: ', R.credible_set_95.join('، ')),
         R.bayes_factor_top_vs_next ? el('p', { class: 'small muted' }, `لگاریتم عامل بیز نسبت به نامزد بعدی (${R.bayes_factor_top_vs_next.pair[1]}): ${fa(R.bayes_factor_top_vs_next.log_BF.toFixed(1))}`) : null,
         el('table', {}, el('tr', {}, ...['نامزد منبع', 'احتمال پسین', 'log Z'].map(t => el('th', {}, t))), rows.map(([n, v]) => el('tr', {}, el('td', { class: 'ar' }, n), el('td', {}, el('div', { class: 'bar' }, el('i', { style: `width:${Math.round(v * 100)}%` })), pct(v)), el('td', {}, R.log_Z[n] == null ? '−∞' : fa(R.log_Z[n].toFixed(1)))))),
+        el('p', { class: 'small muted' }, 'محاسبه: ' + ({ browser: 'در مرورگر یک کاربر', helper: 'روی رایانه‌ی کمکی', server: 'روی سرور' }[(R.provenance || { kind: 'server' }).kind] || '—') + (R.provenance && R.provenance.workers ? ` (${fa(R.provenance.workers)} پردازه)` : '') + '؛ نتیجه‌ی رایانه‌های کاربران بازتولید مستقل نشده است و اعتبارش همان ورود کاربر است.'),
         el('p', { class: 'small muted' }, `اجرا: ${R.preset} — ${fa(R.n_particles)} ذره، ${fa(R.n_steps)} دما، ${fa(R.seconds)} ثانیه. این نتیجه به شجره‌ی تأییدشده و پارامترهای ثابت مدل وابسته است؛ بخش «روش و محدودیت‌ها» در نمایشگر را بخوانید.`)),
       el('iframe', { class: 'viewer', src: `${API}/project/${c.pid}/runs/${c.runId}/viewer` }));
   },
 };
+
+async function awaitingPanel(main, c) {
+  const aw = c.p.awaiting || {};
+  const bar = el('div', { class: 'bar' }, el('i', { style: 'width:0%' })), msg = el('div', { class: 'small muted' }, '');
+  const ui = (t, f) => { msg.textContent = t; bar.firstChild.style.width = Math.round(100 * f) + '%'; };
+  let running = false;
+  const start = async () => {
+    if (running) return; running = true; btn.disabled = true;
+    try { await computeInBrowser(c.pid, ui); ui('انجام شد؛ در حال ثبت…', 1); setTimeout(() => { cache.clear(); viewStep = null; render(); }, 2500); }
+    catch (e) { running = false; btn.disabled = false; msg.textContent = 'خطا: ' + e.message; }
+  };
+  const btn = el('button', { class: 'primary', disabled: !c.can, onclick: start }, 'شروع محاسبه در مرورگر من');
+  main.replaceChildren(card('محاسبه‌ی مدل', el('p', {}, aw.compute === 'helper' ? 'این پروژه منتظر رایانه‌ی کمکی مدیر است. اگر نمی‌خواهید صبر کنید، می‌توانید همین‌جا در مرورگر خودتان اجرا کنید.' : 'تحلیل در مرورگر شما اجرا می‌شود و نتیجه به سرور فرستاده می‌شود. صفحه را نبندید.'),
+    el('p', { class: 'small muted' }, `دقت: ${aw.preset}. نامزدهای منبع جداگانه و موازی محاسبه می‌شوند؛ بار اول حدود ۱۵ مگابایت (مفسر پایتون و numpy) بارگیری می‌شود.`),
+    el('div', { class: 'toolbar' }, btn, c.can ? el('button', { onclick: async () => {
+      if (!confirm('محاسبه روی سرور نزدیک یک ساعت طول می‌کشد. ادامه؟')) return;
+      const d = await api(`/project/${c.pid}/decision/phylogeny`);
+      await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: d.dates || {}, preset: d.preset || null, compute: 'server' } }); cache.clear(); viewStep = null; render();
+    } }, 'اجرا روی سرور (کند)') : null), bar, msg));
+  if (c.can && sessionStorage.getItem('icm_auto') === c.pid) { sessionStorage.removeItem('icm_auto'); start(); }
+}
 
 /* ---------- pieces ---------- */
 function card(title, ...kids) { return el('div', { class: 'card' }, el('h2', {}, title), ...kids); }
