@@ -918,86 +918,158 @@ async function narratorCard(id) {
   modal(box);
 }
 
-/* the recorded graph as a tree: every collector has a row, a teacher sits between its students (so a chain of single
-   links is one straight line), the horizontal axis is time (right = older) or generation */
 const yearTxt = d => d[0] === d[1] ? fa(Math.round(d[0])) : `${fa(Math.round(d[0]))}–${fa(Math.round(d[1]))}`;
 const DSRC = { user: 'واردشده‌ی کاربر', 'author-death': 'درگذشت مؤلف کتاب', 'hadith-kg': 'گراف دانش', kg: 'گراف دانش', noor: 'نور', imam: 'تاریخ امام', interpolated: 'برآورد از جای سند', wikishia: 'ویکی‌شیعه', fixed: 'ثابت' };
 const shortName = (s, n = 4) => { const w = String(s).replace(/\s*،\s*/g, ' ').split(/\s+/).filter(Boolean); return w.length > n ? w.slice(0, n).join(' ') + '…' : w.join(' '); };
+/* the recorded graph. Two shapes: a tree of chains from their first narrator (no crossings; a narrator reached by two
+   routes appears twice), or one node per narrator under the teacher most chains give (other teachers dashed, ordered to
+   cross little). Horizontal axis: time (right = older) or the place in the tree. Kinds of narrators can be hidden (their
+   chains pass through, dotted); a subtree can be closed. */
 function graphSvg(G) {
   const nodes = G.narrators, info = G.nodes, atts = G.attestations;
   const year = n => { const d = nodes[n].death; return d ? (d[0] + d[1]) / 2 : null; };
-  const ecount = {}, parents = {}, through = {};
-  atts.forEach((a, ai) => a.sanad.forEach((v, i) => {
-    (through[v] ||= []).push(ai);
-    if (i) { const u = a.sanad[i - 1]; ecount[u + '>' + v] = (ecount[u + '>' + v] || 0) + 1; (parents[v] ||= new Set()).add(u); }
-  }));
-  const all = Object.keys(through);
-  /* the primary teacher of each narrator: the one most chains give, then the oldest */
-  const prim = {};
-  all.forEach(v => { const ps = [...(parents[v] || [])]; if (ps.length) prim[v] = ps.sort((a, b) => ecount[b + '>' + v] - ecount[a + '>' + v] || (year(a) ?? 1e4) - (year(b) ?? 1e4))[0]; });
-  all.forEach(v => { const seen = new Set([v]); for (let u = prim[v]; u != null; u = prim[u]) { if (u === v) { delete prim[v]; break; } if (seen.has(u)) break; seen.add(u); } });
-  const kids = {}; all.forEach(v => { if (prim[v] != null) (kids[prim[v]] ||= []).push(v); });
-  const nleaf = {}, leaves = n => nleaf[n] ??= (kids[n] || []).length ? kids[n].reduce((s, c) => s + leaves(c), 0) : 1;
-  const row = {}, depth = {}; let rows = 0;
-  const place = (n, d) => {
-    depth[n] = d;
-    const ks = (kids[n] || []).sort((a, b) => leaves(b) - leaves(a));
-    if (!ks.length) { row[n] = rows++; return; }
-    ks.forEach(k => place(k, d + 1));
-    row[n] = (row[ks[0]] + row[ks[ks.length - 1]]) / 2;
-  };
-  all.filter(n => prim[n] == null).sort((a, b) => leaves(b) - leaves(a)).forEach(n => { place(n, 0); rows += 0.5; });
-  const books = {}; atts.forEach(a => (books[a.anchor] ||= new Set()).add(a.collection));
-  const ys = all.map(year).filter(v => v != null), lo = Math.floor(Math.min(...ys, 0) / 50) * 50, hi = Math.ceil(Math.max(...ys, 100) / 50) * 50;
-  const maxD = Math.max(1, ...Object.values(depth));
-  const tierColor = n => { const t = info[n].tiers || []; return t.includes('exact') ? 'var(--good)' : t.includes('chosen') || t.includes('derived') ? 'var(--accent)' : t.includes('default') ? 'var(--warn)' : 'var(--muted)'; };
   const undated = n => !info[n].date_source || info[n].date_source === 'interpolated';
+  const cat = n => { const t = info[n].tiers || []; return t.includes('exact') ? 'exact' : t.includes('chosen') || t.includes('derived') ? 'chosen' : t.includes('default') ? 'auto' : t.includes('anon') ? 'anon' : 'name'; };
+  const CATS = [['exact', 'قطعی', 'var(--good)'], ['chosen', 'برگزیده یا استنباطی', 'var(--accent)'], ['auto', 'پیش‌فرض خودکار', 'var(--warn)'], ['name', 'فقط نام', 'var(--muted)'], ['anon', 'نامعلوم', 'var(--line)']];
+  const DATES = [['dated', 'تاریخ‌دار'], ['undated', 'بی‌تاریخ']];
+  const color = n => CATS.find(c => c[0] === cat(n))[2];
+  const count = {}; Object.keys(nodes).forEach(n => [cat(n), undated(n) ? 'undated' : 'dated'].forEach(k => count[k] = (count[k] || 0) + 1));
+  let mode = pref('icm.gmode', 'gen'), shape = pref('icm.gshape', 'tree'), zoom = +pref('icm.gzoom', '1') || 1, show;
+  try { show = new Set(JSON.parse(pref('icm.gshow', 'null')) || [...CATS, ...DATES].map(c => c[0])); } catch (_) { show = new Set([...CATS, ...DATES].map(c => c[0])); }
+  const collapsed = { tree: new Set(), graph: new Set() };
+  const visible = n => show.has(cat(n)) && show.has(undated(n) ? 'undated' : 'dated');
+
+  function build() {
+    const T = { key: '', kids: [] }, by = {}, paths = [], extra = [];
+    const mkN = (key, nid) => by[key] ||= { key, nid, kids: [], atts: [], ends: [], skip: 0 };
+    const seqs = atts.map(a => { const s = []; let hid = 0; a.sanad.forEach(n => { if (!visible(n)) { hid++; return; } s.push([n, hid]); hid = 0; }); return s; });
+    if (shape === 'tree') {
+      seqs.forEach((s, ai) => {
+        let cur = T; const p = [];                   // unnamed narrators at the same place with the same wording merge
+        s.forEach(([n, hid]) => { const k = cur.key + '>' + (cat(n) === 'anon' ? 'anon:' + nodes[n].name : n), fresh = !by[k], x = mkN(k, n); if (fresh) { x.parent = cur; cur.kids.push(x); } x.skip = Math.max(x.skip, hid); x.atts.push(ai); p.push(cur = x); });
+        if (cur !== T) cur.ends.push(ai);
+        paths.push(p);
+      });
+    } else {
+      const ec = {}, ps = {}, skip = {};
+      seqs.forEach(s => s.forEach(([v, h], i) => { if (!i) return; const u = s[i - 1][0], k = u + '>' + v; ec[k] = (ec[k] || 0) + 1; (ps[v] ||= new Set()).add(u); skip[k] = Math.max(skip[k] || 0, h); }));
+      const prim = {};
+      Object.entries(ps).forEach(([v, us]) => { prim[v] = [...us].sort((a, b) => ec[b + '>' + v] - ec[a + '>' + v] || (year(a) ?? 1e4) - (year(b) ?? 1e4))[0]; });
+      Object.keys(prim).forEach(v => { const seen = new Set([v]); for (let u = prim[v]; u != null; u = prim[u]) { if (u === v) { delete prim[v]; break; } if (seen.has(u)) break; seen.add(u); } });
+      seqs.forEach(s => s.forEach(([n]) => mkN(n, n)));
+      Object.values(by).forEach(x => { const u = prim[x.nid]; x.parent = u != null ? by[u] : T; x.parent.kids.push(x); if (u != null) x.skip = skip[u + '>' + x.nid]; });
+      seqs.forEach((s, ai) => { s.forEach(([n]) => by[n].atts.push(ai)); if (s.length) by[s[s.length - 1][0]].ends.push(ai); paths.push(s.map(([n]) => by[n])); });
+      Object.keys(ec).forEach(k => { const [u, v] = k.split('>'); if (prim[v] !== u) extra.push([by[u], by[v], skip[k]]); });
+    }
+    return { T, by, paths, extra };
+  }
+
+  function place(B) {
+    const col = collapsed[shape], shown = [];
+    let rows = 0;
+    const go = (x, d) => {
+      x.depth = d; shown.push(x);
+      const ks = col.has(x.key) ? [] : x.kids;
+      if (!ks.length) { x.row = rows++; return; }
+      ks.forEach(k => go(k, d + 1));
+      x.row = (ks[0].row + ks[ks.length - 1].row) / 2;
+    };
+    B.T.kids.forEach(r => { r.lo = rows; go(r, 0); r.hi = rows - 1; rows += 0.6; });
+    return { rows, shown };
+  }
+
+  function order(B) {
+    const size = x => x._n ??= x.kids.length ? x.kids.reduce((s, c) => s + size(c), 0) : 1;
+    const bySize = x => { x.kids.sort((a, b) => size(b) - size(a)); x.kids.forEach(bySize); };
+    bySize(B.T);
+    if (!B.extra.length) return;
+    /* barycentre passes: sibling subtrees move towards the rows their dashed partners sit on */
+    const part = new Map(); B.extra.forEach(([u, v]) => { (part.get(u) || part.set(u, []).get(u)).push(v); (part.get(v) || part.set(v, []).get(v)).push(u); });
+    for (let it = 0; it < 4; it++) {
+      place(B);
+      const bc = new Map(), sum = x => { let s = 0, c = 0; (part.get(x) || []).forEach(z => { s += z.row; c++; }); x.kids.forEach(k => { const r = sum(k); s += r[0]; c += r[1]; }); bc.set(x, c ? s / c : x.row); return [s, c]; };
+      B.T.kids.forEach(sum);
+      const re = x => { x.kids.sort((a, b) => bc.get(a) - bc.get(b)); x.kids.forEach(re); };
+      re(B.T);
+    }
+  }
+
   const ns = 'http://www.w3.org/2000/svg';
   const mk = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt != null) e.textContent = txt; return e; };
-  let mode = pref('icm.gmode', 'time'), zoom = +pref('icm.gzoom', '1') || 1;
-  const box = el('div', { class: 'gwrap' }), tools = el('div', { class: 'toolbar small' });
-  const draw = () => {
-    const time = mode === 'time';
-    const W = time ? Math.max(1200, (hi - lo) * 3.4) : Math.max(1000, (maxD + 1) * 160), L = 230, R = W - 70, RH = 34, T = 34, H = T + rows * RH + 30;
-    const X = n => time ? L + (R - L) * (1 - ((year(n) ?? lo) - lo) / (hi - lo || 1)) : R - (R - L) * depth[n] / maxD;
-    const Y = n => T + row[n] * RH;
+  const box = el('div', { class: 'gwrap' }), tools = el('div', { class: 'gtools small' });
+
+  function draw() {
+    const B = build(); order(B);
+    const { rows, shown } = place(B), col = collapsed[shape], time = mode === 'time';
+    const ys = shown.map(x => year(x.nid)).filter(v => v != null), lo = Math.floor(Math.min(...ys, 0) / 50) * 50, hi = Math.ceil(Math.max(...ys, 100) / 50) * 50;
+    const maxD = Math.max(1, ...shown.map(x => x.depth));
+    const W = time ? Math.max(1200, (hi - lo) * 3.4) : Math.max(1000, (maxD + 1) * 160), L = 240, R = W - 70, RH = 34, TOP = 34, H = TOP + rows * RH + 30;
+    const X = x => time ? L + (R - L) * (1 - ((year(x.nid) ?? lo) - lo) / (hi - lo || 1)) : R - (R - L) * x.depth / maxD;
+    const Y = x => TOP + x.row * RH;
     const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, width: Math.round(W * zoom), height: Math.round(H * zoom), class: 'gsvg' });
+    B.T.kids.forEach((r, i) => { if (i % 2) svg.append(mk('rect', { x: 0, y: TOP + (r.lo - 0.5) * RH, width: W, height: (r.hi - r.lo + 1) * RH, class: 'band' })); });
     if (time) for (let yv = Math.ceil(lo / 50) * 50; yv <= hi; yv += 50) {
       const xx = L + (R - L) * (1 - (yv - lo) / (hi - lo || 1)), major = yv % 100 === 0;
       svg.append(mk('line', { x1: xx, y1: 14, x2: xx, y2: H - 16, class: major ? 'grid' : 'grid minor' }));
       if (major) [10, H - 4].forEach(y => svg.append(mk('text', { x: xx, y, class: 'axis' }, fa(yv) + ' ق')));
     }
-    const edge = {};
-    Object.keys(ecount).forEach(k => {
-      const [u, v] = k.split('>'), x1 = X(u), y1 = Y(u), x2 = X(v), y2 = Y(v), mx = (x1 + x2) / 2;
-      edge[k] = mk('path', { d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`, class: 'e' + (prim[v] === u ? '' : ' sec'), 'stroke-width': 1 + Math.log2(ecount[k]) });
-      svg.append(edge[k]);
+    const on = new Set(shown), edge = new Map(), dots = {};
+    const link = (x1, y1, x2, y2) => x2 < x1 - 34 && y1 !== y2   // bend next to the teacher, then run along the student's row: a tree never crosses
+      ? `M${x1},${y1} C${x1 - 20},${y1} ${x1 - 20},${y2} ${x1 - 34},${y2} L${x2},${y2}` : `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+    shown.forEach(x => {
+      if (x.parent === B.T) return;
+      const p = mk('path', { d: link(X(x.parent), Y(x.parent), X(x), Y(x)), class: 'e' + (x.skip ? ' skip' : ''), 'stroke-width': 1 + Math.log2(x.atts.length) });
+      if (x.skip) p.append(mk('title', {}, `${fa(x.skip)} راوی پنهان میان این دو`));
+      edge.set(x, p); svg.append(p);
     });
-    const hot = (n, on) => {
-      svg.classList.toggle('dim', on);
-      (through[n] || []).forEach(ai => atts[ai].sanad.slice(1).forEach((v, i) => edge[atts[ai].sanad[i] + '>' + v].classList.toggle('hot', on)));
+    B.extra.forEach(([u, v, s]) => { if (on.has(u) && on.has(v)) svg.append(mk('path', { d: link(X(u), Y(u), X(v), Y(v)), class: 'e sec' + (s ? ' skip' : '') })); });
+    const hot = (x, v) => {
+      svg.classList.toggle('dim', v);
+      x.atts.forEach(ai => B.paths[ai].forEach(y => { const e = edge.get(y); if (e) e.classList.toggle('hot', v); }));
+      (dots[x.nid] || []).forEach(c => c.classList.toggle('twin', v));
     };
-    all.forEach(n => {
-      const g = mk('g', { class: 'nd' }), x = X(n), y = Y(n), leaf = !(kids[n] || []).length, anon = (info[n].tiers || []).includes('anon');
-      const d = nodes[n].death, src = info[n].date_source;
-      g.append(mk('title', {}, `${nodes[n].name}\n${d ? (undated(n) ? 'حدود ' : 'ف ') + yearTxt(d) + ' — ' + (DSRC[src] || src || '') : 'بی‌تاریخ'}\n${fa(through[n].length)} سند`));
-      g.append(mk('circle', { cx: x, cy: y, r: anon ? 3.5 : 5, class: undated(n) ? 'und' : '', style: `--c:${tierColor(n)}` }));
+    const books = x => [...new Set(x.ends.map(ai => atts[ai].collection))].map(b => shortName(b, 3)).join('، ');
+    shown.forEach(x => {
+      const n = x.nid, g = mk('g', { class: 'nd' }), cx = X(x), cy = Y(x), closed = col.has(x.key) && x.kids.length, leaf = closed || !x.kids.length, d = nodes[n].death;
+      const below = x.atts.length - x.ends.length;
+      g.append(mk('title', {}, `${nodes[n].name}\n${d ? (undated(n) ? 'حدود ' : 'ف ') + yearTxt(d) + ' — ' + (DSRC[info[n].date_source] || info[n].date_source || '') : 'بی‌تاریخ'}\n${fa(x.atts.length)} سند` +
+        (x.kids.length ? `\nدایره را بزنید تا زیرشاخه ${closed ? 'باز' : 'بسته'} شود؛ نام را بزنید برای کارت راوی.` : '\nبرای کارت راوی بزنید.')));
+      const c = mk('circle', { cx, cy, r: cat(n) === 'anon' ? 3.5 : 5, class: (undated(n) ? 'und' : '') + (closed ? ' closed' : ''), style: `--c:${color(n)}` });
+      (dots[n] ||= []).push(c);
+      c.addEventListener('click', ev => { ev.stopPropagation(); if (!x.kids.length) return narratorCard(n); col.has(x.key) ? col.delete(x.key) : col.add(x.key); keep(draw); });
       const name = shortName(nodes[n].name, leaf ? 5 : 4);
-      if (leaf) g.append(mk('text', { x: x - 9, y: y + 4, class: 'lb', 'text-anchor': 'start', direction: 'rtl' }, name + (books[n] ? '  ·  ' + [...books[n]].map(b => shortName(b, 3)).join('، ') : '')));
-      else g.append(mk('text', { x, y: time && depth[n] % 2 ? y + 17 : y - 9, class: 'lb', 'text-anchor': 'middle', direction: 'rtl' }, name));
-      g.addEventListener('mouseenter', () => hot(n, true)); g.addEventListener('mouseleave', () => hot(n, false));
-      g.addEventListener('click', () => narratorCard(n));
+      const t = leaf ? mk('text', { x: cx - 9, y: cy + 4, class: 'lb', 'text-anchor': 'start', direction: 'rtl' }, name + (closed ? `  (+${fa(below)} سند)` : '') + (x.ends.length ? '  ·  ' + books(x) : ''))
+        : mk('text', { x: cx, y: time && x.depth % 2 ? cy + 17 : cy - 9, class: 'lb', 'text-anchor': 'middle', direction: 'rtl' }, name);
+      t.addEventListener('click', () => narratorCard(n));
+      g.append(c, t);
+      g.addEventListener('mouseenter', () => hot(x, true)); g.addEventListener('mouseleave', () => hot(x, false));
       svg.append(g);
     });
     box.replaceChildren(svg);
-    const btn = (t, on, f) => el('button', { class: 'small' + (on ? ' on' : ''), onclick: f }, t);
-    tools.replaceChildren('محور افقی: ', el('span', { class: 'seg' }, btn('زمان', time, () => { mode = 'time'; setPref('icm.gmode', mode); draw(); }), btn('نسل', !time, () => { mode = 'gen'; setPref('icm.gmode', mode); draw(); })),
-      ' اندازه: ', btn('−', false, () => { zoom = Math.max(0.4, zoom / 1.25); setPref('icm.gzoom', zoom); draw(); }), btn('+', false, () => { zoom = Math.min(2.5, zoom * 1.25); setPref('icm.gzoom', zoom); draw(); }),
-      el('span', { class: 'glegend' }, ...[['var(--good)', 'قطعی'], ['var(--accent)', 'برگزیده یا استنباطی'], ['var(--warn)', 'پیش‌فرض خودکار'], ['var(--muted)', 'فقط نام']].map(([c, t]) => el('span', {}, el('i', { style: `background:${c}` }), t)),
-        el('span', {}, el('i', { class: 'und' }), 'بی‌تاریخ (جایش برآورد شده)')));
-  };
+    drawTools(B);
+  }
+  const keep = f => { const l = box.scrollLeft, t = box.scrollTop; f(); box.scrollLeft = l; box.scrollTop = t; };
+
+  function drawTools(B) {
+    const seg = (cur, opts, set) => el('span', { class: 'seg' }, opts.map(([v, t]) => el('button', { class: 'small' + (cur === v ? ' on' : ''), onclick: () => set(v) }, t)));
+    const chip = ([k, t, c]) => el('label', { class: 'fchip' + (show.has(k) ? ' on' : '') }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => {
+      ev.target.checked ? show.add(k) : show.delete(k); setPref('icm.gshow', JSON.stringify([...show])); setTimeout(() => keep(draw)); } }),
+      k === 'undated' ? el('i', { class: 'und' }) : c ? el('i', { style: `background:${c}` }) : null, t, el('span', { class: 'muted' }, ' ' + fa(count[k] || 0)));
+    const depthSel = el('select', { onchange: ev => { const k = +ev.target.value; collapsed[shape] = new Set(k ? Object.values(B.by).filter(x => x.kids.length && depthOf(x) === k - 1).map(x => x.key) : []); ev.target.value = ''; draw(); } },
+      el('option', { value: '' }, 'بستن زیرشاخه‌ها…'), el('option', { value: '0' }, 'همه باز'), [2, 3, 4, 5, 6].map(k => el('option', { value: k }, `نمایش تا جای ${fa(k)} در سند`)));
+    tools.replaceChildren(
+      el('div', { class: 'toolbar' }, 'محور افقی: ', seg(mode, [['time', 'زمان'], ['gen', 'جای در درخت']], v => { mode = v; setPref('icm.gmode', v); draw(); }),
+        ' شکل: ', seg(shape, [['tree', 'درخت بی‌تقاطع'], ['graph', 'هر راوی یک بار']], v => { shape = v; setPref('icm.gshape', v); draw(); }),
+        ' ', depthSel,
+        ' اندازه: ', el('button', { class: 'small', onclick: () => { zoom = Math.max(0.4, zoom / 1.25); setPref('icm.gzoom', zoom); draw(); } }, '−'),
+        el('button', { class: 'small', onclick: () => { zoom = Math.min(2.5, zoom * 1.25); setPref('icm.gzoom', zoom); draw(); } }, '+')),
+      el('div', { class: 'toolbar' }, 'نمایش: ', CATS.map(chip), el('span', { class: 'muted' }, ' | '), DATES.map(chip)));
+  }
+  const depthOf = x => { let d = 0; for (let p = x.parent; p && p.key !== ''; p = p.parent) d++; return d; };
   draw();
-  return el('div', {}, tools, box, el('p', { class: 'small muted' }, 'هر گردآورنده (پایان سند) یک ردیف دارد و هر استاد میان شاگردانش می‌نشیند؛ زنجیره‌ای که شاخه نمی‌شود یک خط راست است. خط پررنگ‌تر = سندهای بیشتر؛ خط‌چین = استادِ دومی که برخی سندها برای راوی آورده‌اند. نشانگر را روی راوی ببرید تا سندهایش برجسته شوند؛ برای کارت راوی کلیک کنید.'));
+  return el('div', {}, tools, box, el('p', { class: 'small muted' },
+    'درخت بی‌تقاطع: سندها از نخستین راویشان شاخه می‌شوند؛ راوی‌ای که از دو راه رسیده دو بار آمده است (نشانگر را رویش ببرید تا همه‌ی جاهایش حلقه بگیرند). هر راوی یک بار: هر راوی زیر استادی است که بیشتر سندها می‌آورند و استادهای دیگر خط‌چین‌اند. ',
+    'دایره را بزنید تا زیرشاخه بسته یا باز شود؛ نام را بزنید برای کارت راوی. راویان پنهان‌شده از سند حذف نمی‌شوند: سند از رویشان می‌گذرد (خط نقطه‌چین). خط پررنگ‌تر = سندهای بیشتر.'));
 }
 
 render();

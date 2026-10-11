@@ -551,9 +551,13 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    (grade, dated facts with evidence, rijāl entries, teachers/students) is one click away.
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
    intervals from the narrator database / KG, the dates entered on step 4, interpolation along chains), with
-   chronology warnings. The user confirms *this exact graph* (its hash). It is drawn as a tree: each collector
-   has a row, a teacher sits midway between its students (by the teacher most chains give; other teachers are
-   dashed), the horizontal axis is time or generation. Warnings are grouped by kind and, opened, list their
+   chronology warnings. The user confirms *this exact graph* (its hash). It is drawn in one of two shapes: a tree
+   of the chains from their first narrator (a trie: no crossings, a narrator reached by two routes appears twice,
+   unnamed narrators with the same wording at the same place merge), or one node per narrator under the teacher
+   most chains give (other teachers dashed; sibling subtrees ordered by barycentre to cross little). Each
+   collector has a row and a teacher sits midway between its students; the horizontal axis is the place in the
+   tree or time. Kinds of narrators (certain / chosen / automatic / name only / unnamed, dated / undated) can be
+   hidden, their chains passing through dotted; any subtree can be closed, or all from a given depth. Warnings are grouped by kind and, opened, list their
    hadiths and narrators; these and the undated narrators link to the place in step 4 (`?h=<wid>&n=<aid>|<i>`,
    from the graph nodes' `occ`). The KG's gap markers («موضع تعليق», «موضع إرسال», «موضع انقطاع», «اسم مبهم»)
    are unnamed narrators of their own chain, not one shared node; one at a collector's place puts the work's
