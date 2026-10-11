@@ -1,0 +1,270 @@
+{
+ "seed": "v02:800316143",
+ "note": "substantive (>=100 chars) witnesses of the diagram and the corpus hadith with the closest text; expected=true means text identity >= 0.85. Frozen 2026-10-11.",
+ "witnesses": [
+  {
+   "diagram_id": "a0",
+   "collection": "ابن ابی عاصم (287ق)",
+   "chars": 182,
+   "best_wid": "kg:348223",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a1",
+   "collection": "طحاوی (321ق)",
+   "chars": 186,
+   "best_wid": "kg:411435",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a2",
+   "collection": "ابن حبان (354ق)",
+   "chars": 160,
+   "best_wid": "v02:265200009200",
+   "text_identity": 0.994,
+   "expected": true
+  },
+  {
+   "diagram_id": "a3",
+   "collection": "ابو الخیر التبریزی (636ق)",
+   "chars": 156,
+   "best_wid": "kg:426824",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a5",
+   "collection": "الطبرانی (360ق)",
+   "chars": 108,
+   "best_wid": "kg:281527",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a6",
+   "collection": "ابو نعیم الأصبهانی (430ق)",
+   "chars": 160,
+   "best_wid": "v02:265200009200",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a7",
+   "collection": "الحاکم النیسابوری (405ق)",
+   "chars": 152,
+   "best_wid": "kg:371002",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a9",
+   "collection": "سؤال من ابو زرعة فی کتاب ابن أبی حاتم (327ق)",
+   "chars": 152,
+   "best_wid": "kg:563679",
+   "text_identity": 0.962,
+   "expected": true
+  },
+  {
+   "diagram_id": "a10",
+   "collection": "محمد بن اسحاق الفاکهی (272ق)",
+   "chars": 159,
+   "best_wid": "kg:537311",
+   "text_identity": 0.994,
+   "expected": true
+  },
+  {
+   "diagram_id": "a12",
+   "collection": "الحاکم النیسابوری (405ق)",
+   "chars": 153,
+   "best_wid": "kg:80750",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a13",
+   "collection": "الحاکم النیسابوری (405ق)",
+   "chars": 161,
+   "best_wid": "kg:77560",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a16",
+   "collection": "الحاکم النیسابوری (405ق)",
+   "chars": 152,
+   "best_wid": "kg:371002",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a17",
+   "collection": "ابن مردویه (410ق)",
+   "chars": 159,
+   "best_wid": "kg:537311",
+   "text_identity": 0.937,
+   "expected": true
+  },
+  {
+   "diagram_id": "a18",
+   "collection": "محمد بن عبد الله الأرزقی (250ق)",
+   "chars": 181,
+   "best_wid": "kg:519926",
+   "text_identity": 0.973,
+   "expected": true
+  },
+  {
+   "diagram_id": "a20",
+   "collection": "الحاکم النیسابوری (405ق)",
+   "chars": 154,
+   "best_wid": "kg:77559",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a22",
+   "collection": "الجندی (650ق)",
+   "chars": 160,
+   "best_wid": "kg:77559",
+   "text_identity": 0.956,
+   "expected": true
+  },
+  {
+   "diagram_id": "a25",
+   "collection": "ابن بشران (430ق)",
+   "chars": 179,
+   "best_wid": "kg:326634",
+   "text_identity": 0.927,
+   "expected": true
+  },
+  {
+   "diagram_id": "a26",
+   "collection": "احمد بن الحسین البیهقی (458ق)",
+   "chars": 158,
+   "best_wid": "v02:285900103400",
+   "text_identity": 0.928,
+   "expected": true
+  },
+  {
+   "diagram_id": "a27",
+   "collection": "الجندی (650ق)",
+   "chars": 160,
+   "best_wid": "kg:77559",
+   "text_identity": 0.956,
+   "expected": true
+  },
+  {
+   "diagram_id": "a28",
+   "collection": "ابن جوزی (597ق)",
+   "chars": 170,
+   "best_wid": "v02:358000066800",
+   "text_identity": 0.765,
+   "expected": false
+  },
+  {
+   "diagram_id": "a29",
+   "collection": "الخطیب البغدادی (463ق)",
+   "chars": 177,
+   "best_wid": "v02:398500247600",
+   "text_identity": 0.701,
+   "expected": false
+  },
+  {
+   "diagram_id": "a30",
+   "collection": "محمد بن عبد الرحمن المخلصی (393ق)",
+   "chars": 230,
+   "best_wid": "v02:164300038400",
+   "text_identity": 0.552,
+   "expected": false
+  },
+  {
+   "diagram_id": "a31",
+   "collection": "الصدوق (381ق)",
+   "chars": 182,
+   "best_wid": "kg:201886",
+   "text_identity": 0.671,
+   "expected": false
+  },
+  {
+   "diagram_id": "a32",
+   "collection": "علی بن الحسین (مدینة؛ حدود 95ق)",
+   "chars": 210,
+   "best_wid": "v02:800549551",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a33",
+   "collection": "عبد الکریم الرافعی القزوینی (623ق)",
+   "chars": 161,
+   "best_wid": "kg:653719",
+   "text_identity": 0.969,
+   "expected": true
+  },
+  {
+   "diagram_id": "a34",
+   "collection": "الشیخ الصدوق (381ق)",
+   "chars": 163,
+   "best_wid": "v02:800065854",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a35",
+   "collection": "علی بن الحسین (مدینة؛ حدود 95ق)",
+   "chars": 214,
+   "best_wid": "v02:800362555",
+   "text_identity": 0.953,
+   "expected": true
+  },
+  {
+   "diagram_id": "a36",
+   "collection": "الصدوق (381ق)",
+   "chars": 212,
+   "best_wid": "v02:391500091300",
+   "text_identity": 0.958,
+   "expected": true
+  },
+  {
+   "diagram_id": "a37",
+   "collection": "الکلینی (329ق)",
+   "chars": 112,
+   "best_wid": "v02:800106382",
+   "text_identity": 1.0,
+   "expected": true
+  },
+  {
+   "diagram_id": "a39",
+   "collection": "محمد بن سلیمان الصنعانی/ الکوفی (حدود 300ق)",
+   "chars": 130,
+   "best_wid": "v02:102000085700",
+   "text_identity": 0.842,
+   "expected": false
+  },
+  {
+   "diagram_id": "a40",
+   "collection": "طبرانی (360ق)",
+   "chars": 159,
+   "best_wid": "kg:292287",
+   "text_identity": 0.975,
+   "expected": true
+  },
+  {
+   "diagram_id": "a41",
+   "collection": "ابو نعیم الأصبهانی (430ق)",
+   "chars": 159,
+   "best_wid": "kg:292287",
+   "text_identity": 0.975,
+   "expected": true
+  },
+  {
+   "diagram_id": "a42",
+   "collection": "ابن حبان (354ق)",
+   "chars": 139,
+   "best_wid": "v02:207800107900",
+   "text_identity": 0.993,
+   "expected": true
+  }
+ ]
+}
