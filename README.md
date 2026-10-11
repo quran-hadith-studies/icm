@@ -530,8 +530,13 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
 4. **Narrators**: chains are read from Noor's parsed isnāds, the KG's chains or, for everything else, the
    rule-based isnād parser (`icm/sanad_parse.py`). Every name gets candidate persons (name agreement with the
    father/son guard, chain context from Noor/KG adjacency, popularity). Names whose identity the source gives
-   are *exact*; the others become **name cards** the user decides one by one, with the narrator card
-   (grade, dated facts with evidence, rijāl entries, teachers/students) one click away.
+   are *exact*; the others become **name cards** (one per tradition and normalised name; a candidate keeps its
+   best tier over the card's places, and the list is ordered by tier, then score). A card whose top candidate is
+   `high` is chosen automatically. The page shows every witness's chain in the step-3 order, each name marked
+   exact / automatic / user's choice / undecided / name only; clicking a name opens its candidates there and
+   highlights its other places. A choice applies to every place of the name, or to one place (`overrides`);
+   «عن أبيه» is resolved per chain only (the father of an Imam), never from the card. The narrator card
+   (grade, dated facts with evidence, rijāl entries, teachers/students) is one click away.
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
    intervals from the narrator database / KG, interpolation along chains), with chronology warnings. The user
    confirms *this exact graph* (its hash) and may enter dates.
@@ -684,7 +689,7 @@ token), make `~/ebadollah/data/icm/cache` a clone of `icm-cache`, and remove `IC
 * The identity suggestions are not decisions: one narrator appearing as two nodes can flip the best source. The user
   must decide the cards; there is no automatic merge of name-only nodes that refer to the same person.
 * `identities` decisions are keyed by the normalised name of a card, so one choice applies to every chain with that name;
-  per-occurrence overrides exist in the payload (`overrides`) but the UI does not offer them.
+  «فقط همین جا» in the editor stores a per-occurrence override instead.
 * `merges` and `split_nodes` appear in the plan but are not implemented; `chain_edits` and `dates` are (dates in the UI).
 * Results computed in a browser or by the helper are checked for consistency but not recomputed by the server.
 * Per-line (companion branch) results, the matn-only ablation and the sensitivity/permutation runs of the diagram case

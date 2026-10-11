@@ -387,6 +387,45 @@ def card_key(trad: str, e: dict) -> str:
     return f"{trad}:{' '.join(norm(e['name']).split())}"
 
 
+_TIER_RANK = {"exact": 4, "high": 3, "derived": 3, "medium": 2, "low": 1}
+
+
+def make_cards(chains: Sequence[dict], trad: Dict[str, str]) -> Dict[str, dict]:
+    """One card per (tradition, name): the places it occurs and its candidates merged over them.
+
+    A candidate keeps its best score, context and tier over the places; the list is ordered by tier, then
+    score, so a candidate that is ``high`` in one chain (its neighbours vouch for it) is not pushed under a
+    looser name match that scored higher elsewhere (e.g. a collector matched against another database)."""
+    cards: Dict[str, dict] = {}
+    for ch in chains:
+        t = trad.get(ch["wid"], "shia")
+        for e in ch["elems"]:
+            if e["exact"] or e["kind"] == "anon":
+                continue
+            key = card_key(t, e)
+            e["card"] = key
+            cd = cards.setdefault(key, dict(key=key, name=e["name"], kind=e["kind"], tradition=t, occurrences=[], candidates={}))
+            cd["occurrences"].append([ch["aid"], e["i"]])
+            for c in e["cands"]:
+                old = cd["candidates"].get(c["id"])
+                if old is None:
+                    cd["candidates"][c["id"]] = dict(c)
+                    continue
+                best = dict(c) if c["score"] > old["score"] else old
+                best["ctx"] = max(c.get("ctx", 0), old.get("ctx", 0))
+                best["tier"] = max(c.get("tier"), old.get("tier"), key=lambda x: _TIER_RANK.get(x, 0))
+                cd["candidates"][c["id"]] = best
+    for cd in cards.values():
+        cl = sorted(cd["candidates"].values(), key=lambda c: (-_TIER_RANK.get(c.get("tier"), 0), -c["score"]))[:8]
+        cd["candidates"] = cl
+        top = cl[0] if cl else None
+        # «عن أبيه» is someone else in every chain: it takes only the person derived in its own chain (resolve)
+        cd["default"] = (top["id"] if top and cd["kind"] != "relative" and (top.get("tier") == "high" or top.get("derived"))
+                         else None)
+        cd["tier"] = (top.get("tier") if top else None) or ("derived" if top and top.get("derived") else "none")
+    return cards
+
+
 def build(wits: Sequence[dict]) -> dict:
     """identities.json: chains with candidates, and the name cards to decide.
 
@@ -400,26 +439,7 @@ def build(wits: Sequence[dict]) -> dict:
             flags.append(dict(kind="no_chain", ref=w["wid"], message="no isnad could be read for this witness"))
         chains.extend(ch)
     attach_candidates(chains, trad)
-    cards: Dict[str, dict] = {}
-    for ch in chains:
-        t = trad.get(ch["wid"], "shia")
-        for e in ch["elems"]:
-            if e["exact"] or e["kind"] == "anon":
-                continue
-            key = card_key(t, e)
-            e["card"] = key
-            cd = cards.setdefault(key, dict(key=key, name=e["name"], kind=e["kind"], tradition=t, occurrences=[], candidates={}))
-            cd["occurrences"].append([ch["aid"], e["i"]])
-            for c in e["cands"]:
-                old = cd["candidates"].get(c["id"])
-                if old is None or c["score"] > old["score"]:
-                    cd["candidates"][c["id"]] = dict(c)
-    for cd in cards.values():
-        cl = sorted(cd["candidates"].values(), key=lambda c: -c["score"])[:8]
-        cd["candidates"] = cl
-        top = cl[0] if cl else None
-        cd["default"] = top["id"] if top and (top.get("tier") == "high" or top.get("derived")) else None
-        cd["tier"] = (top.get("tier") if top else None) or ("derived" if top and top.get("derived") else "none")
+    cards = make_cards(chains, trad)
     n_exact = sum(1 for ch in chains for e in ch["elems"] if e["exact"])
     n_el = sum(len(ch["elems"]) for ch in chains)
     return dict(chains=chains, cards=cards, flags=flags,
@@ -464,7 +484,8 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
             occ = f"{ch['aid']}|{e['i']}"
             tier = None
             if occ in overrides:
-                nid, tier = overrides[occ], "chosen"
+                v = overrides[occ]
+                nid, tier = (None, "name") if v in (None, "none") else (v, "chosen")
             elif e["exact"]:
                 nid, tier = e["exact"], "exact"
             elif e["kind"] == "anon":
