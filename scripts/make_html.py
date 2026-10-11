@@ -42,27 +42,21 @@ BODY = r"""
       <div class="card">
         <h2>درخت انتقال، آن‌گونه که در اسناد ثبت شده است</h2>
         <div class="toolbar">
-          <input id="q" type="search" placeholder="جست‌وجوی راوی یا عبارت…" aria-label="جست‌وجو">
+          <input id="q" type="search" placeholder="جست‌وجوی راوی، کتاب یا عبارت…" aria-label="جست‌وجو">
           <select id="branchsel" aria-label="نمایش یک طریق"></select>
-          <button id="expandall" type="button">باز کردن همه</button>
-          <button id="collapseall" type="button">بستن تا سطح صحابه</button>
-          <span class="hint">کشیدن برای جابه‌جایی · ⌘/Ctrl + چرخ برای بزرگ‌نمایی · روی نام یا یال کلیک کنید</span>
+          <span class="hint">روی نام برای جزئیات · روی دایره برای بستن یا باز کردن زیرشاخه · روی یال برای جزئیات یال · روی نام کتاب برای متن · ⌘/Ctrl + چرخ برای بزرگ‌نمایی</span>
         </div>
-        <div id="treebox">
-          <svg id="treesvg" role="img" aria-label="درخت انتقال، از راست به چپ"></svg>
-          <div class="zoomer">
-            <button type="button" id="zfit" title="نمایش کل درخت">کل درخت</button>
-            <button type="button" id="zin" title="بزرگ‌نمایی" aria-label="بزرگ‌نمایی">+</button>
-            <button type="button" id="zout" title="کوچک‌نمایی" aria-label="کوچک‌نمایی">−</button>
-          </div>
-        </div>
+        <div id="treetools"></div>
+        <div id="treebox"></div>
         <div class="legend">
           <span><i class="map"></i>یال در محتمل‌ترین درخت (MAP)</span>
-          <span><i></i>احتمال پسین کمتر از ۱</span>
+          <span><i></i>یال ثبت‌شده‌ی بیرون از آن</span>
           <span><i class="low"></i>احتمال پسین کمتر از ۰٫۵</span>
-          <span><span class="sw"></span>متن حدیث (شاهد)</span>
-          <span>ضخامت یال = احتمال پسین · عدد کنار نام = سال وفات (ق) · شمار شاهدهای زیرین</span>
+          <span><i class="skip"></i>راوی پنهان‌شده میان دو نام</span>
+          <span><span class="sw"></span>نام کتاب (متن حدیث)</span>
+          <span>ضخامت یال = شمار سندها · دایره‌ی توخالی = بی‌تاریخ</span>
         </div>
+        <p class="help" style="padding:0 12px 10px">درخت بی‌تقاطع: سندها از نخستین راویشان شاخه می‌شوند؛ راوی‌ای که از دو راه رسیده دو بار آمده است (نشانگر را رویش ببرید تا سندهایش پررنگ شوند). هر راوی یک بار: هر راوی زیر استادی است که بیشتر سندها می‌آورند و استادهای دیگر خط‌چین‌اند. راویان پنهان‌شده از سند حذف نمی‌شوند: سند از رویشان می‌گذرد (خط نقطه‌چین).</p>
       </div>
       <div class="card" id="inspector">
         <h2>جزئیات</h2>

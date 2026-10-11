@@ -747,17 +747,16 @@ and set `VIZ_TITLE` / `VIZ_HEADING` to get the same viewer for another family.
 
 What it shows (tabs: درخت، متن‌ها، مبدأ، درخت بیشینه، حساسیت، روش و محدودیت‌ها، راهنما):
 
-* **Tree** — the transmission tree drawn right-to-left like the source diagram:
-  the hadith at the right edge, the six companion lines fanning out, the matn
-  witnesses at the far left. It opens fitted to the whole tree; drag to pan,
-  scroll to move, ⌘/ctrl + scroll to zoom, and the knob on a node collapses its
-  subtree (the number inside a filled knob is how many nodes are hidden).
-  Edge thickness and opacity track the posterior probability of that teacher →
-  student link; edges in the MAP tree are drawn in the accent colour and edges
-  below 0.5 are dashed. Each narrator carries its floruit and the number of
-  surviving witnesses below it. Clicking a narrator shows the full posterior
+* **Tree** — the recorded chains drawn as in step 5 of the wizard (same code shape): source on the right, the
+  collector and the book at the left end of each chain. Two shapes: a tree of chains from their first narrator (no
+  crossings; a narrator reached by two routes appears twice) or one node per narrator under the teacher most chains
+  give (other teachers dashed); horizontal axis by place in the chain or by death year. Kinds of narrators (how the
+  name was resolved, dated or not) can be hidden, the chain passing through them dotted; a circle closes its subtree.
+  The model's verdict is on the edges: in the MAP tree in the accent colour, posterior below 0.5 red dashed;
+  thickness is the number of chains. Every recorded teacher → student link has an `edges` entry in the bundle (not
+  only a narrator's first teacher). Clicking a narrator shows the full posterior
   over who its teacher was and the ancestral matn probabilities at that
-  narrator; clicking a matn witness shows the text, its encoded variant units,
+  narrator; clicking a book name (a matn witness) shows the text, its encoded variant units,
   its isnād and its independence weight. Clicking an **edge** shows its
   posterior, its prior ρ and the parts of its score η, how many independent KG
   isnāds attest the same teacher → student pair, the witnesses that carry it,

@@ -20,7 +20,7 @@ function sci(x) {
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const lz = s => sp[s].log_Z === null ? NEG : sp[s].log_Z;
 const srcName = s => s === UNK ? 'مبدأ ناشناخته (پیش از همه‌ی صحابه)' : (N[s] ? N[s].name : s);
-const nm = id => id === ROOT ? 'حدیث «ستة لعنهم الله»' : id === UNK || String(id).startsWith(UNK + '#') ? 'راوی بی‌نامِ میانیِ ویژه‌ی همین راوی' : (N[id] ? N[id].name : id);
+const nm = id => id === ROOT ? (D.heading || D.family || 'حدیث') : id === UNK || String(id).startsWith(UNK + '#') ? 'راوی بی‌نامِ میانیِ ویژه‌ی همین راوی' : (N[id] ? N[id].name : id);
 
 /* ---------- variant units: Persian names, colours, and how to find them in a text ---------- */
 const CLAUSES = {
@@ -58,14 +58,14 @@ function highlight(text) {
   return out + esc(text.slice(at));
 }
 
-/* ---------- tree model ---------- */
-const kids = {};
-for (const [v, p] of Object.entries(D.recorded_parent)) (kids[p] = kids[p] || []).push(v);
-for (const c of D.companions) (kids[ROOT] = kids[ROOT] || []).push(c);
-const attAt = {};
-D.attestations.forEach((a, i) => { (attAt[a.anchor] = attAt[a.anchor] || []).push(i); });
-const witnesses = {};
-(function count(v) { let n = (attAt[v] || []).length; for (const c of (kids[v] || [])) n += count(c); return witnesses[v] = n; })(ROOT);
+/* ---------- the recorded chains (source -> collector, as each attestation gives it) ---------- */
+const ATT = D.attestations;
+const teachersOf = {}, studentsOf = {}, witnesses = {[ROOT]: ATT.length};
+ATT.forEach(a => {
+  new Set(a.sanad).forEach(n => { witnesses[n] = (witnesses[n] || 0) + 1; });
+  a.sanad.forEach((v, i) => { if (!i) return; const u = a.sanad[i - 1]; (teachersOf[v] ||= new Set()).add(u); (studentsOf[u] ||= new Set()).add(v); });
+});
+const heads = [...new Set(ATT.map(a => a.sanad[0]))].sort((a, b) => ATT.filter(x => x.sanad[0] === b).length - ATT.filter(x => x.sanad[0] === a).length);
 const edgeKey = (p, c) => p + '>' + c;
 
 /* ---------- header ---------- */
@@ -87,146 +87,232 @@ document.getElementById('verdicts').innerHTML = CHIPS.map(([k, v, h]) =>
   `<div class="chip" title="${esc(h)}"><span class="k">${k}</span>${v}</div>`).join('');
 document.getElementById('explainlist').innerHTML = CHIPS.map(([k, v, h]) => `<dt>${k}</dt><dd>${esc(h)}</dd>`).join('');
 
-/* ---------- tree drawing: right-to-left node-link ---------- */
-const SVG = document.getElementById('treesvg'), BOX = document.getElementById('treebox');
+/* ---------- tree drawing: the chains as written, source on the right, as in step 5 of the wizard ----------
+   Two shapes: a tree of chains from their first narrator (no crossings; a narrator reached by two routes appears twice),
+   or one node per narrator under the teacher most chains give (other teachers dashed). Horizontal axis: time (right =
+   older) or the place in the tree. Kinds of narrators can be hidden (their chains pass through, dotted); a subtree can
+   be closed. Edges carry the model's verdict: blue = in the most probable tree, red dashes = posterior below 0.5. */
+const BOX = document.getElementById('treebox'), TOOLS = document.getElementById('treetools');
 const NS = 'http://www.w3.org/2000/svg';
-const ROW = 26, COLGAP = 34, PAD = 28;
-const open = new Set([ROOT, ...D.companions, ...Object.keys(N)]);
-let selected = null, selEdge = null, filter = '', branchFilter = '';
-let view = {k: 1, x: 0, y: 0};
-const el = (n, a, t) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (t !== undefined) e.textContent = t; return e; };
+const el = (n, a, t) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (t !== undefined && t !== null) e.textContent = t; return e; };
+const pref = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (_) { return d; } };
+const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* per-viewer convenience only */ } };
 const isMatn = id => /^a\d+$/.test(id);
-const childrenOf = v => isMatn(v) ? [] : (kids[v] || []).concat((attAt[v] || []).map(i => 'a' + i));
-const labelOf = id => {
-  if (isMatn(id)) { const t = D.attestations[+id.slice(1)].text; return t.length > 46 ? t.slice(0, 46) + '…' : t; }
-  return nm(id);
+const normQ = s => String(s).replace(/[يیى]/g, 'ي').replace(/[كک]/g, 'ك').replace(/[هةۀھ]/g, 'ه').replace(/[أإآ]/g, 'ا');
+const shortName = (s, n = 4) => { const w = String(s).replace(/\s*،\s*/g, ' ').split(/\s+/).filter(Boolean); return w.length > n ? w.slice(0, n).join(' ') + '…' : w.join(' '); };
+const year = n => N[n] && N[n].death ? (N[n].death[0] + N[n].death[1]) / 2 : (N[n] ? N[n].year : null);
+const undated = n => !N[n].date_source || N[n].date_source === 'interpolated';
+const cat = n => {
+  const t = N[n].tiers;
+  if (!t) return /^anon:/.test(n) ? 'anon' : /^(name|rel):/.test(n) ? 'name' : 'exact';
+  return t.includes('exact') ? 'exact' : t.includes('chosen') || t.includes('derived') ? 'chosen' : t.includes('default') ? 'auto' : t.includes('anon') ? 'anon' : 'name';
 };
-const normQ = s => s.replace(/[يیى]/g, 'ي').replace(/[كک]/g, 'ك').replace(/[هةۀھ]/g, 'ه').replace(/[أإآ]/g, 'ا');
-function matchesId(id) {
+const CATS = [['exact', 'قطعی', 'var(--good)'], ['chosen', 'برگزیده یا استنباطی', 'var(--accent)'], ['auto', 'پیش‌فرض خودکار', 'var(--warn)'], ['name', 'فقط نام', 'var(--ink-faint)'], ['anon', 'نامعلوم', 'var(--line)']];
+const DATES = [['dated', 'تاریخ‌دار'], ['undated', 'بی‌تاریخ']];
+const color = n => CATS.find(c => c[0] === cat(n))[2];
+const kindCount = {}; Object.keys(N).forEach(n => [cat(n), undated(n) ? 'undated' : 'dated'].forEach(k => { kindCount[k] = (kindCount[k] || 0) + 1; }));
+let mode = pref('icmv.gmode', 'gen'), shape = pref('icmv.gshape', 'tree'), zoom = +pref('icmv.gzoom', '1') || 1, kinds;
+try { kinds = new Set(JSON.parse(pref('icmv.gshow', 'null')) || [...CATS, ...DATES].map(c => c[0])); } catch (_) { kinds = new Set([...CATS, ...DATES].map(c => c[0])); }
+const collapsed = {tree: new Set(), graph: new Set()};
+const visible = n => kinds.has(cat(n)) && kinds.has(undated(n) ? 'undated' : 'dated');
+let selected = null, selEdge = null, filter = '', branchFilter = '', LAST = null;
+const used = ai => {
+  const a = ATT[ai];
+  if (branchFilter && a.sanad[0] !== branchFilter) return false;
   if (!filter) return true;
   const q = normQ(filter);
-  const own = isMatn(id) ? D.attestations[+id.slice(1)].text : nm(id);
-  return normQ(own).includes(q) || childrenOf(id).some(matchesId);
-}
-const subtreeSize = id => childrenOf(id).reduce((n, c) => n + 1 + subtreeSize(c), 0);
-const wCache = new Map();
-function measure(id) {
-  if (wCache.has(id)) return wCache.get(id);
-  const t = el('text', {x: 0, y: -9999, class: 'lbl' + (isMatn(id) ? ' matn' : '')}, labelOf(id));
-  SVG.appendChild(t);
-  const w = t.getComputedTextLength() || labelOf(id).length * 8;
-  SVG.removeChild(t); wCache.set(id, w); return w;
-}
-function layout() {
-  const root = branchFilter || ROOT;
-  const nodes = []; let slot = 0;
-  (function walk(id, depth, parent) {
-    const node = {id, depth, parent, w: measure(id)};
-    nodes.push(node);
-    const vis = open.has(id) ? childrenOf(id).filter(matchesId) : [];
-    node.collapsed = !open.has(id) && childrenOf(id).length > 0;
-    node.hidden_n = node.collapsed ? subtreeSize(id) : 0;
-    if (!vis.length) { node.y = slot++ * ROW; return node; }
-    const cs = vis.map(c => walk(c, depth + 1, id));
-    node.y = (cs[0].y + cs[cs.length - 1].y) / 2;
-    return node;
-  })(root, 0, null);
-  const maxD = Math.max(...nodes.map(n => n.depth));
-  const colW = new Array(maxD + 1).fill(0);
-  for (const n of nodes) colW[n.depth] = Math.max(colW[n.depth], n.w + 64);
-  const xR = []; let acc = PAD;
-  for (let d = 0; d <= maxD; d++) { xR[d] = acc; acc += colW[d] + COLGAP; }
-  const width = acc + PAD;
-  for (const n of nodes) n.x = width - xR[n.depth];
-  return {nodes, width, height: (slot + 1) * ROW + PAD};
-}
-let LAYOUT = null;
-function drawTree(keepView) {
-  LAYOUT = layout();
-  const {nodes} = LAYOUT, byId = new Map(nodes.map(n => [n.id, n]));
-  while (SVG.firstChild) SVG.removeChild(SVG.firstChild);
-  const g = el('g', {id: 'cam'}), gE = el('g', {}), gN = el('g', {});
-  g.append(gE, gN); SVG.appendChild(g);
-  for (const n of nodes) {
-    if (!n.parent) continue;
-    const p = byId.get(n.parent);
-    const x1 = p.x - p.w - 20, y1 = p.y, x2 = n.x + 50, y2 = n.y, mx = (x1 + x2) / 2;
-    const matn = isMatn(n.id), key = edgeKey(n.parent, n.id);
-    const q = matn ? undefined : EP[key];
-    const inMap = !matn && MAPG[n.id] === n.parent;
-    const d = `M${x1.toFixed(1)},${y1.toFixed(1)} C${mx.toFixed(1)},${y1.toFixed(1)} ${mx.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
-    if (!matn && n.parent !== ROOT) gE.appendChild(el('path', {class: 'ehit', d, 'data-edge': key}));
-    gE.appendChild(el('path', {class: 'edge' + (inMap ? ' map' : '') + (q !== undefined && q < 0.5 ? ' low' : '') + (selEdge === key ? ' sel' : ''),
-      'stroke-width': (q === undefined ? 1 : 0.8 + 1.8 * q).toFixed(2), d, opacity: q === undefined ? 0.45 : (0.35 + 0.65 * q).toFixed(2)}));
+  return a.sanad.some(n => normQ(nm(n)).includes(q)) || normQ(a.collection || '').includes(q) || normQ(a.text || '').includes(q);
+};
+
+function build() {
+  const T = {key: '', kids: []}, by = {}, paths = [], extra = [];
+  const mkN = (key, nid) => by[key] ||= {key, nid, kids: [], atts: [], ends: [], skip: 0};
+  const seqs = ATT.map((a, ai) => { if (!used(ai)) return []; const s = []; let hid = 0; a.sanad.forEach(n => { if (!visible(n)) { hid++; return; } s.push([n, hid]); hid = 0; }); return s; });
+  if (shape === 'tree') {
+    seqs.forEach((s, ai) => {
+      let cur = T; const p = [];                   // every unnamed narrator is his own node: two gaps are not one man
+      s.forEach(([n, hid]) => { const k = cur.key + '>' + n, fresh = !by[k], x = mkN(k, n); if (fresh) { x.parent = cur; cur.kids.push(x); } x.skip = Math.max(x.skip, hid); x.atts.push(ai); p.push(cur = x); });
+      if (cur !== T) cur.ends.push(ai);
+      paths.push(p);
+    });
+  } else {
+    const ec = {}, ps = {}, skip = {};
+    seqs.forEach(s => s.forEach(([v, h], i) => { if (!i) return; const u = s[i - 1][0], k = u + '>' + v; ec[k] = (ec[k] || 0) + 1; (ps[v] ||= new Set()).add(u); skip[k] = Math.max(skip[k] || 0, h); }));
+    const prim = {};
+    Object.entries(ps).forEach(([v, us]) => { prim[v] = [...us].sort((a, b) => ec[b + '>' + v] - ec[a + '>' + v] || (year(a) ?? 1e4) - (year(b) ?? 1e4))[0]; });
+    Object.keys(prim).forEach(v => { const seen = new Set([v]); for (let u = prim[v]; u != null; u = prim[u]) { if (u === v) { delete prim[v]; break; } if (seen.has(u)) break; seen.add(u); } });
+    seqs.forEach(s => s.forEach(([n]) => mkN(n, n)));
+    Object.values(by).forEach(x => { const u = prim[x.nid]; x.parent = u != null ? by[u] : T; x.parent.kids.push(x); if (u != null) x.skip = skip[u + '>' + x.nid]; });
+    seqs.forEach((s, ai) => { s.forEach(([n]) => by[n].atts.push(ai)); if (s.length) by[s[s.length - 1][0]].ends.push(ai); paths.push(s.map(([n]) => by[n])); });
+    Object.keys(ec).forEach(k => { const [u, v] = k.split('>'); if (prim[v] !== u) extra.push([by[u], by[v], skip[k]]); });
   }
-  for (const n of nodes) {
-    const linked = !isMatn(n.id) && N[n.id] && N[n.id].kg && ['high', 'medium'].includes(N[n.id].kg.confidence);
-    const t = el('text', {x: n.x, y: n.y, 'text-anchor': 'start', direction: 'rtl',
-      class: 'lbl' + (isMatn(n.id) ? ' matn' : '') + (linked ? ' linked' : '') + (selected === n.id ? ' sel' : '') +
-             (filter && normQ(isMatn(n.id) ? D.attestations[+n.id.slice(1)].text : nm(n.id)).includes(normQ(filter)) ? ' hit' : ''),
-      'data-id': n.id}, labelOf(n.id));
-    t.appendChild(el('title', {}, isMatn(n.id) ? D.attestations[+n.id.slice(1)].text : nm(n.id)));
-    gN.appendChild(t);
-    if (!isMatn(n.id) && n.id !== ROOT) {
-      const bits = [];
-      if (N[n.id].year !== null) bits.push(fa(N[n.id].year));
-      if (witnesses[n.id]) bits.push(fa(witnesses[n.id]) + '✎');
-      if (bits.length) gN.appendChild(el('text', {x: n.x + 8, y: n.y, class: 'yr', 'text-anchor': 'start', direction: 'ltr'}, bits.join(' · ')));
-    }
-    if (childrenOf(n.id).length) {
-      const kx = n.x - n.w - 12;
-      gN.appendChild(el('circle', {cx: kx, cy: n.y, r: 6, class: 'knob' + (n.collapsed ? ' closed' : ''), 'data-tw': n.id}));
-      if (n.collapsed) gN.appendChild(el('text', {x: kx, y: n.y + 0.5, class: 'count'}, fa(n.hidden_n > 99 ? 99 : n.hidden_n)));
-    }
+  return {T, by, paths, extra};
+}
+
+function place(B) {
+  const col = collapsed[shape], shown = [];
+  let rows = 0;
+  const go = (x, d) => {
+    x.depth = d; shown.push(x);
+    const ks = col.has(x.key) ? [] : x.kids;
+    if (!ks.length) { x.row = rows++; return; }
+    ks.forEach(k => go(k, d + 1));
+    x.row = (ks[0].row + ks[ks.length - 1].row) / 2;
+  };
+  B.T.kids.forEach(r => { r.lo = rows; go(r, 0); r.hi = rows - 1; rows += 0.6; });
+  return {rows, shown};
+}
+
+function order(B) {
+  const size = x => x._n ??= x.kids.length ? x.kids.reduce((s, c) => s + size(c), 0) : 1;
+  const bySize = x => { x.kids.sort((a, b) => size(b) - size(a)); x.kids.forEach(bySize); };
+  bySize(B.T);
+  if (!B.extra.length) return;
+  /* barycentre passes: sibling subtrees move towards the rows their dashed partners sit on */
+  const part = new Map(); B.extra.forEach(([u, v]) => { (part.get(u) || part.set(u, []).get(u)).push(v); (part.get(v) || part.set(v, []).get(v)).push(u); });
+  for (let it = 0; it < 4; it++) {
+    place(B);
+    const bc = new Map(), sum = x => { let s = 0, c = 0; (part.get(x) || []).forEach(z => { s += z.row; c++; }); x.kids.forEach(k => { const r = sum(k); s += r[0]; c += r[1]; }); bc.set(x, c ? s / c : x.row); return [s, c]; };
+    B.T.kids.forEach(sum);
+    const re = x => { x.kids.sort((a, b) => bc.get(a) - bc.get(b)); x.kids.forEach(re); };
+    re(B.T);
   }
-  syncViewBox();
-  if (!keepView) { fit(true); sizeBox(); }
-  applyView();
 }
-function sizeBox() {
-  const maxH = Math.max(300, Math.round(window.innerHeight * 0.78));
-  const h = Math.max(300, Math.min(maxH, Math.round(LAYOUT.height * view.k + 24)));
-  if (Math.abs(h - BOX.getBoundingClientRect().height) > 2) { BOX.style.height = h + 'px'; syncViewBox(); fit(true); }
+
+let SVGEL = null, edgeOf = null, dotsOf = null;
+function drawTree() {
+  const B = build(); order(B); LAST = B;
+  const {rows, shown} = place(B), col = collapsed[shape], time = mode === 'time';
+  if (!shown.length) { BOX.innerHTML = '<p class="empty" style="padding:16px">هیچ سندی با این جست‌وجو یا این طریق نمی‌خواند.</p>'; drawTools(B); return; }
+  const ys = shown.map(x => year(x.nid)).filter(v => v != null), lo = Math.floor(Math.min(...ys, 0) / 50) * 50, hi = Math.ceil(Math.max(...ys, 100) / 50) * 50;
+  const maxD = Math.max(1, ...shown.map(x => x.depth));
+  const W = time ? Math.max(1100, (hi - lo) * 3.4) : Math.max(900, (maxD + 1) * 160), L = 250, R = W - 80, RH = 34, TOP = 34, H = TOP + rows * RH + 30;
+  const X = x => time ? L + (R - L) * (1 - ((year(x.nid) ?? lo) - lo) / (hi - lo || 1)) : R - (R - L) * x.depth / maxD;
+  const Y = x => TOP + x.row * RH;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, width: Math.round(W * zoom), height: Math.round(H * zoom), class: 'gsvg', role: 'img', 'aria-label': 'درخت انتقال، از راست به چپ'});
+  B.T.kids.forEach((r, i) => { if (i % 2) svg.append(el('rect', {x: 0, y: TOP + (r.lo - 0.5) * RH, width: W, height: (r.hi - r.lo + 1) * RH, class: 'band'})); });
+  if (time) for (let yv = Math.ceil(lo / 50) * 50; yv <= hi; yv += 50) {
+    const xx = L + (R - L) * (1 - (yv - lo) / (hi - lo || 1)), major = yv % 100 === 0;
+    svg.append(el('line', {x1: xx, y1: 14, x2: xx, y2: H - 16, class: major ? 'grid' : 'grid minor'}));
+    if (major) [10, H - 4].forEach(y => svg.append(el('text', {x: xx, y, class: 'axis'}, fa(yv) + ' ق')));
+  }
+  const on = new Set(shown); edgeOf = new Map(); dotsOf = {};
+  const link = (x1, y1, x2, y2) => x2 < x1 - 34 && y1 !== y2   // bend next to the teacher, then run along the student's row: a tree never crosses
+    ? `M${x1},${y1} C${x1 - 20},${y1} ${x1 - 20},${y2} ${x1 - 34},${y2} L${x2},${y2}` : `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+  const verdict = (u, v) => { const k = edgeKey(u, v), q = EP[k]; return {k, q, map: MAPG[v] === u, low: q !== undefined && q < 0.5}; };
+  shown.forEach(x => {
+    if (x.parent === B.T) return;
+    const d = link(X(x.parent), Y(x.parent), X(x), Y(x)), vd = verdict(x.parent.nid, x.nid);
+    const p = el('path', {d, class: 'e' + (x.skip ? ' skip' : '') + (vd.map ? ' map' : '') + (vd.low ? ' low' : '') + (selEdge === vd.k ? ' sel' : ''), 'stroke-width': 1 + Math.log2(x.atts.length)});
+    edgeOf.set(x, p); svg.append(p);
+    if (!x.skip && E[vd.k]) {
+      const h = el('path', {d, class: 'ehit', 'data-edge': vd.k});
+      h.append(el('title', {}, `${nm(x.parent.nid)} ← ${nm(x.nid)}\nاحتمال پسین ${vd.q === undefined ? '—' : fa(vd.q.toFixed(3))}${vd.map ? ' · در محتمل‌ترین درخت' : ''}\nبرای جزئیات یال بزنید.`));
+      svg.append(h);
+    } else if (x.skip) p.append(el('title', {}, `${fa(x.skip)} راوی پنهان میان این دو`));
+  });
+  B.extra.forEach(([u, v, s]) => { if (on.has(u) && on.has(v)) { const vd = verdict(u.nid, v.nid); svg.append(el('path', {d: link(X(u), Y(u), X(v), Y(v)), class: 'e sec' + (s ? ' skip' : '') + (vd.map ? ' map' : '')})); } });
+  const hit = n => filter && normQ(nm(n)).includes(normQ(filter));
+  shown.forEach(x => {
+    const n = x.nid, g = el('g', {class: 'nd'}), cx = X(x), cy = Y(x), closed = col.has(x.key) && x.kids.length, leaf = closed || !x.kids.length, d = N[n].death;
+    const below = x.atts.length - x.ends.length;
+    g.append(el('title', {}, `${nm(n)}\n${d ? (undated(n) ? 'حدود ' : 'ف ') + fa(Math.round(d[0])) + (Math.round(d[0]) !== Math.round(d[1]) ? '–' + fa(Math.round(d[1])) : '') + ' ق' : 'بی‌تاریخ'}\n${fa(x.atts.length)} سند` +
+      (x.kids.length ? `\nدایره را بزنید تا زیرشاخه ${closed ? 'باز' : 'بسته'} شود؛ نام را بزنید برای جزئیات.` : '\nبرای جزئیات بزنید.')));
+    const c = el('circle', {cx, cy, r: cat(n) === 'anon' ? 3.5 : 5, class: (undated(n) ? 'und' : '') + (closed ? ' closed' : '') + (selected === n ? ' pick' : ''), style: `--c:${color(n)}`, 'data-tw': x.key});
+    (dotsOf[n] ||= []).push(c);
+    const name = shortName(nm(n), leaf ? 5 : 4), cls = 'lb' + (selected === n ? ' sel' : '') + (hit(n) ? ' hit' : '');
+    let t;
+    if (leaf) {
+      t = el('text', {x: cx - 9, y: cy + 4, class: cls, 'text-anchor': 'start', direction: 'rtl'});
+      t.append(el('tspan', {'data-id': n}, name + (closed ? `  (+${fa(below)} سند)` : '')));
+      x.ends.forEach((ai, j) => {
+        t.append(el('tspan', {class: 'sepr'}, j ? '، ' : '  ·  '));
+        t.append(el('tspan', {class: 'book' + (selected === 'a' + ai ? ' sel' : ''), 'data-matn': ai}, shortName(ATT[ai].collection || '—', 3)));
+      });
+    } else t = el('text', {x: cx, y: time && x.depth % 2 ? cy + 17 : cy - 9, class: cls, 'text-anchor': 'middle', direction: 'rtl', 'data-id': n}, name);
+    g.append(c, t);
+    g.addEventListener('mouseenter', () => hot(x.atts)); g.addEventListener('mouseleave', () => hot(null));
+    svg.append(g);
+  });
+  SVGEL = svg;
+  BOX.replaceChildren(svg);
+  hot(null);
+  drawTools(B);
 }
-function syncViewBox() { const r = BOX.getBoundingClientRect(); SVG.setAttribute('viewBox', `0 0 ${Math.max(1, Math.round(r.width))} ${Math.max(1, Math.round(r.height))}`); }
-function applyView() { const c = SVG.querySelector('#cam'); if (c) c.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`); }
-function fit(all) {
-  const r = BOX.getBoundingClientRect();
-  const kx = r.width / LAYOUT.width, ky = r.height / LAYOUT.height;
-  view.k = Math.max(0.08, Math.min(1.6, all ? Math.min(kx, ky) : Math.min(1, kx)));
-  view.x = r.width - LAYOUT.width * view.k; view.y = 6; applyView();
+/* the chains through the hovered node, else through the selection, stand out */
+function hot(ais) {
+  if (!SVGEL) return;
+  if (!ais) ais = selected === null ? [] : isMatn(selected) ? [+selected.slice(1)] : ATT.map((a, i) => i).filter(i => ATT[i].sanad.includes(selected));
+  SVGEL.classList.toggle('dim', ais.length > 0);
+  edgeOf.forEach(p => p.classList.remove('hot'));
+  ais.forEach(ai => (LAST.paths[ai] || []).forEach(y => { const e = edgeOf.get(y); if (e) e.classList.add('hot'); }));
 }
-function zoomBy(f, cx, cy) {
-  const r = BOX.getBoundingClientRect();
-  const px = cx ?? r.width / 2, py = cy ?? r.height / 2, k2 = Math.max(0.08, Math.min(4, view.k * f));
-  view.x = px - (px - view.x) * (k2 / view.k); view.y = py - (py - view.y) * (k2 / view.k); view.k = k2; applyView();
+const keep = f => { const l = BOX.scrollLeft, t = BOX.scrollTop; f(); BOX.scrollLeft = l; BOX.scrollTop = t; };
+function reveal(q) {
+  const e = BOX.querySelector(q); if (!e) return;
+  const b = BOX.getBoundingClientRect(), r = e.getBoundingClientRect();
+  BOX.scrollLeft += r.left + r.width / 2 - (b.left + b.width / 2); BOX.scrollTop += r.top + r.height / 2 - (b.top + b.height / 2);
 }
-document.getElementById('zin').onclick = () => zoomBy(1.25);
-document.getElementById('zout').onclick = () => zoomBy(0.8);
-document.getElementById('zfit').onclick = () => fit(true);
-BOX.addEventListener('wheel', e => {
-  e.preventDefault();
-  const r = BOX.getBoundingClientRect();
-  if (e.ctrlKey || e.metaKey) zoomBy(e.deltaY < 0 ? 1.12 : 0.89, e.clientX - r.left, e.clientY - r.top);
-  else { view.x -= e.deltaX; view.y -= e.deltaY; applyView(); }
-}, {passive: false});
-let drag = null;
-BOX.addEventListener('pointerdown', e => {
-  if (e.target.closest('text,circle,button,.ehit')) return;
-  drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; BOX.classList.add('drag'); BOX.setPointerCapture(e.pointerId);
+/* open the closed subtrees above an attestation (or a narrator's first place) and bring it into view */
+function bring(id) {
+  if (!LAST) return;
+  const ai = isMatn(id) ? +id.slice(1) : ATT.findIndex((a, i) => a.sanad.includes(id) && (LAST.paths[i] || []).some(x => x.nid === id));
+  if (ai < 0 || !(LAST.paths[ai] || []).length) return;
+  const col = collapsed[shape];
+  for (const x of LAST.paths[ai]) { if (!isMatn(id) && x.nid === id) break; col.delete(x.key); }
+  drawTree();
+  reveal(isMatn(id) ? `[data-matn="${ai}"]` : `[data-id="${CSS.escape(id)}"]`);
+}
+
+function drawTools(B) {
+  const seg = (cur, opts, set) => `<span class="seg">${opts.map(([v, t]) => `<button type="button" data-seg="${set}" data-v="${v}" class="${cur === v ? 'on' : ''}">${t}</button>`).join('')}</span>`;
+  const chip = ([k, t, c]) => `<label class="fchip${kinds.has(k) ? ' on' : ''}"><input type="checkbox" data-show="${k}"${kinds.has(k) ? ' checked' : ''}>` +
+    (k === 'undated' ? '<i class="und"></i>' : c ? `<i style="background:${c}"></i>` : '') + `${t}<span class="muted"> ${fa(kindCount[k] || 0)}</span></label>`;
+  const hasTiers = Object.values(N).some(n => n.tiers);
+  TOOLS.innerHTML = `<div class="toolbar">محور افقی: ${seg(mode, [['time', 'زمان'], ['gen', 'جای در درخت']], 'mode')}
+      شکل: ${seg(shape, [['tree', 'درخت بی‌تقاطع'], ['graph', 'هر راوی یک بار']], 'shape')}
+      <select id="depthsel" aria-label="بستن زیرشاخه‌ها"><option value="">بستن زیرشاخه‌ها…</option><option value="0">همه باز</option>${[1, 2, 3, 4, 5, 6].map(k => `<option value="${k}">نمایش تا جای ${fa(k)} در سند</option>`).join('')}</select>
+      <span class="seg"><button type="button" id="zout" title="کوچک‌نمایی" aria-label="کوچک‌نمایی">−</button><button type="button" id="zfit" title="پهنای کل درخت در کادر">کل درخت</button><button type="button" id="zin" title="بزرگ‌نمایی" aria-label="بزرگ‌نمایی">+</button></span></div>
+    <div class="toolbar">نمایش: ${hasTiers ? CATS.map(chip).join('') + '<span class="muted"> | </span>' : ''}${DATES.map(chip).join('')}</div>`;
+  TOOLS.querySelector('#depthsel').onchange = ev => {
+    const k = +ev.target.value, depthOf = x => { let d = 0; for (let p = x.parent; p && p.key !== ''; p = p.parent) d++; return d; };
+    collapsed[shape] = new Set(k ? Object.values(B.by).filter(x => x.kids.length && depthOf(x) === k - 1).map(x => x.key) : []);
+    drawTree();
+  };
+}
+TOOLS.addEventListener('click', e => {
+  const s = e.target.closest('[data-seg]');
+  if (s) { const v = s.getAttribute('data-v'); if (s.dataset.seg === 'mode') { mode = v; setPref('icmv.gmode', v); } else { shape = v; setPref('icmv.gshape', v); } drawTree(); return; }
+  const z = e.target.closest('#zin,#zout,#zfit');
+  if (!z) return;
+  const vb = SVGEL && SVGEL.viewBox.baseVal;
+  zoom = z.id === 'zin' ? Math.min(2.5, zoom * 1.25) : z.id === 'zout' ? Math.max(0.3, zoom / 1.25) : vb ? Math.max(0.3, Math.min(2.5, (BOX.clientWidth - 4) / vb.width)) : 1;
+  setPref('icmv.gzoom', zoom); keep(drawTree);
 });
-BOX.addEventListener('pointermove', e => { if (!drag) return; view.x = drag.vx + e.clientX - drag.x; view.y = drag.vy + e.clientY - drag.y; applyView(); });
-const endDrag = () => { drag = null; BOX.classList.remove('drag'); };
-BOX.addEventListener('pointerup', endDrag); BOX.addEventListener('pointercancel', endDrag);
-SVG.addEventListener('click', e => {
-  const knob = e.target.closest('[data-tw]');
-  if (knob) { const v = knob.getAttribute('data-tw'); open.has(v) ? open.delete(v) : open.add(v); drawTree(true); return; }
+TOOLS.addEventListener('change', e => {
+  const k = e.target.getAttribute('data-show'); if (!k) return;
+  e.target.checked ? kinds.add(k) : kinds.delete(k); setPref('icmv.gshow', JSON.stringify([...kinds])); keep(drawTree);
+});
+BOX.addEventListener('click', e => {
+  const m = e.target.closest('[data-matn]');
+  if (m) { selectNode('a' + m.getAttribute('data-matn')); return; }
   const ed = e.target.closest('[data-edge]');
   if (ed) { selectEdge(ed.getAttribute('data-edge')); return; }
-  const t = e.target.closest('text[data-id]');
+  const tw = e.target.closest('circle[data-tw]');
+  if (tw) {
+    const key = tw.getAttribute('data-tw'), x = LAST.by[key];
+    if (x && x.kids.length) { const col = collapsed[shape]; col.has(key) ? col.delete(key) : col.add(key); keep(drawTree); }
+    else if (x) selectNode(x.nid);
+    return;
+  }
+  const t = e.target.closest('[data-id]');
   if (t) selectNode(t.getAttribute('data-id'));
 });
-window.addEventListener('resize', () => { if (LAYOUT) { syncViewBox(); applyView(); } });
+BOX.addEventListener('wheel', e => {
+  if (!(e.ctrlKey || e.metaKey) || !SVGEL) return;
+  e.preventDefault();
+  zoom = Math.max(0.3, Math.min(2.5, zoom * (e.deltaY < 0 ? 1.12 : 0.89))); setPref('icmv.gzoom', zoom); keep(drawTree);
+}, {passive: false});
 
 /* ---------- inspector ---------- */
 const INS = document.getElementById('inspect');
@@ -236,14 +322,15 @@ function barList(items) {
 }
 const nodeBtn = id => `<button class="lnk ar" data-go="${esc(id)}">${esc(nm(id))}</button>`;
 const edgeBtn = (key, label) => `<button class="lnk" data-goedge="${esc(key)}">${label}</button>`;
-const SRC_FA = {diagram: 'از نمودار', 'hadith-kg': 'از پایگاه رجالی', interpolated: 'برآورد (درون‌یابی در سند)'};
+const SRC_FA = {diagram: 'از نمودار', 'hadith-kg': 'از پایگاه رجالی', kg: 'از پایگاه رجالی', interpolated: 'برآورد (درون‌یابی در سند)', user: 'واردشده‌ی کاربر',
+                'author-death': 'درگذشت مؤلف کتاب', noor: 'نور', imam: 'تاریخ امام', wikishia: 'ویکی‌شیعه', fixed: 'ثابت'};
 const CONF_FA = {high: ['زیاد', 'hi'], medium: ['متوسط', 'me'], low: ['کم — تأییدنشده', 'lo'], none: ['یافت نشد', 'lo']};
 function yearText(n) {
   if (n.year === null) return '—';
   const d = n.death;
   let s = d && d[0] !== d[1] ? `${fa(Math.round(d[0]))} تا ${fa(Math.round(d[1]))} ق` : `${fa(n.year)} ق`;
   if (n.date_approx) s = 'حدود ' + s;
-  return `${s} <span class="tag">${SRC_FA[n.date_source] || '—'}</span>`;
+  return `${s} <span class="tag">${esc(SRC_FA[n.date_source] || n.date_source || '—')}</span>`;
 }
 function bioBlock(id) {
   const n = N[id], kg = n.kg;
@@ -265,33 +352,35 @@ function bioBlock(id) {
     </dl>
     ${kg.alternatives && kg.alternatives.length ? `<p class="help">نامزدهای دیگر: ${kg.alternatives.map(a => `<span class="ar">${esc(a.name)}</span>${a.death ? ' (' + fa(a.death) + ')' : ''}`).join('، ')}</p>` : ''}`;
 }
-function selectNode(id) {
+function selectNode(id, go) {
   selected = id; selEdge = null;
   if (isMatn(id)) inspectMatn(+id.slice(1)); else inspectNode(id);
-  drawTree(true);
+  keep(drawTree);
+  if (go) bring(id);
   if (window.innerWidth <= 900) document.getElementById('inspector').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 function selectEdge(key) {
-  selEdge = key; selected = null; inspectEdge(key); drawTree(true);
+  selEdge = key; selected = null; inspectEdge(key); keep(drawTree);
   if (window.innerWidth <= 900) document.getElementById('inspector').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 INS.addEventListener('click', e => {
-  const a = e.target.closest('[data-go]'); if (a) { selectNode(a.getAttribute('data-go')); return; }
+  const a = e.target.closest('[data-go]'); if (a) { selectNode(a.getAttribute('data-go'), true); return; }
   const b = e.target.closest('[data-goedge]'); if (b) selectEdge(b.getAttribute('data-goedge'));
 });
 function inspectRoot() {
-  INS.innerHTML = `<h3 class="ar">حدیث «ستة لعنهم الله»</h3>
-    <p>${fa(D.companions.length)} طریق از صحابه ثبت شده است. ریشه‌ی نمودار خودِ حدیث است، نه یک راوی. نامزدهای «مبدأ» عبارت‌اند از: صحابه، حلقه‌های مشترک زیر آنان، و یک مبدأ ناشناخته بالای همه‌ی صحابه.</p>
+  INS.innerHTML = `<h3 class="ar">${esc(nm(ROOT))}</h3>
+    <p>${fa(heads.length)} طریق (نخستین راویِ سند) ثبت شده است. نامزدهای «مبدأ» عبارت‌اند از: نخستین راویان، حلقه‌های مشترک زیر آنان، و یک مبدأ بی‌نام بالای همه‌ی راویان ثبت‌شده.</p>
     <dl class="dl"><dt>شاهدها</dt><dd>${fa(D.attestations.length)}</dd><dt>راویان</dt><dd>${fa(Object.keys(N).length)}</dd>
-    <dt>طریق‌ها</dt><dd>${D.companions.map(c => nodeBtn(c)).join('، ')}</dd></dl>
-    <p class="help">روی هر نام در درخت کلیک کنید تا اطلاعات راوی، روی هر یال برای اطلاعات پیوند استاد و شاگرد، و روی متن‌های نارنجی برای متن کامل حدیث.</p>`;
+    <dt>طریق‌ها</dt><dd>${heads.map(c => nodeBtn(c)).join('، ')}</dd></dl>
+    <p class="help">روی هر نام در درخت کلیک کنید تا اطلاعات راوی، روی هر یال برای اطلاعات پیوند استاد و شاگرد، و روی نام کتاب (نارنجی، در انتهای هر سند) برای متن کامل حدیث.</p>`;
 }
 function inspectNode(id) {
   if (id === ROOT) return inspectRoot();
-  const n = N[id], p = D.recorded_parent[id];
+  const n = N[id];
   const pp = Object.entries(n.parent_posterior || {}).sort((a, b) => b[1] - a[1]).map(([u, q]) => [esc(nm(u)), q]);
-  const inKey = p ? edgeKey(p, id) : null;
-  const outs = (kids[id] || []).map(c => [c, E[edgeKey(id, c)]]);
+  const post = k => E[k] && E[k].posterior !== null && E[k].posterior !== undefined ? ' · ' + fmt(E[k].posterior, 2) : '';
+  const rel = (u, v) => `<span class="help">(${edgeBtn(edgeKey(u, v), 'یال')}${post(edgeKey(u, v))})</span>`;
+  const ins = [...(teachersOf[id] || [])], outs = [...(studentsOf[id] || [])];
   let anc = '';
   if (n.ancestral) {
     const items = [];
@@ -308,9 +397,9 @@ function inspectNode(id) {
     <dl class="dl">
       <dt>سال وفات</dt><dd>${yearText(n)}</dd>
       ${n.locations && n.locations.length ? `<dt>شهر(ها)</dt><dd class="ar">${esc(n.locations.join('، '))}</dd>` : ''}
-      <dt>استاد ثبت‌شده</dt><dd>${p ? nodeBtn(p) + ' · ' + edgeBtn(inKey, 'جزئیات یال') : 'سرآغاز یک طریق'}</dd>
-      <dt>شاگردان ثبت‌شده</dt><dd>${outs.length ? outs.map(([c, e]) => `${nodeBtn(c)} <span class="help">(${edgeBtn(edgeKey(id, c), 'یال')}${e && e.posterior !== null && e.posterior !== undefined ? ' · ' + fmt(e.posterior, 2) : ''})</span>`).join('، ') : '—'}</dd>
-      <dt>شاهدهای زیرین</dt><dd>${fa(witnesses[id])}</dd>
+      <dt>استاد ثبت‌شده</dt><dd>${ins.length ? ins.map(u => `${nodeBtn(u)} ${rel(u, id)}`).join('، ') : 'سرآغاز یک طریق'}</dd>
+      <dt>شاگردان ثبت‌شده</dt><dd>${outs.length ? outs.map(c => `${nodeBtn(c)} ${rel(id, c)}`).join('، ') : '—'}</dd>
+      <dt>سندهای گذرنده</dt><dd>${fa(witnesses[id] || 0)}</dd>
       ${same}
       ${sp[id] ? `<dt>به‌عنوان مبدأ</dt><dd>احتمال پسین ${sci(sp[id].posterior)} · log Z ${fmt(lz(id), 1)}</dd>` : ''}
     </dl>
@@ -412,7 +501,7 @@ function sourcesPanel() {
 function graphPanel() {
   const unsure = Object.entries(E).filter(([k, e]) => e.posterior !== null && e.posterior !== undefined && e.posterior < 0.999)
     .sort((a, b) => a[1].posterior - b[1].posterior).slice(0, 40);
-  const departs = Object.entries(MAPG).filter(([v, p]) => D.recorded_parent[v] !== p);
+  const departs = Object.entries(MAPG).filter(([v, p]) => N[v] && !(teachersOf[v] || new Set()).has(p) && !(p === UNK && !teachersOf[v]));
   return `<div class="grid2">
     <div class="card"><h2>آیا محتمل‌ترین درخت پیدا شد؟</h2><div class="body">
       <dl class="dl"><dt>ذرات (نمونه‌ها)</dt><dd>${fa(D.graph_posterior.n_particles)}</dd>
@@ -426,7 +515,7 @@ function graphPanel() {
         : '<tr><td colspan="2" class="empty">همه‌ی یال‌های ثبت‌شده احتمال پسین ≥ ۰٫۹۹۹ دارند.</td></tr>'}</tbody></table></div></div>
     <div class="card"><h2>جاهایی که درخت بیشینه با سند ثبت‌شده فرق دارد</h2><div class="scroll"><table>
       <thead><tr><th>شاگرد</th><th>استاد ثبت‌شده</th><th>استاد در درخت بیشینه</th></tr></thead><tbody>
-      ${departs.length ? departs.map(([v, p]) => `<tr><td class="ar">${esc(nm(v))}</td><td class="ar">${esc(nm(D.recorded_parent[v] || ''))}</td><td class="ar">${esc(nm(p))}</td></tr>`).join('')
+      ${departs.length ? departs.map(([v, p]) => `<tr><td class="ar">${esc(nm(v))}</td><td class="ar">${esc([...(teachersOf[v] || [])].map(nm).join('، ') || '—')}</td><td class="ar">${esc(nm(p))}</td></tr>`).join('')
         : '<tr><td colspan="3" class="empty">درخت بیشینه دقیقاً همان ساختار ثبت‌شده است.</td></tr>'}</tbody></table></div></div>
   </div>`;
 }
@@ -516,29 +605,21 @@ function show(id) {
     if (f) el2.innerHTML = f();
     built[id] = true;
   }
-  if (id === 'tree' && LAYOUT) { syncViewBox(); applyView(); }
 }
 nav.addEventListener('click', e => { const b = e.target.closest('button'); if (b) show(b.id.slice(4)); });
 document.addEventListener('click', e => {
   const st = e.target.closest('[data-showtree]');
-  if (st) { show('tree'); selectNode(st.getAttribute('data-showtree')); return; }
+  if (st) { show('tree'); selectNode(st.getAttribute('data-showtree'), true); return; }
   const tr = e.target.closest('tr[data-goedge]');
   if (tr) { show('tree'); selectEdge(tr.getAttribute('data-goedge')); }
 });
 
 /* ---------- controls ---------- */
 const sel = document.getElementById('branchsel');
-sel.innerHTML = '<option value="">همه‌ی طریق‌ها</option>' + D.companions.map(c => `<option value="${esc(c)}">${esc(nm(c))}</option>`).join('');
-sel.addEventListener('change', () => { branchFilter = sel.value; if (branchFilter) open.add(branchFilter); drawTree(); });
+sel.innerHTML = '<option value="">همه‌ی طریق‌ها</option>' + heads.map(c => `<option value="${esc(c)}">${esc(nm(c))} (${fa(ATT.filter(a => a.sanad[0] === c).length)})</option>`).join('');
+sel.addEventListener('change', () => { branchFilter = sel.value; drawTree(); });
 document.getElementById('q').addEventListener('input', e => { filter = e.target.value.trim(); drawTree(); });
-document.getElementById('expandall').onclick = () => { open.add(ROOT); for (const v of Object.keys(N)) open.add(v); drawTree(); };
-document.getElementById('collapseall').onclick = () => { open.clear(); open.add(ROOT); drawTree(); };
 
 drawTree();
 inspectRoot();
 show('tree');
-if (document.fonts) {
-  const relayout = () => { wCache.clear(); drawTree(); };
-  Promise.all([document.fonts.load('14px "Noto Naskh Arabic"', 'محمد'), document.fonts.load('600 14px "Noto Naskh Arabic"', 'محمد'),
-               document.fonts.load('14px "Vazirmatn"', 'مبدأ'), document.fonts.ready]).then(relayout).catch(relayout);
-}

@@ -74,8 +74,8 @@ def build_bundle(fam, space, prior, post, summ, best, links: Optional[dict] = No
         for u, v in zip(a.sanad, a.sanad[1:]):
             support.setdefault(f"{u}>{v}", []).append(a.aid)
     edges = {}
-    for v, u in recorded_parent.items():
-        key = f"{u}>{v}"
+    for key in support:
+        u, v = key.split(">", 1)
         lr = prior.log_rho.get(v, {})
         cand = sorted(((w, float(np.exp(x))) for w, x in lr.items()), key=lambda t: -t[1])
         edges[key] = dict(

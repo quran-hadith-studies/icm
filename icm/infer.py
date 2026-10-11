@@ -159,6 +159,9 @@ def assemble(ctx: Ctx, ev: Dict[str, Evidence], seconds: float, provenance: Opti
     bundle = build_bundle(fam, space, ctx.prior, post, summ, best, links=_links_from_nodes(ctx.graph.get("nodes", {})),
                           texts=fam.texts, seconds=seconds, title=ctx.graph.get("title", "ICM"),
                           heading=ctx.graph.get("heading", fam.name), extras=dict(global_results=results))
+    for nid, b in bundle["narrators"].items():           # what step 5 colours by: how the name was resolved, where the date is from
+        g = ctx.graph.get("nodes", {}).get(nid, {})
+        b["tiers"], b["date_source"] = g.get("tiers", []), g.get("date_source")
     return dict(results=results, bundle=bundle)
 
 

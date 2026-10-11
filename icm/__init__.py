@@ -11,5 +11,5 @@ STAGE_VERSIONS = {
     "identify": 4,
     "graph": 2,
     "narrators": 1,
-    "infer": 2,
+    "infer": 3,
 }

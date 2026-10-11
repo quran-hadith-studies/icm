@@ -18,4 +18,7 @@ def render(bundle: dict) -> str:
         spec = importlib.util.spec_from_file_location("icm_make_html", path)
         _mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_mod)
-    return _mod.render(finite(bundle), standalone=True)     # JSON has no -Infinity: null is read as -inf
+    b = finite(bundle)                                       # JSON has no -Infinity: null is read as -inf
+    b.setdefault("title_fa", b.get("title") or b.get("family") or "ICM")
+    b.setdefault("heading_fa", f"{b.get('heading') or b.get('family')} — قدیمی‌ترین منبع قابل‌بازیابی")
+    return _mod.render(b, standalone=True)
