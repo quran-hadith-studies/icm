@@ -524,7 +524,17 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
    intervals from the narrator database / KG, interpolation along chains), with chronology warnings. The user
    confirms *this exact graph* (its hash) and may enter dates.
-6. **Analysis**: the earliest-source model (annealed SMC per candidate source) and the viewer.
+6. **Analysis**: the earliest-source model (annealed SMC per candidate source) and the viewer. The user chooses
+   where it runs when confirming the graph:
+   * **in the user's browser** (default): the model code (`icm/static/model.zip`: `hadith_phylogeny/` and
+     `icm/{infer,client}.py`) runs in Pyodide Web Workers, one interpreter per core, one candidate source at a time
+     per worker (`icm/static/model_worker.js`). The `quick` preset took 95 s with 6 workers in Chrome;
+   * **on a helper machine** (`python3 -m icm helper`, outbound polling with a secret token, one process per core);
+   * **on the server**: the same run took 54 minutes on the 2-core box, so it is the last resort.
+   A result computed away from the server is uploaded with its provenance and checked for consistency with the
+   confirmed graph (normalised posterior, same preset, seed and narrator count), but it is **not re-computed**
+   by the server: it is trusted as far as the logged-in user (or the helper token) is. The viewer says where a
+   result was computed. `python3 -m icm build model` regenerates the zip; a test fails when it is stale.
 
 Every decision is a new, numbered file; nothing is overwritten or deleted. Stage outputs are stored by the hash
 of their inputs, so changing an identity recomputes only what depends on it, and every earlier run stays

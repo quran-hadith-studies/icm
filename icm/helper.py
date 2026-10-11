@@ -21,7 +21,7 @@ from . import client
 
 
 def _http(server: str, path: str, token: str, body=None):
-    req = urllib.request.Request(server.rstrip("/") + path, headers={"X-ICM-Helper": token, "Content-Type": "application/json", "X-ICM": "1"},
+    req = urllib.request.Request(server.rstrip("/") + path, headers={"User-Agent": "icm-helper/1.0 (+https://github.com/quran-hadith-studies/icm)", "X-ICM-Helper": token, "Content-Type": "application/json", "X-ICM": "1"},
                                  data=None if body is None else json.dumps(body).encode(), method="POST" if body is not None else "GET")
     with urllib.request.urlopen(req, timeout=300) as r:
         return json.load(r)
