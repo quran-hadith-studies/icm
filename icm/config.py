@@ -32,4 +32,8 @@ PRESETS = {"thorough": (300, 20, 4), "standard": (150, 15, 3), "quick": (60, 8, 
 
 
 def preset_for(n_nodes: int) -> str:
-    return "thorough" if n_nodes <= 60 else "standard" if n_nodes <= 250 else "quick"
+    """Run time grows with narrators x candidate sources: 60 -> thorough, 150 -> standard, else quick."""
+    return "thorough" if n_nodes <= 60 else "standard" if n_nodes <= 150 else "quick"
+
+# bump when the corpus files change in a way that should invalidate cached searches
+DATA_VERSION = "2026-10-11"

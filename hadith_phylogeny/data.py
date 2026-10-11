@@ -94,8 +94,12 @@ def load_metadata(path: str) -> Dict[str, Narrator]:
 
 def load_family(path: str) -> Family:
     """Load a family from a JSON document {name, narrators, attestations, variants}."""
+    return family_from_dict(json.load(open(path, encoding="utf-8")))
+
+
+def family_from_dict(raw: dict) -> Family:
+    """Build a Family from the dict form of ``load_family`` (also used in memory by icm)."""
     from .text_model import VariantSpec
-    raw = json.load(open(path, encoding="utf-8"))
     narrators = {}
     for nid, d in raw.get("narrators", {}).items():
         narrators[nid] = Narrator(

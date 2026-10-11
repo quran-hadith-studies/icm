@@ -48,6 +48,12 @@ def run(src: str = config.KG_SRC, dst: str = config.KG_DB) -> None:
     d.executemany("insert into sanad_rawis values (?,?,?)", s.execute(
         "select sanad_id, pos, rawi_id from sanad_rawis"))
     d.execute("create index idx_sr_rawi on sanad_rawis(rawi_id)")
+    # consecutive pairs: student = position p (closer to the author), teacher = position p+1
+    d.execute("""create table kg_adjacency as
+        select a.rawi_id as student, b.rawi_id as teacher, count(*) as n
+        from sanad_rawis a join sanad_rawis b on b.sanad_id = a.sanad_id and b.pos = a.pos + 1
+        group by a.rawi_id, b.rawi_id""")
+    d.execute("create index idx_kgadj on kg_adjacency(student, teacher)")
     print(f"chains copied {time.time() - t0:.0f}s", flush=True)
     # hadith rows + fts
     d.execute("create table kg_hadith (id integer primary key, book_id integer, no_inbook integer, "
