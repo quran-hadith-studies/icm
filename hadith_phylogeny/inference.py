@@ -7,9 +7,9 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .candidates import UNKNOWN, CandidateSpace
+from .candidates import UNKNOWN, CandidateSpace, is_unknown_link
 from .data import Family
-from .graph_model import (Graph, GraphPrior, enumerate_graphs,
+from .graph_model import (Graph, GraphPrior, choices, enumerate_graphs,
                           propose_parent_change, sample_graph_prior)
 from .sanad_model import SanadModel, sanad_log_likelihood
 from .text_model import VariantModel, pruning_log_likelihood, sample_ancestral_states
@@ -308,7 +308,8 @@ def posterior_summary(family: Family, evidence: Evidence, tmodel: VariantModel,
     for j, (G, pj) in enumerate(zip(graphs, wt)):
         if pj <= 0:
             continue
-        for v, p in G.parent.items():
+        # an unnamed link belongs to its one student: reported as v's parent UNKNOWN
+        for v, p in choices(G.parent).items():
             edge_prob[(p, v)] = edge_prob.get((p, v), 0.0) + pj
             node_parent.setdefault(v, {})
             node_parent[v][p] = node_parent[v].get(p, 0.0) + pj
@@ -320,6 +321,8 @@ def posterior_summary(family: Family, evidence: Evidence, tmodel: VariantModel,
         for _ in range(n_ancestral):
             A = sample_ancestral_states(X, G, tmodel, rng)
             for node, vals in A.items():
+                if is_unknown_link(node):
+                    continue
                 if node not in anc:
                     anc[node] = np.zeros((X.shape[1], max(s.n_states for s in tmodel.specs)))
                 for k, a_ in enumerate(vals):
@@ -341,7 +344,7 @@ def posterior_summary(family: Family, evidence: Evidence, tmodel: VariantModel,
         parent_posterior={v: {u: float(p) for u, p in d.items()}
                           for v, d in node_parent.items()},
         ancestral_states=states,
-        map_graph={v: p for v, p in (best.parent.items() if best else [])},
+        map_graph=choices(best.parent) if best else {},
         map_log_score=float(best_score),
         map_mass=map_mass,
         n_particles=len(graphs),

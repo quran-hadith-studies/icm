@@ -7,7 +7,7 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .candidates import UNKNOWN, CandidateSpace
+from .candidates import UNKNOWN, CandidateSpace, is_unknown_link, unknown_link
 from .data import Family, Narrator
 
 # section 5: explicit edge-score rules for the first version
@@ -82,8 +82,6 @@ class GraphPrior:
             mx = max(etas.values())
             z = math.log(sum(math.exp(e - mx) for e in etas.values())) + mx
             self.log_rho[v] = {u: e - z for u, e in etas.items()}
-        # the unnamed intermediary has a deterministic parent (the root)
-        self.log_rho.setdefault(UNKNOWN, {})
 
     def narr(self, n: str) -> Narrator:
         return self.family.narrators.get(n) or Narrator(nid=n, name=n)
@@ -108,8 +106,10 @@ class GraphPrior:
     def log_prior(self, graph: Graph) -> float:
         tot = 0.0
         for v, p in graph.parent.items():
-            if v == UNKNOWN:
-                continue                 # deterministic: pa(UNKNOWN) = root
+            if is_unknown_link(v):
+                continue                 # deterministic: an unnamed link hangs from the root
+            if is_unknown_link(p):
+                p = UNKNOWN
             lr = self.log_rho.get(v, {})
             if p not in lr:
                 return -math.inf
@@ -119,9 +119,10 @@ class GraphPrior:
     def active_nodes(self, s: str) -> List[str]:
         """Nodes allowed to appear in a tree rooted at s.
 
-        No node that is strictly earlier than s can descend from s. The optional
-        UNKNOWN node (assumption 7) is always available as a single unnamed
-        intermediary hanging directly below the root.
+        No node that is strictly earlier than s can descend from s. UNKNOWN
+        (assumption 7) stays available as a parent choice: below a named root it
+        stands for an unnamed intermediary of v's own (``unknown_link(v)``), so
+        different narrators never share one unnamed teacher.
         """
         order = self.space.order
         out = [s]
@@ -130,22 +131,36 @@ class GraphPrior:
                 continue
             if order.get(n, 0.0) > order.get(s, 0.0):
                 out.append(n)
-        if s != UNKNOWN and UNKNOWN in self.space.nodes:
-            out.append(UNKNOWN)
         return out
 
     def reachable_parent_sets(self, s: str) -> Dict[str, List[str]]:
-        act = set(self.active_nodes(s))
+        """{v: parent choices}; the choice UNKNOWN is expanded by ``expand``."""
+        act = set(self.active_nodes(s)) | ({UNKNOWN} if UNKNOWN in self.space.nodes else set())
         out: Dict[str, List[str]] = {}
         for v in act:
-            if v == s:
-                continue
-            if v == UNKNOWN:
-                out[v] = [s]          # the unnamed intermediary sits below s
+            if v == s or v == UNKNOWN:
                 continue
             ps = [u for u in self.space.parents.get(v, []) if u in act and u != v]
             out[v] = ps
         return out
+
+
+def expand(choice: Dict[str, str], s: str) -> Dict[str, str]:
+    """Parent choices -> the graph's parent map: v choosing UNKNOWN under a named root s gets
+    its own unnamed intermediary unknown_link(v) below s (under s = UNKNOWN it is s's student)."""
+    parent: Dict[str, str] = {}
+    for v, u in choice.items():
+        if u == UNKNOWN and s != UNKNOWN:
+            parent[v] = unknown_link(v)
+            parent[unknown_link(v)] = s
+        else:
+            parent[v] = u
+    return parent
+
+
+def choices(parent: Dict[str, str]) -> Dict[str, str]:
+    """The inverse of ``expand``."""
+    return {v: (UNKNOWN if is_unknown_link(u) else u) for v, u in parent.items() if not is_unknown_link(v)}
 
 
 def _connected(parent: Dict[str, str], root: str) -> bool:
@@ -179,9 +194,10 @@ def enumerate_graphs(prior: GraphPrior, s: str, anchors: Dict[str, List[int]],
     def rec(i: int):
         nonlocal count
         if i == len(vs):
-            if _connected(assign, s):
+            parent = expand(assign, s)
+            if _connected(parent, s):
                 count += 1
-                yield Graph(s, dict(assign), anchors=anchors)
+                yield Graph(s, parent, anchors=anchors)
             return
         v = vs[i]
         for u in psets[v]:
@@ -219,8 +235,9 @@ def sample_graph_prior(prior: GraphPrior, s: str, anchors: Dict[str, List[int]],
             logq += float(np.log(p[j]))
         if not ok:
             continue
-        if _acyclic(assign, s, order) and _connected(assign, s):
-            return Graph(s, assign, anchors=anchors), logq
+        parent = expand(assign, s)
+        if _acyclic(parent, s, order) and _connected(parent, s):
+            return Graph(s, parent, anchors=anchors), logq
     return None, -math.inf
 
 
@@ -245,17 +262,18 @@ def _acyclic(parent: Dict[str, str], root: str, order: Dict[str, float]) -> bool
 def propose_parent_change(graph: Graph, prior: GraphPrior, rng: np.random.Generator
                           ) -> Tuple[Optional[Graph], float]:
     """Single parent reassignment move; returns (proposal, log q-ratio)."""
-    vs = [v for v in graph.parent if len(prior.space.parents.get(v, [])) > 1]
+    cur = choices(graph.parent)
+    vs = [v for v in cur if len(prior.space.parents.get(v, [])) > 1]
     if not vs:
         return None, 0.0
     v = vs[int(rng.integers(len(vs)))]
     psets = prior.reachable_parent_sets(graph.root)
-    opts = [u for u in psets.get(v, []) if u != graph.parent[v]]
+    opts = [u for u in psets.get(v, []) if u != cur[v]]
     if not opts:
         return None, 0.0
     u = opts[int(rng.integers(len(opts)))]
-    newp = dict(graph.parent)
-    newp[v] = u
+    cur[v] = u
+    newp = expand(cur, graph.root)
     if not _acyclic(newp, graph.root, prior.space.order) or not _connected(newp, graph.root):
         return None, 0.0
     return Graph(graph.root, newp, anchors=graph.anchors), 0.0

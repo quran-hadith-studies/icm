@@ -9,6 +9,16 @@ from .data import Family, Narrator
 UNKNOWN = "UNKNOWN_SOURCE"
 
 
+def unknown_link(v: str) -> str:
+    """The unnamed intermediary above v alone: choosing UNKNOWN as v's parent never makes v
+    share an unnamed teacher (or that teacher's text) with any other narrator."""
+    return f"{UNKNOWN}#{v}"
+
+
+def is_unknown_link(n: str) -> bool:
+    return n.startswith(UNKNOWN + "#")
+
+
 @dataclass
 class CandidateSpace:
     nodes: List[str]

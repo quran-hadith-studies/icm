@@ -95,7 +95,9 @@ For each narrator $v$ the candidate teacher set $\mathcal P_v$ is:
 * every recorded teacher of $v$;
 * up to two recorded grand-teachers (the record dropped an intermediary), kept
   only if `compatible(u, v)` holds;
-* the unnamed intermediary `UNKNOWN`.
+* `UNKNOWN`: an unnamed intermediary of $v$'s own between $s$ and $v$. Two narrators
+  who both choose it do not share one unnamed teacher (nor his text): each gets a
+  separate node `UNKNOWN_SOURCE#v` below $s$.
 
 `compatible(u, v)` is false if $u$'s activity starts after $v$'s ends, or if both
 have known cities, they share none, and there is no documented teacher/meeting
@@ -104,7 +106,8 @@ link.
 A tree $G\in\mathcal G_s$ is a parent assignment $pa(v)\in\mathcal P_v$ such that:
 
 * the **active set** is $s$ plus every narrator with $y_v>y_s$ (nobody earlier than
-  $s$ can descend from $s$), plus one `UNKNOWN` node whose parent is fixed to $s$;
+  $s$ can descend from $s$), plus `UNKNOWN_SOURCE#v` for each $v$ whose parent is
+  `UNKNOWN` (its parent fixed to $s$; under $s=$ `UNKNOWN`, $v$ is the source's own student);
 * every active node has exactly one parent inside the active set, there are no
   cycles, and every active node is reachable from $s$;
 * if a witness's anchor $a_i$ is not active, then $P(X,C\mid G,s)=0$ for every $G$,
@@ -320,8 +323,11 @@ From the plan, as implemented:
    diagram gives two dates). They are not inferred.
 4. Transmission is a rooted tree: one teacher per narrator, no conflation (a
    narrator combining two sources).
-5. One unnamed intermediary `UNKNOWN`, fixed directly below the source; as a source
-   hypothesis, `UNKNOWN` is a virtual root above everyone.
+5. Unnamed intermediaries: a narrator may hang from the source through an unnamed
+   teacher of his own, fixed directly below the source; different narrators' unnamed
+   teachers are different people. As a source hypothesis, `UNKNOWN` is one unnamed
+   origin above everyone (the attributed speaker is not in the chains, so this is also
+   where he would sit).
 6. The matn is reduced to discrete variant units. The units are conditionally
    independent given the tree, and they share rates within a class.
 7. Recorded isnāds are noisy observations of the true paths, with independent
@@ -553,7 +559,7 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    intervals from the narrator database / KG, the dates entered on step 4, interpolation along chains), with
    chronology warnings. The user confirms *this exact graph* (its hash). It is drawn in one of two shapes: a tree
    of the chains from their first narrator (a trie: no crossings, a narrator reached by two routes appears twice,
-   unnamed narrators with the same wording at the same place merge), or one node per narrator under the teacher
+   every unnamed narrator its own node), or one node per narrator under the teacher
    most chains give (other teachers dashed; sibling subtrees ordered by barycentre to cross little). Each
    collector has a row and a teacher sits midway between its students; the horizontal axis is the place in the
    tree or time. Kinds of narrators (certain / chosen / automatic / name only / unnamed, dated / undated) can be

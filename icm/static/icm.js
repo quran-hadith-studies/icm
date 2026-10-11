@@ -945,8 +945,8 @@ function graphSvg(G) {
     const seqs = atts.map(a => { const s = []; let hid = 0; a.sanad.forEach(n => { if (!visible(n)) { hid++; return; } s.push([n, hid]); hid = 0; }); return s; });
     if (shape === 'tree') {
       seqs.forEach((s, ai) => {
-        let cur = T; const p = [];                   // unnamed narrators at the same place with the same wording merge
-        s.forEach(([n, hid]) => { const k = cur.key + '>' + (cat(n) === 'anon' ? 'anon:' + nodes[n].name : n), fresh = !by[k], x = mkN(k, n); if (fresh) { x.parent = cur; cur.kids.push(x); } x.skip = Math.max(x.skip, hid); x.atts.push(ai); p.push(cur = x); });
+        let cur = T; const p = [];                   // every unnamed narrator is his own node: two gaps are not one man
+        s.forEach(([n, hid]) => { const k = cur.key + '>' + n, fresh = !by[k], x = mkN(k, n); if (fresh) { x.parent = cur; cur.kids.push(x); } x.skip = Math.max(x.skip, hid); x.atts.push(ai); p.push(cur = x); });
         if (cur !== T) cur.ends.push(ai);
         paths.push(p);
       });

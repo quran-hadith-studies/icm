@@ -42,6 +42,33 @@ def make_family(graph: dict, texts: Dict[str, str]) -> Family:
     return fam
 
 
+UNKNOWN_LABEL = "مبدأ بی‌نام (بالاتر از همه‌ی راویان ثبت‌شده)"
+
+
+def unique_names(fam: Family) -> Dict[str, str]:
+    """{nid: label}; the results are keyed by label, so two narrators who share a name (each
+    chain's own «موضع إرسال») are told apart by the book of their first chain."""
+    names = {n: fam.narrators[n].name for n in fam.narrators}
+    book = {}
+    for a in fam.attestations:
+        for n in a.sanad:
+            book.setdefault(n, a.collection)
+    count: Dict[str, int] = {}
+    for x in names.values():
+        count[x] = count.get(x, 0) + 1
+    seen: set = set()
+    for n in sorted(names):
+        if count[names[n]] > 1:
+            x = f"{names[n]} ({book.get(n) or n})"
+            k = 2
+            while x in seen:
+                x, k = f"{names[n]} ({book.get(n) or n} {k})", k + 1
+            names[n] = x
+        seen.add(names[n])
+    names[UNKNOWN] = UNKNOWN_LABEL
+    return names
+
+
 def source_set(fam: Family, space, max_heads: int = MAX_HEADS, n_common: int = MAX_COMMON) -> List[str]:
     students: Dict[str, set] = {}
     for u, v in space.observed_edges:
@@ -73,8 +100,7 @@ class Ctx:
         self.tmodel = VariantModel(self.fam.variant_specs)
         self.phi = SanadModel(weight=sanad_weight)
         self.prior = GraphPrior(self.fam, self.space)
-        self.names = {n: self.fam.narrators[n].name for n in self.fam.narrators}
-        self.names[UNKNOWN] = "UNKNOWN (source above all recorded narrators)"
+        self.names = unique_names(self.fam)
 
     @property
     def sources(self) -> List[str]:
@@ -155,8 +181,7 @@ def matn_only(graph: dict, texts: Dict[str, str], weights: Sequence[float] = (0.
     fam = make_family(graph, texts)
     space = build_candidate_space(fam)
     space.sources = source_set(fam, space)
-    names = {n: fam.narrators[n].name for n in fam.narrators}
-    names[UNKNOWN] = "UNKNOWN"
+    names = unique_names(fam)
     prior = GraphPrior(fam, space)
     out = {}
     for w in weights:

@@ -49,6 +49,22 @@ def test_pair_hmm_prefers_exact_match():
     assert pair_hmm_log_likelihood(p,p,phi) > pair_hmm_log_likelihood(['a','z','c'],p,phi)
     assert pair_hmm_log_likelihood(p,p,phi) > pair_hmm_log_likelihood(['a','c'],p,phi)
 
+def test_unknown_parents_are_separate_people():
+    from hadith_phylogeny.data import Family, Narrator, Attestation
+    from hadith_phylogeny.candidates import build_candidate_space, unknown_link, UNKNOWN
+    from hadith_phylogeny.graph_model import GraphPrior, enumerate_graphs, choices
+    N = {n: Narrator(nid=n, name=n, death=(d, d)) for n, d in dict(A=10, B=40, C=40, D=90, E=90).items()}
+    fam = Family('t', N, [Attestation('1', ('A', 'D')), Attestation('2', ('B', 'D')), Attestation('3', ('C', 'E'))])
+    space = build_candidate_space(fam)
+    prior = GraphPrior(fam, space)
+    gs = list(enumerate_graphs(prior, 'A', space.anchors))
+    both = [G for G in gs if choices(G.parent).get('B') == UNKNOWN and choices(G.parent).get('C') == UNKNOWN]
+    assert both
+    for G in both:      # B and C each have an unnamed teacher of their own, below the source
+        assert G.parent['B'] == unknown_link('B') and G.parent['C'] == unknown_link('C')
+        assert G.parent[unknown_link('B')] == 'A' and G.parent[unknown_link('C')] == 'A'
+        assert UNKNOWN not in G.nodes() and math.isfinite(prior.log_prior(G))
+
 def test_logsumexp():
     assert abs(logsumexp([0.0,0.0]) - math.log(2)) < 1e-12
 

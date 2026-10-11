@@ -20,7 +20,7 @@ function sci(x) {
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const lz = s => sp[s].log_Z === null ? NEG : sp[s].log_Z;
 const srcName = s => s === UNK ? 'مبدأ ناشناخته (پیش از همه‌ی صحابه)' : (N[s] ? N[s].name : s);
-const nm = id => id === ROOT ? 'حدیث «ستة لعنهم الله»' : id === UNK ? 'راوی ناشناخته‌ی میانی' : (N[id] ? N[id].name : id);
+const nm = id => id === ROOT ? 'حدیث «ستة لعنهم الله»' : id === UNK || String(id).startsWith(UNK + '#') ? 'راوی بی‌نامِ میانیِ ویژه‌ی همین راوی' : (N[id] ? N[id].name : id);
 
 /* ---------- variant units: Persian names, colours, and how to find them in a text ---------- */
 const CLAUSES = {
