@@ -243,4 +243,32 @@ def _fold_copies(scored: Dict[str, dict], seed: str, seed_rec: dict) -> List[dic
             out.append(c)
         else:
             first["copies"].append(c["wid"])
-    return out
+    return _fold_across_corpora(out)
+
+
+def _title_set(t: Optional[str]) -> set:
+    return set(norm(t or "").split())
+
+
+def _fold_across_corpora(rows: List[dict]) -> List[dict]:
+    """The same book appears in v02 and in the KG: identical text, titles one inside the other
+    («الدعاء» / «الدعاء للطبراني»). They are one witness; the KG row is kept (it carries exact narrator ids)."""
+    by_text: Dict[str, List[dict]] = {}
+    for r in rows:
+        by_text.setdefault(r["text_hash"], []).append(r)
+    drop = set()
+    for group in by_text.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda r: (r["corpus"] != "kg", r["wid"]))
+        for i, a in enumerate(group):
+            if a["wid"] in drop:
+                continue
+            for b in group[i + 1:]:
+                if b["wid"] in drop or a["corpus"] == b["corpus"]:
+                    continue
+                ta, tb = _title_set(a["title"]), _title_set(b["title"])
+                if ta and tb and (ta <= tb or tb <= ta):
+                    a["copies"] = a.get("copies", []) + [b["wid"]] + b.get("copies", [])
+                    drop.add(b["wid"])
+    return [r for r in rows if r["wid"] not in drop]
