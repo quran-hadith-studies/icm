@@ -502,6 +502,61 @@ documented teachers = Noor teacher → student pairs seen in ≥ 2 isnāds) and 
 deliberately not exported as `layer`: `compatible()` rejects `u.layer ≥ v.layer`, which
 would forbid two companions of one Imam from transmitting to each other.
 
+## The ICM wizard (`icm/`)
+
+A website (ebadollah.ir/icm) that runs the whole analysis on any hadith family instead of one hand-made
+diagram. One **project** per family; a user (logged in) walks through six steps and confirms each:
+
+1. **Seed**: pick one hadith (id, `/h` link or words of the text).
+2. **Search and selection**: all hadiths that share *parts* of the seed, each with its similarity per clause.
+   The seed matn is cut into clauses; each clause is searched on its own (the two rarest words, and rare
+   three-word phrases) in hadith-db-v02 (831k, Shia and Sunni) and the Sunni Hadith Knowledge Graph (715k),
+   together with Noor's own groups/clusters, v02's consensus sets and the KG's meaning groups. Every candidate
+   is scored order-free per clause (witnesses reorder clauses): `witness`, `variant`, `extended`, `abridged`,
+   `partial`, `different`. The class is a suggestion; the user ticks the witnesses.
+3. **Alignment**: per-clause multiple alignment of the selected witnesses and the variant units of the model
+   (clause present/absent, words some witnesses omit, substituted words, number words), `icm/align.py`.
+4. **Narrators**: chains are read from Noor's parsed isnāds, the KG's chains or, for everything else, the
+   rule-based isnād parser (`icm/sanad_parse.py`). Every name gets candidate persons (name agreement with the
+   father/son guard, chain context from Noor/KG adjacency, popularity). Names whose identity the source gives
+   are *exact*; the others become **name cards** the user decides one by one, with the narrator card
+   (grade, dated facts with evidence, rijāl entries, teachers/students) one click away.
+5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
+   intervals from the narrator database / KG, interpolation along chains), with chronology warnings. The user
+   confirms *this exact graph* (its hash) and may enter dates.
+6. **Analysis**: the earliest-source model (annealed SMC per candidate source) and the viewer.
+
+Every decision is a new, numbered file; nothing is overwritten or deleted. Stage outputs are stored by the hash
+of their inputs, so changing an identity recomputes only what depends on it, and every earlier run stays
+viewable. Hadith pages can ask `/icm/api/hadith/<id>/projects` whether a project about it is running or final.
+
+```
+python3 -m icm build all             # kg.sqlite, termdf.sqlite, noor_relations.sqlite, books_meta.json  -> external/icm/
+ICM_DEV_USER=me uvicorn icm.devserver:app --port 8099        # the wizard with a fake login
+python3 -m icm worker                # runs the jobs (one process, one job at a time)
+python3 -m icm run --seed v02:800316143 --auto               # a whole project without the UI (defaults for every decision)
+python3 -m icm eval                  # recall of the search against the diagram witnesses and the consensus sets
+python3 -m icm sync --server ubuntu@HOST:ebadollah/data/icm/cache    # copy the server's cache here, commit, push
+python3 tests/test_icm_*.py
+```
+
+Results and decisions live in the cache repository [quran-hadith-studies/icm-cache](https://github.com/quran-hadith-studies/icm-cache)
+(`projects/<id>/{project.json, decisions/, stages/, runs/}`). The server writes a plain directory; the laptop
+pulls it and pushes (the organisation has deploy keys disabled, so the server holds no GitHub credential).
+
+What to keep in mind when reading a result:
+
+* The suggested identities are suggestions. On the «ستة لعنهم الله» family built from the corpus with every
+  default accepted, the best-supported source flipped between runs of different settings (Bayes factor 1.8 to 32
+  between ʿĀʾisha and an unnamed source above all narrators), because one narrator appeared as two nodes. Decide
+  the cards, then read the posterior.
+* SMC is stochastic; the worker fixes `PYTHONHASHSEED=0` so a run is reproducible for the same inputs.
+* Search quality is measured, not claimed: of the diagram's 28 substantive witnesses present in the corpora, all
+  28 are found and pre-selected, the known look-alikes are not, and 30 random v02 consensus sets are recovered
+  completely (`icm eval`). Recall for other families is not measured.
+* The isnād parser reads grammar only. Anonymous narrators («عدة من أصحابنا»), anaphora («عنه») and a name with
+  no candidate stay name-only nodes; they are shown, never guessed.
+
 ## The HTML viewer
 
 
