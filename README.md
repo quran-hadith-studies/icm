@@ -538,7 +538,13 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    only; (3) the chosen name: all its places in other chains first, then its candidates and a search of both
    narrator databases (`/api/narrators?q=`). The hadith and the name are kept in the address (`?h=&n=`).
    A choice applies to every place of the name, or to one place (`overrides`);
-   «عن أبيه» is resolved per chain only (the father of an Imam), never from the card. The narrator card
+   relatives («عن أبيه», «حدثني أبي», «عن جده», «عن أخيه»…, also when Noor gives them as a slot title) are not
+   names: each is its own card in its own chain. Its candidates come from the narrator before it: an Imam's
+   father/grandfather from the table of Imams, anyone else's from Noor's linked chains (`noor_relatives`:
+   whom Noor's slots titled «أبيه…» after that narrator are linked to; «عن أبيه عن جده» is the father's father).
+   It is taken automatically when that narrator is certain and Noor names the same person ≥80% of the time,
+   or when its context makes it `high`. Slot titles that are rare for a narrator (Noor's own linking slips),
+   relative or anonymous are not used as forms of his name. The narrator card
    (grade, dated facts with evidence, rijāl entries, teachers/students) is one click away.
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
    intervals from the narrator database / KG, interpolation along chains), with chronology warnings. The user

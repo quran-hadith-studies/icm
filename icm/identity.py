@@ -63,11 +63,13 @@ def noor_index() -> dict:
                                        n=r["n_slots"] or 0, mazhab=r["mazhab"], grade=r["grade"])
             for t in set(toks):
                 post[t].append(r["ravi_id"])
-        # every title under which a narrator's slot appeared is another form of his name
+        # a title under which a narrator's slot often appeared is another form of his name; rare titles are
+        # mostly Noor's own linking slips (one «علي بن إبراهيم» slot on Muhammad b. Yahya), and relative or
+        # anonymous titles («أبيه», «عدة من أصحابنا») are not names
         for rid, title, n in c.execute("select ravi_id, title, count(*) from slot where ravi_id is not null and title is not null "
                                        "group by ravi_id, title"):
             r = ravis.get(rid)
-            if r is None:
+            if r is None or n < max(2, 0.01 * r["n"]) or relative_word(title) or sanad_parse.is_anon(title):
                 continue
             toks = name_tokens(title)
             if toks and toks != r["toks"] and len(r["alts"]) < 30:
@@ -78,6 +80,52 @@ def noor_index() -> dict:
         _noor = dict(ravis=ravis, post=post)
         c.close()
     return _noor
+
+
+# ---------------------------------------------------------------------------
+# relatives: «عن أبيه», «حدثني أبي», «عن جده» ... name a different person in every chain
+# ---------------------------------------------------------------------------
+RELATION = {}
+for _r, _ws in dict(father=("ابیه", "ابیها", "ابیهما", "ابی"), grandfather=("جده", "جدها", "جدی"), brother=("اخیه", "اخیها", "اخی"),
+                    uncle=("عمه", "عمی"), maternal_uncle=("خاله", "خالی"), mother=("امه", "امی"), son=("ابنه", "ابنها")).items():
+    RELATION.update({w: _r for w in _ws})
+
+
+def relative_word(name: str) -> Optional[str]:
+    """The relative word a name consists of («أبيه عليه السلام» -> «ابیه»), else None."""
+    toks, _ = sanad_parse._strip_honorific(norm(name or "").split())
+    s = " ".join(toks)
+    return s if s in sanad_parse.RELATIVES and s != "عنه" else None
+
+
+_noor_rel = None
+
+
+def noor_relatives() -> Dict[Tuple[int, str], Dict[int, int]]:
+    """(narrator, relation) -> {person: n}: whom Noor's linked chains resolve «his father» etc. of a narrator to.
+
+    Learned from slots whose title starts with a relative word and whose student slot is linked; a
+    grandfather right after «عن أبيه» is counted as the father of that father."""
+    global _noor_rel
+    if _noor_rel is None:
+        c = _nconn()
+        out: Dict[Tuple[int, str], Dict[int, int]] = defaultdict(lambda: defaultdict(int))
+        q = ("select s2.title, s2.ravi_id, s1.ravi_id, s1.title from slot s2 "
+             "join slot s1 on s1.hadith_id=s2.hadith_id and s1.sanad_idx=s2.sanad_idx and s1.pos=s2.pos-1 "
+             "where s2.ravi_id is not null and (s2.title like 'أب%' or s2.title like 'جد%' or s2.title like 'أخ%' "
+             "or s2.title like 'عم%' or s2.title like 'خال%' or s2.title like 'أم%' or s2.title like 'ابن%')")
+        for title, r, p, ptitle in c.execute(q):
+            toks, _ = sanad_parse._strip_honorific(norm(title).split())
+            # «أبيه محمد بن يحيى» names the father; «أبي عبد الله» is a kunya, so «أبي» counts only alone
+            rel = RELATION.get(toks[0]) if toks and (len(toks) == 1 or toks[0] != "ابی") else None
+            if not rel or not p:
+                continue
+            if rel == "grandfather" and RELATION.get(relative_word(ptitle) or "") == "father":
+                rel = "father"                         # «عن أبيه عن جده»: the father of the father
+            out[(p, rel)][r] += 1
+        c.close()
+        _noor_rel = {k: dict(v) for k, v in out.items()}
+    return _noor_rel
 
 
 def _cov(q: List[str], c: List[str]) -> float:
@@ -280,12 +328,12 @@ def attach_candidates(chains: List[dict], tradition_of: Dict[str, str]) -> None:
                 e["cands"] = [dict(id=e["exact"], label=e["name"], score=9.0, cov=1.0, exact=True)]
             elif e["kind"] == "anon":
                 e["cands"] = []
-            elif e["kind"] == "relative":
-                e["cands"] = []                             # resolved from the previous element after decisions
             elif e.get("amb"):
                 idx = noor_index()["ravis"]
                 e["cands"] = [dict(id=i, label=idx[int(i.split(":")[1])]["name"], score=1.0, cov=1.0, n=idx[int(i.split(":")[1])]["n"])
                               for i in e["amb"]]
+            elif e["kind"] == "relative":
+                e["cands"] = []                             # derived from the narrator before it (_derive_relatives)
             else:
                 cs = []
                 death = e.get("death")
@@ -303,19 +351,51 @@ _NOOR_OF_KEY = {k: f"noor:{v['ravi_id']}" for k, v in _IMAMS.items() if v.get("r
 
 
 def _derive_relatives(ch: dict) -> None:
-    """«عن أبيه» after an Imam is his father; for anyone else the relative stays unresolved."""
+    """Who «عن أبيه», «عن جده» ... is, from the narrator the relative is counted from.
+
+    An Imam's father and grandfather come from the table of Imams; anyone else's from Noor's linked chains
+    (``noor_relatives``). The person is taken automatically (``derived``) only when the narrator it is
+    counted from is itself certain and Noor (nearly) always names the same person; otherwise the people
+    Noor names are offered as candidates."""
     els = ch["elems"]
+    idx = None
     for k, e in enumerate(els):
-        if e["kind"] != "relative" or k == 0 or e["name"] not in ("ابیه", "ابیها"):
+        rel = RELATION.get(e["name"]) if e["kind"] == "relative" else None
+        if not rel or k == 0 or rel not in ("father", "grandfather", "brother", "uncle", "maternal_uncle", "mother", "son"):
             continue
-        prev = els[k - 1]["cands"][:1]
-        if not prev or not prev[0]["id"].startswith("noor:"):
+        base = els[k - 1]
+        if rel == "grandfather" and RELATION.get(relative_word(base["name"]) or "") == "father":
+            rel = "father"                             # «عن أبيه عن جده»: the father of the father
+        bc = [c for c in base["cands"][:3] if c.get("exact") or c.get("derived") or c.get("cov", 0) >= 0.88]
+        if not bc:
             continue
-        key = _ID2KEY.get(int(prev[0]["id"].split(":")[1]))
-        if key in FATHER and (prev[0].get("exact") or prev[0].get("cov", 0) >= 0.88 or prev[0].get("derived")):
-            father = FATHER[key]
-            e["cands"] = [dict(id=_NOOR_OF_KEY[father], label=_IMAMS[father]["canonical"], score=5.0, cov=1.0,
-                               derived=True, reason=f"father of {prev[0]['label']}")]
+        certain = bool(bc[0].get("exact") or bc[0].get("certain"))
+        out: Dict[str, dict] = {k_["id"]: k_ for k_ in e["cands"]}
+        for j, p in enumerate(bc):
+            pid = p["id"]
+            if not pid.startswith("noor:"):
+                continue
+            key = _ID2KEY.get(int(pid.split(":")[1]))
+            anc = FATHER.get(key) if rel in ("father", "grandfather") else None
+            if anc and rel == "grandfather":
+                anc = FATHER.get(anc)
+            if anc and anc in _NOOR_OF_KEY:
+                out[_NOOR_OF_KEY[anc]] = dict(id=_NOOR_OF_KEY[anc], label=_IMAMS[anc]["canonical"], score=5.0 - j, cov=1.0,
+                                              derived=j == 0 and certain, certain=j == 0 and certain,
+                                              reason=f"{'پدرِ' if rel == 'father' else 'پدربزرگِ'} {p['label']} (جدول امامان)")
+                continue
+            got = noor_relatives().get((int(pid.split(":")[1]), rel), {})
+            tot = sum(got.values())
+            for r, n in sorted(got.items(), key=lambda x: -x[1])[:4]:
+                idx = idx or noor_index()["ravis"]
+                if r not in idx or f"noor:{r}" in out:
+                    continue
+                share = n / tot
+                auto = j == 0 and certain and share >= 0.8 and n >= 3
+                out[f"noor:{r}"] = dict(id=f"noor:{r}", label=idx[r]["name"], score=round(3.0 - j + share, 3), cov=round(share, 3),
+                                        n=idx[r]["n"], mazhab=idx[r]["mazhab"], grade=idx[r]["grade"], derived=auto, certain=auto,
+                                        reason=f"«{e['raw'] or e['name']}» پس از {p['label']} در {n} از {tot} سند نور")
+        e["cands"] = sorted(out.values(), key=lambda d: -d["score"])
 
 
 def _adjacent(pairs: Iterable[Tuple[str, str]]) -> set:
@@ -391,7 +471,8 @@ _TIER_RANK = {"exact": 4, "high": 3, "derived": 3, "medium": 2, "low": 1}
 
 
 def make_cards(chains: Sequence[dict], trad: Dict[str, str]) -> Dict[str, dict]:
-    """One card per (tradition, name): the places it occurs and its candidates merged over them.
+    """One card per (tradition, name): the places it occurs and its candidates merged over them; a relative
+    («أبيه») is its own card in every chain.
 
     A candidate keeps its best score, context and tier over the places; the list is ordered by tier, then
     score, so a candidate that is ``high`` in one chain (its neighbours vouch for it) is not pushed under a
@@ -402,7 +483,7 @@ def make_cards(chains: Sequence[dict], trad: Dict[str, str]) -> Dict[str, dict]:
         for e in ch["elems"]:
             if e["exact"] or e["kind"] == "anon":
                 continue
-            key = card_key(t, e)
+            key = card_key(t, e) + (f"@{ch['aid']}|{e['i']}" if e["kind"] == "relative" else "")
             e["card"] = key
             cd = cards.setdefault(key, dict(key=key, name=e["name"], kind=e["kind"], tradition=t, occurrences=[], candidates={}))
             cd["occurrences"].append([ch["aid"], e["i"]])
@@ -419,9 +500,7 @@ def make_cards(chains: Sequence[dict], trad: Dict[str, str]) -> Dict[str, dict]:
         cl = sorted(cd["candidates"].values(), key=lambda c: (-_TIER_RANK.get(c.get("tier"), 0), -c["score"]))[:8]
         cd["candidates"] = cl
         top = cl[0] if cl else None
-        # «عن أبيه» is someone else in every chain: it takes only the person derived in its own chain (resolve)
-        cd["default"] = (top["id"] if top and cd["kind"] != "relative" and (top.get("tier") == "high" or top.get("derived"))
-                         else None)
+        cd["default"] = top["id"] if top and (top.get("tier") == "high" or top.get("derived")) else None
         cd["tier"] = (top.get("tier") if top else None) or ("derived" if top and top.get("derived") else "none")
     return cards
 
@@ -438,6 +517,10 @@ def build(wits: Sequence[dict]) -> dict:
         if not ch:
             flags.append(dict(kind="no_chain", ref=w["wid"], message="no isnad could be read for this witness"))
         chains.extend(ch)
+    for ch in chains:                                  # «أبيه عليه السلام» in Noor's slots, «حدثني أبي» ...
+        for e in ch["elems"]:
+            if not e["exact"] and e["kind"] == "name" and relative_word(e["name"]):
+                e["kind"], e["name"] = "relative", relative_word(e["name"])
     attach_candidates(chains, trad)
     cards = make_cards(chains, trad)
     n_exact = sum(1 for ch in chains for e in ch["elems"] if e["exact"])

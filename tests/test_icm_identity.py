@@ -38,15 +38,40 @@ def test_override_for_one_place_and_none():
     assert {nid for c in r["chains"] for e in c["elems"] for nid in [e["nid"]] if "2607" in nid} == {"noor:2607"}
 
 
-def test_father_is_derived_per_chain_not_shared():
+def test_relative_words():
+    assert identity.relative_word("أبيه عليه السلام") == "ابیه"
+    assert identity.relative_word("جده") == "جده" and identity.relative_word("أبي") == "ابی"
+    assert identity.relative_word("أبي عبد الله") is None and identity.relative_word("زيد بن علي") is None
+
+
+def test_each_relative_is_its_own_card():
     baqir = dict(id="noor:5485", label="محمد بن علي الباقر", score=5.0, cov=1.0, derived=True, ctx=0, tier="high")
     ch = [dict(aid="w:1#t", wid="w:1", source="text", elems=[_el(0, "جعفر بن محمد", []), _el(1, "ابیه", [baqir], "relative")], speaker=None, quoted_work=None, flags=[]),
           dict(aid="w:2#t", wid="w:2", source="text", elems=[_el(0, "زید بن علی", []), _el(1, "ابیه", [], "relative")], speaker=None, quoted_work=None, flags=[])]
     cards = identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"})
-    assert cards["shia:ابیه"]["default"] is None
+    assert cards["shia:ابیه@w:1#t|1"]["default"] == "noor:5485" and cards["shia:ابیه@w:2#t|1"]["default"] is None
     r = identity.resolve(dict(chains=ch, cards=cards), dict(choices={}))
     nid = {c["aid"]: c["elems"][1]["nid"] for c in r["chains"]}
     assert nid["w:1#t"] == "noor:5485" and nid["w:2#t"] == "rel:w:2#t:1", nid
+
+
+def test_relatives_from_noor_chains_and_the_imams():
+    saved = identity._noor_rel, identity._noor
+    identity._noor_rel = {(2607, "father"): {4013: 91}}
+    identity._noor = dict(ravis={4013: dict(name="علي بن الحسين زين العابدين ع", n=9, mazhab=None, grade=None)}, post={})
+    try:
+        for exact in (False, True):
+            zayd = _el(0, "زید بن علی", [dict(id="noor:2607", label="زيد بن علي الشهيد", score=1.0, cov=1.0)])
+            if exact:
+                zayd["exact"] = "noor:2607"; zayd["cands"][0]["exact"] = True
+            ch = dict(aid="w:1#t", wid="w:1", source="text", speaker=None, quoted_work=None, flags=[],
+                      elems=[zayd, _el(1, "ابیه", [], "relative"), _el(2, "جده", [], "relative")])
+            identity._derive_relatives(ch)
+            father, gf = ch["elems"][1]["cands"], ch["elems"][2]["cands"]
+            assert father[0]["id"] == "noor:4013" and bool(father[0]["derived"]) == exact, father
+            assert gf and gf[0]["id"] == identity._NOOR_OF_KEY["husayn"], gf      # «عن أبيه عن جده»: the father's father
+    finally:
+        identity._noor_rel, identity._noor = saved
 
 
 if __name__ == "__main__":

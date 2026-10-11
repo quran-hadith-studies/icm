@@ -471,6 +471,8 @@ const panels = {
     const hadith = wid => wid === S.seed.wid ? S.seed : S.candidates.find(x => x.wid === wid || (x.copies || []).includes(wid));
     const seq = []; order.forEach(wid => byWid[wid].forEach(ch => ch.elems.forEach(e => { if (e.card && !seq.includes(e.card)) seq.push(e.card); })));
     const relOnly = cd => cd.kind === 'relative';         // «عن أبيه» means a different person in every chain: decided per place
+    const prevName = cd => { const [aid, i] = cd.occurrences[0]; const p = chainOf[aid].elems[i - 1]; return p ? p.raw || p.name : ''; };
+    const cname = cd => relOnly(cd) && cd.occurrences.length === 1 && prevName(cd) ? `${cd.name} — پس از ${prevName(cd)}` : cd.name;
     const splitOcc = occ => { const k = occ.lastIndexOf('|'); const ch = chainOf[occ.slice(0, k)]; return [ch, ch.elems[+occ.slice(k + 1)]]; };
     const extraLabel = {};                                // labels of people chosen from a search
     const qs = new URLSearchParams(location.search);
@@ -487,7 +489,7 @@ const panels = {
       const cd = cards[e.card];
       if (cd && cd.key in choices) return { st: 'user', id: choices[cd.key] };
       if (e.kind === 'relative' && e.cands[0] && e.cands[0].derived) return { st: 'auto', id: e.cands[0].id };
-      if (cd && cd.default && !relOnly(cd)) return { st: 'auto', id: cd.default };
+      if (cd && cd.default && !(relOnly(cd) && cd.occurrences.length > 1)) return { st: 'auto', id: cd.default };   // older runs shared one card for every «أبيه»
       return { st: 'und' };
     };
     const stOf = s => s.id === 'none' ? 'none' : s.st;
@@ -556,7 +558,7 @@ const panels = {
         fill(listBox, ks.length ? el('table', { class: 'hl' }, el('tbody', {}, ks.map(k => {
           const cd = cards[k], st = cardState(cd), o = cd.occurrences[0].join('|');
           return el('tr', { class: pick && pick.key === k ? 'on' : '', onclick: () => setPick(k, pick && pick.key === k ? pick.occ : o) },
-            el('td', {}, el('b', { class: 'ar' }, cd.name), cd.kind === 'collector' ? el('span', { class: 'small muted' }, ' (گردآورنده)') : null),
+            el('td', {}, el('b', { class: 'ar' }, cname(cd)), cd.kind === 'collector' ? el('span', { class: 'small muted' }, ' (گردآورنده)') : null),
             el('td', { class: 'small muted' }, `${fa(cd.occurrences.length)} جا · بهترین نامزد: ${TIER[cd.tier] || cd.tier}`),
             el('td', { class: 'small muted hide-sm' }, 'نخست در ' + wtitle(chainOf[cd.occurrences[0][0]].wid)),
             el('td', {}, el('span', { class: 'chip ' + st }, ST[st])));
@@ -610,12 +612,12 @@ const panels = {
         api('/narrators?q=' + encodeURIComponent(q3)).then(r => { sres = r; }, err => { sres = { error: err.message }; }).finally(() => { sbusy = false; drawEd(); }); };
       const sIn = el('input', { type: 'text', value: sq, placeholder: 'نام راوی', class: 'ar', oninput: ev => { sq = ev.target.value; }, onkeydown: ev => { if (ev.key === 'Enter') go3(sq.trim()); } });
       fill(part3, 
-        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, e.raw || e.name)),
+        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, relOnly(cd) ? cname({ ...cd, name: e.raw || e.name }) : e.raw || e.name)),
           el('span', { class: 'chip ' + stOf(s) }, ST[stOf(s)] + (s.here ? ' — فقط همین جا' : '')),
           el('span', { class: 'small muted' }, `در ${wtitle(ch.wid)} · بهترین نامزد: ${TIER[cd.tier] || cd.tier}`), el('span', { class: 'grow' }),
           el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
-        el('h3', {}, n > 1 ? `این نام در ${fa(n)} جا آمده است` : 'این نام فقط همین جا آمده است'),
-        relOnly(cd) ? el('p', { class: 'small muted' }, '«پدرش / جدش» در هر سند کس دیگری است؛ این جاها فقط برای مقایسه آمده‌اند و انتخاب فقط برای همین جاست.') : null,
+        el('h3', {}, relOnly(cd) ? 'نسبت، نه نام' : n > 1 ? `این نام در ${fa(n)} جا آمده است` : 'این نام فقط همین جا آمده است'),
+        relOnly(cd) ? el('p', { class: 'small muted' }, `«${e.raw || e.name}» نام نیست، نسبت است (پدر، جد، برادر… راوی پیشین)، پس در هر سند کس دیگری است و جداگانه تعیین می‌شود. پیشنهادها از سندهای نور آمده‌اند که برای همان راوی پیشین همین نسبت را به نام آورده‌اند (پدر و جد امامان از جدول امامان). «عن أبيه عن جده» یعنی پدرِ همان پدر.`) : null,
         el('div', { class: 'occs' }, cd.occurrences.map(o => o.join('|')).map(o => { const [c2, e2] = splitOcc(o), s2 = stateOf(c2, e2);
           return el('div', { class: 'occ' + (o === occ ? ' on' : '') },
             el('button', { class: 'lnk small', onclick: () => setPick(cd.key, o) }, o === occ ? '● ' : '', wtitle(c2.wid), byWid[c2.wid].length > 1 ? ` (سند ${fa(byWid[c2.wid].indexOf(c2) + 1)})` : ''),
@@ -657,7 +659,7 @@ const panels = {
     const seg = el('span', { class: 'seg' }, [['hadith', 'حدیث‌ها'], ['names', 'نام‌ها']].map(([v, t]) => {
       const b = el('button', { class: 'small', onclick: () => { listView = v; setPref('icm.idlist', v); drawList(); } }, t); b.dataset.v = v; return b; }));
     const legend = el('div', { class: 'small' }, 'راهنما: ', ['exact', 'auto', 'user', 'und', 'none'].map(s => el('span', { class: 'nc demo ' + s }, ST[s])), el('span', { class: 'muted' }, ' ◆ = فقط همین جا'));
-    const oldRun = (I.stage_version || 1) < 2;
+    const oldRun = (I.stage_version || 1) < 3;
     main.replaceChildren(
       card('تعیین هویت راویان',
         el('p', { class: 'muted small' }, 'یک حدیث را در بخش ۱ برگزینید؛ سندش در بخش ۲ می‌آید. یک نام را بزنید؛ در بخش ۳ نخست همه‌ی جاهای دیگر آن نام در سندهای دیگر می‌آید و سپس گزینه‌ها و جستجو برای انتخاب شخص.'),
@@ -665,11 +667,12 @@ const panels = {
           el('ul', {},
             el('li', {}, el('b', {}, 'قطعی: '), 'منبع (نور یا گراف دانش) خودش این نام را به یک راوی پیوند داده است؛ تصمیمی لازم نیست.'),
             el('li', {}, el('b', {}, 'نامزدها: '), 'برای نام‌های دیگر، راویانی که نامشان می‌خواند از دو پایگاه آمده‌اند: فهرست راویان نور (شیعه) و رجال گراف دانش (اهل سنت). پس یک شخص ممکن است دو بار بیاید (مثلاً «زيد بن علي» یک بار از نور و یک بار از گراف دانش)؛ اگر پایگاه راویان آن دو را یکی دانسته باشد، در شجره یکی می‌شوند. اگر شخص درست در نامزدها نیست، جستجو کنید.'),
+            el('li', {}, el('b', {}, 'نسبت‌ها: '), '«عن أبيه»، «حدثني أبي»، «عن جده»، «عن أخيه»… نام نیستند؛ هر کدام جداگانه در سند خودش تعیین می‌شود: پدر و جد امامان از جدول امامان، دیگران از سندهای نور که همان نسبت را برای همان راوی به نام آورده‌اند. «عن أبيه عن جده» یعنی پدرِ همان پدر.'),
             el('li', {}, el('b', {}, 'رتبه‌بندی: '), '«هم‌خوانی نام» = چه اندازه نام سند با نام راوی می‌خواند؛ «هم‌نشین» = چند همسایه‌ی این نام در همین سند، در سندهای دیگر هم استاد یا شاگرد این راوی‌اند؛ «روایت» = شمار روایت‌های او.'),
             el('li', {}, el('b', {}, 'بالا / متوسط / پایین: '), 'اطمینان به نامزد نخست. «بالا» = نام دست‌کم ۸۸٪ می‌خواند، دست‌کم یک همسایه او را تأیید می‌کند و از نامزد بعدی آشکارا جلوتر است؛ چنین نامزدی خودکار انتخاب می‌شود. «متوسط» و «پایین» خودکار انتخاب نمی‌شوند.'),
             el('li', {}, el('b', {}, 'وضع حدیث: '), '«همه قطعی» = منبع همه‌ی راویان را تعیین کرده؛ «همه شناخته» = هر نام یا قطعی است یا (خودکار یا با انتخاب کاربر) به شخصی پیوند دارد؛ «همه تصمیم‌گرفته» = برخی نام‌ها عمداً «فقط نام» یا نامعلوم‌اند؛ وگرنه شمار نام‌های بی‌تصمیم.'),
             el('li', {}, el('b', {}, 'خودکار / انتخاب کاربر / بی‌تصمیم: '), 'نامی که کسی برایش انتخاب نکرده، اگر نامزد «بالا» داشته باشد خودکار همان را می‌گیرد؛ وگرنه بی‌تصمیم است و فقط با نامش به شجره می‌رود. انتخاب شما برای همه‌ی جاهای همان نام است، مگر «فقط همین جا» را بزنید.'))),
-        oldRun && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند (مثلاً «زید بن علی» «پایین» نمایش داده می‌شد و «عن أبيه» در همه‌ی سندها امام باقر گرفته می‌شد). ',
+        oldRun && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند: «عن أبيه / عن جده» یک نام شمرده می‌شد (و در همه‌ی سندها امام باقر گرفته می‌شد)، و برخی نام‌ها به راوی نادرست می‌خوردند (مثلاً «علی بن ابراهیم» به محمد بن یحیی). برنامه‌ی تازه هر نسبت را در سند خودش و از روی سندهای نور تعیین می‌کند. ',
           c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
           el('span', { class: 'small muted' }, ' انتخاب‌های ذخیره‌شده می‌مانند؛ شجره دوباره ساخته می‌شود و باید دوباره تأیید شود.')) : null,
         status, legend, save,
