@@ -1,0 +1,729 @@
+{
+ "28": {
+  "name": "أبان بن أبي عياش",
+  "death": [
+   138.0,
+   140.0
+  ],
+  "locations": [
+   "البصرة"
+  ],
+  "teachers": [
+   "2819",
+   "4013"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "wikishia",
+  "imams": [
+   "baqir",
+   "sadiq",
+   "sajjad"
+  ]
+ },
+ "203": {
+  "name": "إبراهيم بن هاشم القمي",
+  "death": [
+   237.0,
+   237.0
+  ],
+  "locations": [
+   "قم",
+   "الكوفة",
+   "مكة"
+  ],
+  "teachers": [
+   "2107",
+   "2512",
+   "3236",
+   "3649",
+   "4935",
+   "5485"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "kg",
+  "imams": [
+   "rida"
+  ]
+ },
+ "632": {
+  "name": "أحمد بن محمد بن خالد البرقي",
+  "death": [
+   274.0,
+   274.0
+  ],
+  "locations": [
+   "بغداد",
+   "تكريت"
+  ],
+  "teachers": [
+   "203",
+   "2107",
+   "2512",
+   "3236",
+   "3649",
+   "4935",
+   "5008",
+   "5485",
+   "5987",
+   "632"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor",
+  "imams": [
+   "hadi",
+   "jawad"
+  ]
+ },
+ "2107": {
+  "name": "جعفر بن محمد الصادق ع",
+  "death": [
+   148.0,
+   148.0
+  ],
+  "locations": [
+   "المدينة"
+  ],
+  "teachers": [
+   "2512",
+   "4013",
+   "5485"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "fixed",
+  "imams": []
+ },
+ "2323": {
+  "name": "حمزة بن محمد ابن أحمد أبو یعلی القزويني",
+  "death": null,
+  "locations": [
+   "قزوين"
+  ],
+  "teachers": [
+   "25596",
+   "3915"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "2512": {
+  "name": "رسول الله ص",
+  "death": [
+   11.0,
+   11.0
+  ],
+  "locations": [
+   "مكة",
+   "المدينة"
+  ],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": "fixed",
+  "imams": []
+ },
+ "2607": {
+  "name": "زيد بن علي الشهيد",
+  "death": [
+   121.0,
+   122.0
+  ],
+  "locations": [
+   "المدينة",
+   "الكوفة"
+  ],
+  "teachers": [
+   "2512",
+   "4013"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor",
+  "imams": [
+   "baqir",
+   "lam_yarwi",
+   "sadiq",
+   "sajjad"
+  ]
+ },
+ "2762": {
+  "name": "سفيان بن سعيد الثوري",
+  "death": [
+   161.0,
+   161.0
+  ],
+  "locations": [
+   "البصرة",
+   "الكوفة"
+  ],
+  "teachers": [
+   "2107",
+   "2512",
+   "4013"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "kg",
+  "imams": [
+   "sadiq"
+  ]
+ },
+ "2790": {
+  "name": "سلمان الفارسي",
+  "death": [
+   33.0,
+   34.0
+  ],
+  "locations": [
+   "فارس",
+   "أصبهان",
+   "الشام",
+   "العراق",
+   "المدينة",
+   "المدائن",
+   "الكوفة"
+  ],
+  "teachers": [
+   "2512"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "wikishia",
+  "imams": [
+   "ali",
+   "prophet"
+  ]
+ },
+ "2819": {
+  "name": "سليم بن قيس الهلالي",
+  "death": [
+   90.0,
+   90.0
+  ],
+  "locations": [
+   "الكوفة",
+   "المدينة",
+   "مكة"
+  ],
+  "teachers": [
+   "2790",
+   "4013"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "wikishia",
+  "imams": [
+   "ali",
+   "baqir",
+   "sadiq",
+   "sajjad"
+  ]
+ },
+ "3236": {
+  "name": "عبد الرحمن بن حماد الكوفي",
+  "death": null,
+  "locations": [
+   "الكوفة",
+   "قم"
+  ],
+  "teachers": [
+   "4935"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "3649": {
+  "name": "عبد الله بن ميمون القداح",
+  "death": [
+   164.0,
+   164.0
+  ],
+  "locations": [
+   "مكة",
+   "المدينة",
+   "خراسان",
+   "بغداد"
+  ],
+  "teachers": [
+   "2107",
+   "2512"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "kg",
+  "imams": [
+   "sadiq"
+  ]
+ },
+ "3679": {
+  "name": "عبد المؤمن بن القاسم الأنصاري",
+  "death": [
+   147.0,
+   147.0
+  ],
+  "locations": [
+   "الكوفة"
+  ],
+  "teachers": [
+   "2107",
+   "5485"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor",
+  "imams": [
+   "baqir",
+   "sadiq"
+  ]
+ },
+ "3915": {
+  "name": "علي بن إبراهيم بن هاشم",
+  "death": [
+   220.0,
+   284.0
+  ],
+  "locations": [
+   "قم"
+  ],
+  "teachers": [
+   "203",
+   "2107",
+   "2512",
+   "4935",
+   "5485",
+   "632"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "imam",
+  "imams": [
+   "hadi"
+  ]
+ },
+ "4013": {
+  "name": "علي بن الحسين زين العابدين ع",
+  "death": [
+   95.0,
+   95.0
+  ],
+  "locations": [
+   "المدينة"
+  ],
+  "teachers": [
+   "2512",
+   "5485"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "fixed",
+  "imams": []
+ },
+ "4935": {
+  "name": "محمد بن أبي عمير زياد",
+  "death": [
+   217.0,
+   217.0
+  ],
+  "locations": [
+   "بغداد",
+   "خراسان"
+  ],
+  "teachers": [
+   "2107",
+   "2512",
+   "3679",
+   "5485",
+   "5670"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor",
+  "imams": [
+   "jawad",
+   "kazim",
+   "rida"
+  ]
+ },
+ "5008": {
+  "name": "محمد بن أحمد بن يحيى بن عمران الأشعري",
+  "death": [
+   260.0,
+   490.0
+  ],
+  "locations": [
+   "قم"
+  ],
+  "teachers": [
+   "203",
+   "2107",
+   "2512",
+   "3236",
+   "4935",
+   "5008",
+   "632"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "imam",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "5120": {
+  "name": "محمد بن الحسين بن حفص الخثعمي",
+  "death": [
+   315.0,
+   317.0
+  ],
+  "locations": [
+   "الكوفة",
+   "بغداد"
+  ],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": "tusi_rijal",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "5485": {
+  "name": "محمد بن علي الباقر ع",
+  "death": [
+   114.0,
+   114.0
+  ],
+  "locations": [
+   "المدينة"
+  ],
+  "teachers": [
+   "2107",
+   "2512",
+   "4013"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "fixed",
+  "imams": []
+ },
+ "5507": {
+  "name": "محمد بن علي بن الحسين بن بابويه",
+  "death": [
+   331.0,
+   331.0
+  ],
+  "locations": [
+   "قم",
+   "الري"
+  ],
+  "teachers": [
+   "203",
+   "2107",
+   "2323",
+   "2512",
+   "3649",
+   "3915",
+   "4013",
+   "4935",
+   "5008",
+   "5485",
+   "5554",
+   "5666",
+   "5670",
+   "5717",
+   "5987",
+   "632"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "5554": {
+  "name": "محمد بن عمر بن محمد بن سالم الجعابي",
+  "death": [
+   260.0,
+   490.0
+  ],
+  "locations": [
+   "بغداد"
+  ],
+  "teachers": [
+   "25596",
+   "5120"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "imam",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "5666": {
+  "name": "محمد بن موسى بن المتوكل",
+  "death": [
+   260.0,
+   490.0
+  ],
+  "locations": [],
+  "teachers": [
+   "3915",
+   "5698",
+   "5717"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "imam",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "5670": {
+  "name": "محمد بن ميسر بن عبد العزيز",
+  "death": [
+   114.0,
+   178.0
+  ],
+  "locations": [
+   "الكوفة"
+  ],
+  "teachers": [
+   "2107",
+   "5987"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "imam",
+  "imams": [
+   "sadiq"
+  ]
+ },
+ "5673": {
+  "name": "محمد بن ميمون البزاز المكي",
+  "death": null,
+  "locations": [],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "5698": {
+  "name": "محمد بن يحيى العطار",
+  "death": [
+   380.0,
+   380.0
+  ],
+  "locations": [
+   "قم",
+   "دمشق",
+   "الأندلس",
+   "قرطبة"
+  ],
+  "teachers": [
+   "203",
+   "2107",
+   "2512",
+   "5008",
+   "632"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "kg",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "5717": {
+  "name": "محمد بن يعقوب الكليني",
+  "death": [
+   329.0,
+   329.0
+  ],
+  "locations": [
+   "الري",
+   "بغداد",
+   "قم",
+   "نيسابور"
+  ],
+  "teachers": [
+   "2107",
+   "2512",
+   "25596",
+   "3915",
+   "4013",
+   "4935",
+   "5485",
+   "5698"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "5987": {
+  "name": "ميسر بن عبد العزيز النخعي",
+  "death": [
+   114.0,
+   178.0
+  ],
+  "locations": [
+   "المدائن",
+   "الكوفة"
+  ],
+  "teachers": [
+   "2107",
+   "5485",
+   "5987"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor:death_period",
+  "imams": [
+   "baqir",
+   "sadiq"
+  ]
+ },
+ "8860": {
+  "name": "عبد الرحمن بن أحمد أبو أحمد الهمداني",
+  "death": [
+   682.0,
+   682.0
+  ],
+  "locations": [
+   "مكة",
+   "المدينة"
+  ],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": "kg",
+  "imams": []
+ },
+ "8911": {
+  "name": "عبد الله بن محمد الكشوري",
+  "death": null,
+  "locations": [],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "9060": {
+  "name": "محمد بن سليمان الكوفي صاحب مناقب أمير المؤمنين",
+  "death": null,
+  "locations": [],
+  "teachers": [
+   "8860"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "9174": {
+  "name": "يحيى بن الحسن بن جعفر الحسيني العلوي",
+  "death": [
+   183.0,
+   233.0
+  ],
+  "locations": [],
+  "teachers": [
+   "5673"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "imam",
+  "imams": [
+   "rida"
+  ]
+ },
+ "23710": {
+  "name": "عبد الملك بن الوليد",
+  "death": null,
+  "locations": [
+   "الكوفة"
+  ],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "25596": {
+  "name": "أحمد بن محمد بن سعيد ،ابن عقدة",
+  "death": [
+   332.0,
+   333.0
+  ],
+  "locations": [
+   "الكوفة",
+   "بغداد",
+   "حران"
+  ],
+  "teachers": [
+   "9174"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": "noor",
+  "imams": [
+   "lam_yarwi"
+  ]
+ },
+ "35374": {
+  "name": "النعمان بن محمد ابن حيون التميمي المغربي",
+  "death": null,
+  "locations": [],
+  "teachers": [
+   "2762",
+   "2790"
+  ],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "48486": {
+  "name": "عبد القدوس بن إبراهيم بن عبيد الله العبدري",
+  "death": null,
+  "locations": [],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "48503": {
+  "name": "محمد بن عمر بن أبي مسلم الصنعاني",
+  "death": null,
+  "locations": [],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ },
+ "49488": {
+  "name": "محمد بن عبد الرحمن بن أذينة العبدي",
+  "death": null,
+  "locations": [],
+  "teachers": [],
+  "meetings": [],
+  "layer": null,
+  "death_source": null,
+  "imams": []
+ }
+}

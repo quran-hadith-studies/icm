@@ -1,0 +1,1218 @@
+{
+ "source": "analysis/external/narrators.sqlite",
+ "narrators": {
+  "28": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 4,
+   "record": {
+    "id": 28,
+    "name": "أبان بن أبي عياش",
+    "death": 139.0,
+    "death_interval": [
+     138.0,
+     140.0
+    ],
+    "iqama": "البصرة",
+    "tabaqa": [
+     "baqir",
+     "sadiq",
+     "sajjad"
+    ],
+    "source": "khoei",
+    "heading": "أبان بن أبي عياش فيروز"
+   }
+  },
+  "203": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 7,
+   "record": {
+    "id": 203,
+    "name": "إبراهيم بن هاشم القمي",
+    "death": 237.0,
+    "death_interval": [
+     237.0,
+     237.0
+    ],
+    "iqama": "قم،الكوفة،مكة",
+    "tabaqa": [
+     "rida"
+    ],
+    "source": "tusi_rijal",
+    "heading": "إبراهيم بن هاشم القمي"
+   }
+  },
+  "632": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 97,
+   "record": {
+    "id": 632,
+    "name": "أحمد بن محمد بن خالد البرقي",
+    "death": 274.0,
+    "death_interval": [
+     274.0,
+     274.0
+    ],
+    "iqama": "بغداد،تكريت",
+    "tabaqa": [
+     "hadi",
+     "jawad"
+    ],
+    "source": "khoei",
+    "heading": "أحمد بن محمد بن أبي عبد الله البرقي"
+   }
+  },
+  "2107": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 0,
+   "record": {
+    "id": 2107,
+    "name": "جعفر بن محمد الصادق ع",
+    "death": 148.0,
+    "death_interval": [
+     148.0,
+     148.0
+    ],
+    "iqama": "المدينة",
+    "tabaqa": [],
+    "source": "infallible",
+    "heading": null
+   }
+  },
+  "2323": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 2323,
+    "name": "حمزة بن محمد ابن أحمد أبو یعلی القزويني",
+    "death": null,
+    "death_interval": null,
+    "iqama": "قزوين",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  },
+  "2512": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 0,
+   "record": {
+    "id": 2512,
+    "name": "رسول الله ص",
+    "death": 11.0,
+    "death_interval": [
+     11.0,
+     11.0
+    ],
+    "iqama": "مكة،المدينة",
+    "tabaqa": [],
+    "source": "infallible",
+    "heading": null
+   }
+  },
+  "2607": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 8,
+   "record": {
+    "id": 2607,
+    "name": "زيد بن علي الشهيد",
+    "death": 121.5,
+    "death_interval": [
+     121.0,
+     122.0
+    ],
+    "iqama": "المدينة،الكوفة",
+    "tabaqa": [
+     "baqir",
+     "lam_yarwi",
+     "sadiq",
+     "sajjad"
+    ],
+    "source": "khoei",
+    "heading": "زيد بن علي"
+   }
+  },
+  "2762": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 4,
+   "record": {
+    "id": 2762,
+    "name": "سفيان بن سعيد الثوري",
+    "death": 161.0,
+    "death_interval": [
+     161.0,
+     161.0
+    ],
+    "iqama": "البصرة،الكوفة",
+    "tabaqa": [
+     "sadiq"
+    ],
+    "source": "khoei",
+    "heading": "سفيان بن سعيد"
+   }
+  },
+  "2790": {
+   "confidence": "high",
+   "name_score": 1.059,
+   "context_links": 8,
+   "record": {
+    "id": 2790,
+    "name": "سلمان الفارسي",
+    "death": 33.5,
+    "death_interval": [
+     33.0,
+     34.0
+    ],
+    "iqama": "فارس،أصبهان،الشام،العراق،المدينة،المدائن،الكوفة",
+    "tabaqa": [
+     "ali",
+     "prophet"
+    ],
+    "source": "kg",
+    "heading": null
+   }
+  },
+  "2819": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 5,
+   "record": {
+    "id": 2819,
+    "name": "سليم بن قيس الهلالي",
+    "death": 90.0,
+    "death_interval": [
+     90.0,
+     90.0
+    ],
+    "iqama": "الكوفة،المدينة،مكة",
+    "tabaqa": [
+     "ali",
+     "baqir",
+     "sadiq",
+     "sajjad"
+    ],
+    "source": "khoei",
+    "heading": "سليم بن قيس"
+   }
+  },
+  "3236": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 17,
+   "record": {
+    "id": 3236,
+    "name": "عبد الرحمن بن حماد الكوفي",
+    "death": null,
+    "death_interval": null,
+    "iqama": "الكوفة،قم",
+    "tabaqa": [],
+    "source": "khoei",
+    "heading": "عبد الرحمن بن أبي حماد"
+   }
+  },
+  "3649": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 6,
+   "record": {
+    "id": 3649,
+    "name": "عبد الله بن ميمون القداح",
+    "death": 164.0,
+    "death_interval": [
+     164.0,
+     164.0
+    ],
+    "iqama": "مكة،المدينة،خراسان،بغداد",
+    "tabaqa": [
+     "sadiq"
+    ],
+    "source": "khoei",
+    "heading": "عبد الأعلى"
+   }
+  },
+  "3679": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 5,
+   "record": {
+    "id": 3679,
+    "name": "عبد المؤمن بن القاسم الأنصاري",
+    "death": 147.0,
+    "death_interval": [
+     147.0,
+     147.0
+    ],
+    "iqama": "الكوفة",
+    "tabaqa": [
+     "baqir",
+     "sadiq"
+    ],
+    "source": "khoei",
+    "heading": "عبد المؤمن بن القاسم"
+   }
+  },
+  "3915": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 10,
+   "record": {
+    "id": 3915,
+    "name": "علي بن إبراهيم بن هاشم",
+    "death": 252.0,
+    "death_interval": [
+     220.0,
+     284.0
+    ],
+    "iqama": "قم",
+    "tabaqa": [
+     "hadi"
+    ],
+    "source": "khoei",
+    "heading": "علي بن إبراهيم"
+   }
+  },
+  "4013": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 0,
+   "record": {
+    "id": 4013,
+    "name": "علي بن الحسين زين العابدين ع",
+    "death": 95.0,
+    "death_interval": [
+     95.0,
+     95.0
+    ],
+    "iqama": "المدينة",
+    "tabaqa": [],
+    "source": "infallible",
+    "heading": null
+   }
+  },
+  "4935": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 264,
+   "record": {
+    "id": 4935,
+    "name": "محمد بن أبي عمير زياد",
+    "death": 217.0,
+    "death_interval": [
+     217.0,
+     217.0
+    ],
+    "iqama": "بغداد،خراسان",
+    "tabaqa": [
+     "jawad",
+     "kazim",
+     "rida"
+    ],
+    "source": "khoei",
+    "heading": "محمد بن أبي عمير زياد"
+   }
+  },
+  "5008": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 45,
+   "record": {
+    "id": 5008,
+    "name": "محمد بن أحمد بن يحيى بن عمران الأشعري",
+    "death": 375.0,
+    "death_interval": [
+     260.0,
+     490.0
+    ],
+    "iqama": "قم",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "khoei",
+    "heading": "محمد بن أحمد الأشعري"
+   }
+  },
+  "5120": {
+   "confidence": "high",
+   "name_score": 1.052,
+   "context_links": 4,
+   "record": {
+    "id": 5120,
+    "name": "محمد بن الحسين بن حفص الخثعمي",
+    "death": 316.0,
+    "death_interval": [
+     315.0,
+     317.0
+    ],
+    "iqama": "الكوفة،بغداد",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "kg",
+    "heading": null
+   }
+  },
+  "5485": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 0,
+   "record": {
+    "id": 5485,
+    "name": "محمد بن علي الباقر ع",
+    "death": 114.0,
+    "death_interval": [
+     114.0,
+     114.0
+    ],
+    "iqama": "المدينة",
+    "tabaqa": [],
+    "source": "infallible",
+    "heading": null
+   }
+  },
+  "5507": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 163,
+   "record": {
+    "id": 5507,
+    "name": "محمد بن علي بن الحسين بن بابويه",
+    "death": 331.0,
+    "death_interval": [
+     331.0,
+     331.0
+    ],
+    "iqama": "قم،الري",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "khoei",
+    "heading": "محمد بن علي أبو جعفر"
+   }
+  },
+  "5554": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 11,
+   "record": {
+    "id": 5554,
+    "name": "محمد بن عمر بن محمد بن سالم الجعابي",
+    "death": 375.0,
+    "death_interval": [
+     260.0,
+     490.0
+    ],
+    "iqama": "بغداد",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "khoei",
+    "heading": "عمر بن محمد"
+   }
+  },
+  "5666": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 7,
+   "record": {
+    "id": 5666,
+    "name": "محمد بن موسى بن المتوكل",
+    "death": 375.0,
+    "death_interval": [
+     260.0,
+     490.0
+    ],
+    "iqama": "",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "khoei",
+    "heading": "محمد بن موسى بن المتوكل"
+   }
+  },
+  "5670": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 4,
+   "record": {
+    "id": 5670,
+    "name": "محمد بن ميسر بن عبد العزيز",
+    "death": 146.0,
+    "death_interval": [
+     114.0,
+     178.0
+    ],
+    "iqama": "الكوفة",
+    "tabaqa": [
+     "sadiq"
+    ],
+    "source": "khoei",
+    "heading": "محمد بن ميسر بن عبد العزيز"
+   }
+  },
+  "5673": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 5673,
+    "name": "محمد بن ميمون البزاز المكي",
+    "death": null,
+    "death_interval": null,
+    "iqama": "",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  },
+  "5698": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 66,
+   "record": {
+    "id": 5698,
+    "name": "محمد بن يحيى العطار",
+    "death": 380.0,
+    "death_interval": [
+     380.0,
+     380.0
+    ],
+    "iqama": "قم،دمشق،الأندلس،قرطبة",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "khoei",
+    "heading": "محمد بن يحيى"
+   }
+  },
+  "5717": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 65,
+   "record": {
+    "id": 5717,
+    "name": "محمد بن يعقوب الكليني",
+    "death": 329.0,
+    "death_interval": [
+     329.0,
+     329.0
+    ],
+    "iqama": "الري،بغداد،قم،نيسابور",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "khoei",
+    "heading": "محمد بن يعقوب بن إسحاق"
+   }
+  },
+  "5987": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 12,
+   "record": {
+    "id": 5987,
+    "name": "ميسر بن عبد العزيز النخعي",
+    "death": 146.0,
+    "death_interval": [
+     114.0,
+     178.0
+    ],
+    "iqama": "المدائن،الكوفة",
+    "tabaqa": [
+     "baqir",
+     "sadiq"
+    ],
+    "source": "khoei",
+    "heading": "ميسر بن عبد العزيز"
+   }
+  },
+  "8860": {
+   "confidence": "high",
+   "name_score": 0.888,
+   "context_links": 1,
+   "record": {
+    "id": 8860,
+    "name": "عبد الرحمن بن أحمد أبو أحمد الهمداني",
+    "death": 682.0,
+    "death_interval": [
+     682.0,
+     682.0
+    ],
+    "iqama": "مكة،المدينة",
+    "tabaqa": [],
+    "source": "kg",
+    "heading": null
+   }
+  },
+  "8911": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 8911,
+    "name": "عبد الله بن محمد الكشوري",
+    "death": null,
+    "death_interval": null,
+    "iqama": "",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  },
+  "9060": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 9060,
+    "name": "محمد بن سليمان الكوفي صاحب مناقب أمير المؤمنين",
+    "death": null,
+    "death_interval": null,
+    "iqama": "",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  },
+  "9174": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 3,
+   "record": {
+    "id": 9174,
+    "name": "يحيى بن الحسن بن جعفر الحسيني العلوي",
+    "death": 208.0,
+    "death_interval": [
+     183.0,
+     233.0
+    ],
+    "iqama": "",
+    "tabaqa": [
+     "rida"
+    ],
+    "source": "khoei",
+    "heading": "يحيى بن الحسن بن جعفر"
+   }
+  },
+  "23710": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 0,
+   "record": {
+    "id": 23710,
+    "name": "عبد الملك بن الوليد",
+    "death": null,
+    "death_interval": null,
+    "iqama": "الكوفة",
+    "tabaqa": [],
+    "source": "najashi",
+    "heading": "عبد الملك بن الوليد"
+   }
+  },
+  "25596": {
+   "confidence": "high",
+   "name_score": 1.0,
+   "context_links": 50,
+   "record": {
+    "id": 25596,
+    "name": "أحمد بن محمد بن سعيد ،ابن عقدة",
+    "death": 332.5,
+    "death_interval": [
+     332.0,
+     333.0
+    ],
+    "iqama": "الكوفة،بغداد،حران",
+    "tabaqa": [
+     "lam_yarwi"
+    ],
+    "source": "khoei",
+    "heading": "أحمد بن محمد بن سعيد"
+   }
+  },
+  "35374": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 35374,
+    "name": "النعمان بن محمد ابن حيون التميمي المغربي",
+    "death": null,
+    "death_interval": null,
+    "iqama": "",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  },
+  "48486": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 48486,
+    "name": "عبد القدوس بن إبراهيم بن عبيد الله العبدري",
+    "death": null,
+    "death_interval": null,
+    "iqama": "",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  },
+  "48503": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 48503,
+    "name": "محمد بن عمر بن أبي مسلم الصنعاني",
+    "death": null,
+    "death_interval": null,
+    "iqama": "",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  },
+  "49488": {
+   "confidence": "none",
+   "name_score": null,
+   "context_links": 0,
+   "record": {
+    "id": 49488,
+    "name": "محمد بن عبد الرحمن بن أذينة العبدي",
+    "death": null,
+    "death_interval": null,
+    "iqama": "",
+    "tabaqa": [],
+    "source": null,
+    "heading": null
+   }
+  }
+ },
+ "edge_kg_chains": {},
+ "kg_pairs": [
+  [
+   "203",
+   "3915",
+   21086
+  ],
+  [
+   "2512",
+   "2107",
+   8560
+  ],
+  [
+   "5666",
+   "5507",
+   1259
+  ],
+  [
+   "5008",
+   "5698",
+   4141
+  ],
+  [
+   "2512",
+   "5507",
+   890
+  ],
+  [
+   "4013",
+   "5507",
+   50
+  ],
+  [
+   "2107",
+   "5507",
+   1308
+  ],
+  [
+   "5485",
+   "5507",
+   225
+  ],
+  [
+   "5485",
+   "2107",
+   1795
+  ],
+  [
+   "4935",
+   "203",
+   8769
+  ],
+  [
+   "4013",
+   "2107",
+   320
+  ],
+  [
+   "2512",
+   "5485",
+   2011
+  ],
+  [
+   "4013",
+   "5485",
+   174
+  ],
+  [
+   "203",
+   "5698",
+   7
+  ],
+  [
+   "3649",
+   "203",
+   54
+  ],
+  [
+   "2512",
+   "3649",
+   2
+  ],
+  [
+   "5987",
+   "5507",
+   4
+  ],
+  [
+   "2107",
+   "5987",
+   164
+  ],
+  [
+   "2107",
+   "3649",
+   776
+  ],
+  [
+   "3915",
+   "5666",
+   95
+  ],
+  [
+   "5670",
+   "5507",
+   4
+  ],
+  [
+   "2107",
+   "5670",
+   33
+  ],
+  [
+   "2107",
+   "5008",
+   26
+  ],
+  [
+   "2512",
+   "4013",
+   187
+  ],
+  [
+   "2107",
+   "203",
+   32
+  ],
+  [
+   "203",
+   "5008",
+   467
+  ],
+  [
+   "2107",
+   "4935",
+   45
+  ],
+  [
+   "3915",
+   "5507",
+   11
+  ],
+  [
+   "5698",
+   "5717",
+   12241
+  ],
+  [
+   "4013",
+   "2607",
+   126
+  ],
+  [
+   "3915",
+   "5717",
+   20269
+  ],
+  [
+   "632",
+   "3915",
+   39
+  ],
+  [
+   "632",
+   "5698",
+   17
+  ],
+  [
+   "2107",
+   "632",
+   90
+  ],
+  [
+   "2107",
+   "5717",
+   58
+  ],
+  [
+   "2819",
+   "28",
+   128
+  ],
+  [
+   "2107",
+   "3915",
+   43
+  ],
+  [
+   "5485",
+   "203",
+   2
+  ],
+  [
+   "2790",
+   "2819",
+   21
+  ],
+  [
+   "2512",
+   "2790",
+   112
+  ],
+  [
+   "4935",
+   "5717",
+   10
+  ],
+  [
+   "3236",
+   "632",
+   93
+  ],
+  [
+   "2107",
+   "5485",
+   71
+  ],
+  [
+   "5485",
+   "5987",
+   79
+  ],
+  [
+   "4013",
+   "5717",
+   2
+  ],
+  [
+   "5670",
+   "4935",
+   17
+  ],
+  [
+   "5987",
+   "5670",
+   13
+  ],
+  [
+   "3236",
+   "203",
+   84
+  ],
+  [
+   "5485",
+   "632",
+   6
+  ],
+  [
+   "2107",
+   "5698",
+   70
+  ],
+  [
+   "2512",
+   "203",
+   3
+  ],
+  [
+   "2512",
+   "5717",
+   15
+  ],
+  [
+   "5485",
+   "5717",
+   4
+  ],
+  [
+   "2512",
+   "3915",
+   9
+  ],
+  [
+   "25596",
+   "5717",
+   8
+  ],
+  [
+   "2512",
+   "632",
+   11
+  ],
+  [
+   "2512",
+   "5698",
+   2
+  ],
+  [
+   "5485",
+   "3679",
+   17
+  ],
+  [
+   "2512",
+   "5008",
+   8
+  ],
+  [
+   "2512",
+   "4935",
+   5
+  ],
+  [
+   "2107",
+   "3679",
+   10
+  ],
+  [
+   "632",
+   "5008",
+   570
+  ],
+  [
+   "4935",
+   "632",
+   57
+  ],
+  [
+   "4935",
+   "3915",
+   22
+  ],
+  [
+   "4935",
+   "5008",
+   13
+  ],
+  [
+   "5698",
+   "5666",
+   134
+  ],
+  [
+   "4935",
+   "5507",
+   141
+  ],
+  [
+   "5717",
+   "5507",
+   10
+  ],
+  [
+   "2323",
+   "5507",
+   161
+  ],
+  [
+   "3915",
+   "2323",
+   63
+  ],
+  [
+   "632",
+   "5507",
+   6
+  ],
+  [
+   "5554",
+   "5507",
+   168
+  ],
+  [
+   "203",
+   "632",
+   13
+  ],
+  [
+   "5485",
+   "4013",
+   8
+  ],
+  [
+   "3649",
+   "632",
+   8
+  ],
+  [
+   "5008",
+   "632",
+   10
+  ],
+  [
+   "632",
+   "632",
+   6
+  ],
+  [
+   "5485",
+   "3915",
+   6
+  ],
+  [
+   "25596",
+   "5554",
+   105
+  ],
+  [
+   "5717",
+   "5666",
+   6
+  ],
+  [
+   "5008",
+   "5507",
+   22
+  ],
+  [
+   "203",
+   "5507",
+   13
+  ],
+  [
+   "5987",
+   "5987",
+   2
+  ],
+  [
+   "4935",
+   "3236",
+   2
+  ],
+  [
+   "5008",
+   "5008",
+   2
+  ],
+  [
+   "2107",
+   "2762",
+   13
+  ],
+  [
+   "3649",
+   "5507",
+   12
+  ],
+  [
+   "25596",
+   "2323",
+   13
+  ],
+  [
+   "5485",
+   "4935",
+   2
+  ],
+  [
+   "5987",
+   "632",
+   2
+  ],
+  [
+   "2512",
+   "2607",
+   7
+  ],
+  [
+   "4013",
+   "2819",
+   2
+  ],
+  [
+   "3679",
+   "4935",
+   3
+  ],
+  [
+   "3236",
+   "5008",
+   5
+  ],
+  [
+   "5673",
+   "9174",
+   2
+  ],
+  [
+   "9174",
+   "25596",
+   3
+  ],
+  [
+   "5120",
+   "5554",
+   5
+  ],
+  [
+   "4013",
+   "28",
+   10
+  ],
+  [
+   "2790",
+   "35374",
+   5
+  ],
+  [
+   "2762",
+   "35374",
+   13
+  ],
+  [
+   "2512",
+   "2762",
+   3
+  ],
+  [
+   "4013",
+   "2762",
+   2
+  ],
+  [
+   "8860",
+   "9060",
+   189
+  ]
+ ],
+ "same_person": {}
+}

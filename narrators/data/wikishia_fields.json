@@ -1,0 +1,85 @@
+{
+  "_comment": "Infobox templates crawled per WikiShia language and, for each, which infobox parameters feed each column of the `wikishia` table (first non-empty wins). Templates are given without the namespace prefix.",
+  "langs": {
+    "fa": {
+      "api": "https://fa.wikishia.net/w/api.php",
+      "template_ns": "الگو",
+      "templates": {
+        "جعبه اطلاعات راوی": {
+          "name_full": ["نام کامل", "عنوان"], "kunya": ["کنیه"], "laqab": ["لقب"],
+          "birthplace": ["محل تولد"], "residence": ["محل زندگی"], "death": ["وفات"],
+          "imams": ["راوی از معصوم", "صحابی"], "teachers": ["روایت از"], "students": ["راویان از او"],
+          "grade": ["اعتبار"]
+        },
+        "جعبه اطلاعات صحابه": {
+          "name_full": ["نام کامل", "اطلاعات صحابه"], "kunya": ["کنیه"], "laqab": ["لقب"],
+          "birthplace": ["زادروز/زادگاه"], "residence": ["محل زندگی"], "death": ["تاریخ و مکان درگذشت"],
+          "imams": [], "teachers": [], "students": [], "grade": []
+        },
+        "جعبه اطلاعات عالمان شیعه": {
+          "name_full": ["نام کامل", "عنوان"], "kunya": [], "laqab": ["لقب"],
+          "birthplace": ["شهر تولد"], "residence": ["محل زندگی"], "death": ["تاریخ وفات"],
+          "imams": [], "teachers": ["استادان", "اجازه روایت از"], "students": ["شاگردان", "اجازه روایت به"], "grade": []
+        },
+        "جعبه اطلاعات عالمان شیعه (بدون فعالیت اجتماعی-سیاسی)": {
+          "name_full": ["نام کامل", "عنوان"], "kunya": [], "laqab": ["لقب"],
+          "birthplace": ["شهر تولد"], "residence": ["محل زندگی"], "death": ["تاریخ وفات"],
+          "imams": [], "teachers": ["استادان", "اجازه روایت از"], "students": ["شاگردان", "اجازه روایت به"], "grade": []
+        }
+      }
+    },
+    "ar": {
+      "api": "https://ar.wikishia.net/w/api.php",
+      "template_ns": "قالب",
+      "templates": {
+        "صندوق معلومات راوي": {
+          "name_full": ["الاسم الأصلي", "الاسم"], "kunya": ["الكنية"], "laqab": ["اللقب"],
+          "birthplace": ["مكان الولادة"], "residence": ["مكان الإقامة"], "death": ["الوفاة"],
+          "imams": ["من أصحاب", "روى عن"], "teachers": ["المشايخ"], "students": ["رووا عنه"], "grade": ["الوثاقة"]
+        },
+        "صندوق معلومات أصحاب الأئمة": {
+          "name_full": ["الاسم الكامل", "العنوان"], "kunya": [], "laqab": ["اللقب"],
+          "birthplace": ["مدينة الولادة"], "residence": ["الموطن", "مدينة الوفاة"], "death": ["تاريخ الوفاة"],
+          "imams": ["من أصحاب"], "teachers": ["الأساتذة"], "students": ["التلامذة"], "grade": []
+        },
+        "صندوق معلومات الصحابة": {
+          "name_full": ["الاسم الكامل", "معلومات الصحابة"], "kunya": ["الكنية"], "laqab": ["اللقب"],
+          "birthplace": [], "residence": ["الموطن"], "death": ["تاريخ ومكان الوفاة/الاستشهاد"],
+          "imams": [], "teachers": [], "students": [], "grade": []
+        },
+        "صندوق معلومات عالم شيعي": {
+          "name_full": ["الاسم الكامل", "العنوان"], "kunya": [], "laqab": ["اللقب"],
+          "birthplace": ["مكان الولادة"], "residence": ["مكان السكن"], "death": ["تاریخ الوفاة", "تاریخ ومكان الوفاة"],
+          "imams": [], "teachers": ["الأساتذة", "إجازة الرواية من"], "students": ["التلاميذ", "أجاز الرواية لـ"], "grade": []
+        }
+      }
+    },
+    "en": {
+      "api": "https://en.wikishia.net/w/api.php",
+      "template_ns": "Template",
+      "templates": {
+        "Infobox Narrator": {
+          "name_full": ["Full name", "title"], "kunya": ["Kunya"], "laqab": ["Epithet"],
+          "birthplace": ["Birth place"], "residence": ["Place of Residence"], "death": ["Death"],
+          "imams": ["Companion of", "Narrated from infallible"], "teachers": ["Narrated from"], "students": ["Narrated by"],
+          "grade": ["Reliability"]
+        },
+        "Infobox companion of Imam (a)": {
+          "name_full": ["Full name"], "kunya": ["Kunya"], "laqab": ["Epithet"],
+          "birthplace": ["Place of Birth"], "residence": ["Place of Residence"], "death": ["Death/martyrdom"],
+          "imams": ["Companion of"], "teachers": ["Professors"], "students": ["Students"], "grade": []
+        },
+        "Infobox Shia scholar": {
+          "name_full": ["Full name", "title"], "kunya": [], "laqab": ["Nickname"],
+          "birthplace": [], "residence": ["Home town", "Place of study"], "death": ["Death"],
+          "imams": [], "teachers": ["Professors", "Permission for hadith transmission from"], "students": ["Students", "Permission for hadith transmission to"], "grade": []
+        },
+        "Infobox Shia scholar without Socio-political activities": {
+          "name_full": ["Full name", "title"], "kunya": [], "laqab": ["Nickname"],
+          "birthplace": [], "residence": ["Home town", "Place of study"], "death": ["Death"],
+          "imams": [], "teachers": ["Professors", "Permission for hadith transmission from"], "students": ["Students", "Permission for hadith transmission to"], "grade": []
+        }
+      }
+    }
+  }
+}

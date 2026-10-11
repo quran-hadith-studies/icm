@@ -1,0 +1,731 @@
+"""Render an analysis bundle (outputs/viz_bundle.json) as a standalone HTML viewer."""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SKELETON_OPEN = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+"""
+SKELETON_MID = """</head>
+<body>
+"""
+SKELETON_CLOSE = """
+</body>
+</html>
+"""
+
+HTML_HEAD = """<title>__TITLE__</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky verdict header, tab strip, then a two-pane explorer (tree | inspector)
+   that stacks to one column on a phone. */
+:root{
+  --ink:#1b1f28; --ink-soft:#5a6376; --ink-faint:#8b93a5;
+  --paper:#f6f5f1; --surface:#fffefb; --line:#ddd9d0;
+  --accent:#3b4a9c; --accent-soft:#e8eaf6;
+  --warm:#9a5b2a; --good:#2f6f4f; --warn:#a8871f; --bad:#9c3b3b;
+  --font-ui:"IBM Plex Sans",system-ui,sans-serif;
+  --font-ar:"Noto Naskh Arabic","Geeza Pro",serif;
+  --font-num:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ink:#e8e6e1; --ink-soft:#a6adbd; --ink-faint:#767e91;
+  --paper:#15171c; --surface:#1d2029; --line:#30343f;
+  --accent:#8c9bef; --accent-soft:#242a44;
+  --warm:#d79a62; --good:#6cc096; --warn:#d8bb5c; --bad:#e08a8a;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ink:#e8e6e1; --ink-soft:#a6adbd; --ink-faint:#767e91;
+  --paper:#15171c; --surface:#1d2029; --line:#30343f;
+  --accent:#8c9bef; --accent-soft:#242a44;
+  --warm:#d79a62; --good:#6cc096; --warn:#d8bb5c; --bad:#e08a8a;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-ui);
+  font-size:14px;line-height:1.5}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:16px;padding-block:0 48px}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;
+  background:var(--paper);border-bottom:1px solid var(--line);padding-block:14px 0}
+h1{font-size:19px;margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--ink-soft);font-size:12.5px;margin-top:2px}
+.verdicts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{display:flex;flex-direction:column;gap:1px;background:var(--surface);
+  border:1px solid var(--line);border-radius:6px;padding:7px 11px;min-width:0}
+.chip .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint)}
+.chip .v{font-size:13.5px;font-weight:600}
+.chip .v.ar{font-family:var(--font-ar);font-size:15px;direction:rtl}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+nav.tabs{display:flex;gap:2px;margin-top:12px;overflow-x:auto;scrollbar-width:none}
+nav.tabs button{appearance:none;background:none;border:0;border-bottom:2px solid transparent;
+  color:var(--ink-soft);font:inherit;font-size:13px;padding:8px 12px;cursor:pointer;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+section.panel{padding-top:18px}
+.explorer{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.explorer{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px}
+.card>h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-faint);
+  margin:0;padding:11px 14px;border-bottom:1px solid var(--line);font-weight:600}
+.card .body{padding:12px 14px}
+#treebox{position:relative;height:62vh;min-height:300px;max-height:78vh;overflow:hidden;background:var(--paper);
+  border-radius:0 0 8px 8px;cursor:grab;touch-action:none}
+#treebox.drag{cursor:grabbing}
+#treesvg{display:block;width:100%;height:100%}
+#treesvg text{font-family:var(--font-ar);font-size:14px;fill:var(--ink);dominant-baseline:middle;
+  cursor:pointer;paint-order:stroke;stroke:var(--paper);stroke-width:3px;stroke-linejoin:round}
+#treesvg text.matn{fill:var(--warm);font-size:12.5px}
+#treesvg text.sel{fill:var(--accent);font-weight:700}
+#treesvg text.hit{fill:var(--accent)}
+#treesvg .edge{fill:none;stroke:var(--ink-faint);stroke-linecap:round}
+#treesvg .edge.map{stroke:var(--accent)}
+#treesvg .edge.low{stroke:var(--bad);stroke-dasharray:3 3}
+#treesvg .knob{fill:var(--surface);stroke:var(--ink-faint);cursor:pointer}
+#treesvg .knob.closed{fill:var(--accent);stroke:var(--accent)}
+#treesvg .knob:hover{stroke:var(--accent)}
+#treesvg .count{font-family:var(--font-num);font-size:9.5px;fill:var(--ink-faint);stroke:none;
+  dominant-baseline:middle;text-anchor:middle;pointer-events:none}
+#treesvg .yr{font-family:var(--font-num);font-size:9.5px;fill:var(--ink-faint);stroke:none}
+.zoomer{position:absolute;inset:auto 10px 10px auto;display:flex;gap:4px;z-index:3}
+.zoomer button{width:28px;height:28px;border:1px solid var(--line);border-radius:6px;background:var(--surface);
+  color:var(--ink-soft);font:inherit;font-size:14px;cursor:pointer;display:grid;place-items:center}
+.zoomer button.wide{width:auto;padding-inline:9px;font-size:12px}
+.zoomer button:hover{color:var(--ink);border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;padding:7px 12px;border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--ink-soft);align-items:center}
+.legend i{display:inline-block;width:16px;height:0;border-top:2px solid var(--ink-faint);
+  margin-inline-end:4px;vertical-align:middle}
+.legend i.map{border-color:var(--accent)}
+.legend i.low{border-top-style:dashed;border-color:var(--bad)}
+.legend .sw{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--accent);
+  margin-inline-end:4px;vertical-align:middle}
+.legend .sw.matn{background:var(--warm);border-radius:2px}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin:0}
+.dl dt{color:var(--ink-faint);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+.dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.ar{font-family:var(--font-ar);direction:rtl;unicode-bidi:isolate;text-align:right}
+.matntext{font-family:var(--font-ar);direction:rtl;font-size:17px;line-height:2;
+  background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-top:4px}
+.bars{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.bar{display:grid;grid-template-columns:minmax(0,1fr) 46px;gap:8px;align-items:center}
+.bar .track{height:15px;background:var(--paper);border:1px solid var(--line);border-radius:3px;
+  position:relative;overflow:hidden}
+.bar .fill{position:absolute;inset:0 auto 0 0;background:var(--accent);opacity:.75}
+.bar .lab{position:absolute;inset:0;display:flex;align-items:center;padding-inline:6px;
+  font-size:11px;color:var(--ink);mix-blend-mode:normal}
+.bar .pct{font-family:var(--font-num);font-size:11.5px;text-align:right;color:var(--ink-soft)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+.scroll{overflow-x:auto}
+th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);font-weight:600}
+td.n,th.n{text-align:right;font-family:var(--font-num);font-variant-numeric:tabular-nums}
+td .ar{display:block}
+tr.best td{background:var(--accent-soft)}
+.note{color:var(--ink-soft);font-size:12.5px;margin:10px 0 0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:4px;border:1px solid var(--line);
+  color:var(--ink-soft);margin:1px 3px 1px 0;white-space:nowrap}
+.tag.yes{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line))}
+.tag.no{color:var(--ink-faint)}
+.tag.na{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.chain{display:flex;flex-wrap:wrap;gap:4px;direction:rtl;font-family:var(--font-ar);font-size:14px}
+.chain span{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+.chain span.src{border-color:var(--accent);color:var(--accent)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+.toolbar input,.toolbar select{font:inherit;font-size:12.5px;padding:4px 7px;border:1px solid var(--line);
+  border-radius:5px;background:var(--surface);color:var(--ink);min-width:0}
+.toolbar button{font:inherit;font-size:12.5px;padding:4px 9px;border:1px solid var(--line);border-radius:5px;
+  background:var(--surface);color:var(--ink-soft);cursor:pointer}
+.toolbar button:hover{color:var(--ink)}
+.toolbar .hint{color:var(--ink-faint);font-size:11.5px;margin-inline-start:auto}
+@media (max-width:700px){.toolbar .hint{display:none}}
+.empty{color:var(--ink-faint);font-size:13px}
+h3{font-size:13.5px;margin:16px 0 6px;font-weight:600}
+h3:first-child{margin-top:0}
+p{margin:6px 0}
+code{font-family:var(--font-num);font-size:12px;background:var(--paper);border:1px solid var(--line);
+  border-radius:3px;padding:0 4px}
+ul{margin:6px 0;padding-inline-start:20px}
+li{margin:3px 0}
+</style>
+"""
+
+
+def render(bundle: dict, standalone: bool = True) -> str:
+    data = json.dumps(bundle, ensure_ascii=False)
+    body = r"""
+<header class="top"><div class="wrap">
+  <h1>__HEADING__</h1>
+  <div class="sub">Posterior over the latent source of the family, integrated over transmission graphs and ancestral matn states. <span id="genline"></span></div>
+  <div class="verdicts" id="verdicts"></div>
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+</div></header>
+<div class="wrap">
+  <section class="panel" id="panel-tree">
+    <div class="explorer">
+      <div class="card">
+        <h2>Transmission tree as recorded</h2>
+        <div class="toolbar">
+          <input id="q" type="search" placeholder="Find a narrator…" aria-label="Find a narrator">
+          <select id="branchsel" aria-label="Show line"></select>
+          <button id="expandall" type="button">Expand all</button>
+          <button id="collapseall" type="button">Collapse to lines</button>
+          <span class="hint">drag to pan · scroll to move · ⌘/ctrl + scroll to zoom · click a name to inspect it</span>
+        </div>
+        <div id="treebox">
+          <svg id="treesvg" role="img" aria-label="Transmission tree, right to left"></svg>
+          <div class="zoomer">
+            <button type="button" id="zout" title="Zoom out" aria-label="Zoom out">−</button>
+            <button type="button" id="zin" title="Zoom in" aria-label="Zoom in">+</button>
+            <button type="button" class="wide" id="zfit" title="Fit the whole tree">Fit</button>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i class="map"></i>edge in the MAP tree</span>
+          <span><i></i>posterior &lt; 1</span>
+          <span><i class="low"></i>posterior &lt; 0.5</span>
+          <span><span class="sw"></span>narrator</span>
+          <span><span class="sw matn"></span>matn witness</span>
+          <span>numbers on a node: floruit (h) · witnesses below</span>
+        </div>
+      </div>
+      <div class="card" id="inspector">
+        <h2>Inspector</h2>
+        <div class="body" id="inspect"><p class="empty">Select a narrator or a matn witness in the tree.</p></div>
+      </div>
+    </div>
+  </section>
+  <section class="panel" id="panel-sources" hidden></section>
+  <section class="panel" id="panel-graph" hidden></section>
+  <section class="panel" id="panel-sens" hidden></section>
+  <section class="panel" id="panel-method" hidden></section>
+</div>
+<script id="bundle" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById('bundle').textContent);
+const N = D.narrators, EP = D.graph_posterior.edge_prob || {}, MAPG = D.graph_posterior.map_graph || {};
+const ROOT = '__ROOT__';
+const NEG = Number.NEGATIVE_INFINITY;
+const lz = s => sp[s].log_Z === null ? NEG : sp[s].log_Z;   // null came from -Infinity
+const fmt = (x, d = 3) => (x === null || x === undefined || Number.isNaN(x)) ? '—'
+  : (!Number.isFinite(x) ? '−∞' : Number(x).toFixed(d));
+const pct = x => (100 * x).toFixed(1) + '%';
+const sciP = x => x >= 0.001 ? fmt(x, 3) : (x > 0 ? x.toExponential(1) : '0');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- tree model ---------- */
+const kids = {};
+for (const [v, p] of Object.entries(D.recorded_parent)) (kids[p] = kids[p] || []).push(v);
+for (const c of D.companions) (kids[ROOT] = kids[ROOT] || []).push(c);
+const attAt = {};
+D.attestations.forEach((a, i) => { (attAt[a.anchor] = attAt[a.anchor] || []).push(i); });
+const witnesses = {};
+(function count(v) {
+  let n = (attAt[v] || []).length;
+  for (const c of (kids[v] || [])) n += count(c);
+  return witnesses[v] = n;
+})(ROOT);
+const srcName = s => s === 'UNKNOWN_SOURCE' ? 'UNKNOWN — unnamed source' : (N[s] ? N[s].name : s);
+
+/* ---------- verdict chips ---------- */
+const best = D.map_source, sp = D.source_posterior;
+const ranked = Object.keys(sp).sort((a, b) => lz(b) - lz(a));
+const runner = ranked.find(s => s !== best);
+document.getElementById('genline').textContent =
+  `${D.attestations.length} witnesses · ${Object.keys(N).length} narrators · ${D.variants.length} variant units · generated ${D.generated}`;
+document.getElementById('verdicts').innerHTML = [
+  ['Best-supported source', `<span class="v ar">${esc(srcName(best))}</span>`],
+  ['Posterior', `<span class="v num">${sciP(sp[best].posterior)}</span>`],
+  ['log Bayes factor vs next', `<span class="v num">${fmt(lz(best) - lz(runner), 1)}</span>`],
+  ['MAP tree mass', `<span class="v num">${pct(D.graph_posterior.map_mass)}</span>`],
+  ['Distinct graphs sampled', `<span class="v num">${D.graph_posterior.n_distinct} / ${D.graph_posterior.n_particles}</span>`],
+].map(([k, v]) => `<div class="chip"><span class="k">${k}</span>${v}</div>`).join('');
+
+/* ---------- tree rendering: right-to-left node-link drawing ---------- */
+const SVG = document.getElementById('treesvg');
+const BOX = document.getElementById('treebox');
+const NS = 'http://www.w3.org/2000/svg';
+const ROW = 24, COLGAP = 34, PAD = 28;
+const open = new Set([ROOT, ...D.companions, ...Object.keys(N)]);   // the whole tree, fitted
+let selected = null, filter = '', branchFilter = '';
+let view = {k: 1, x: 0, y: 0};
+const edgeP = (p, c) => EP[p + '>' + c];
+const el = (n, a, t) => { const e = document.createElementNS(NS, n);
+  for (const k in a) e.setAttribute(k, a[k]); if (t !== undefined) e.textContent = t; return e; };
+
+const childrenOf = v => (kids[v] || []).concat((attAt[v] || []).map(i => 'a' + i));
+const isMatn = id => typeof id === 'string' && id[0] === 'a' && /^a\d+$/.test(id);
+const labelOf = id => {
+  if (id === ROOT) return 'حدیث «ستة لعنهم الله»';
+  if (isMatn(id)) { const t = D.attestations[+id.slice(1)].text; return t.length > 42 ? t.slice(0, 42) + '…' : t; }
+  return N[id].name;
+};
+function matchesId(id) {
+  if (!filter) return true;
+  if (isMatn(id)) return D.attestations[+id.slice(1)].text.includes(filter);
+  const own = (id === ROOT ? 'حدیث' : N[id].name).includes(filter);
+  return own || childrenOf(id).some(matchesId);
+}
+function subtreeSize(id) {
+  if (isMatn(id)) return 0;
+  let n = 0;
+  for (const c of childrenOf(id)) n += 1 + subtreeSize(c);
+  return n;
+}
+
+/* text widths are measured once per label, then cached */
+const wCache = new Map();
+function measure(id) {
+  if (wCache.has(id)) return wCache.get(id);
+  const t = el('text', {x: 0, y: -9999, class: isMatn(id) ? 'matn' : ''}, labelOf(id));
+  SVG.appendChild(t);
+  const w = t.getComputedTextLength() || labelOf(id).length * 7;
+  SVG.removeChild(t);
+  wCache.set(id, w);
+  return w;
+}
+
+function layout() {
+  const roots = branchFilter ? [branchFilter] : [ROOT];
+  const nodes = [];
+  let slot = 0;
+  (function walk(id, depth, parent) {
+    const node = {id, depth, parent, w: measure(id)};
+    nodes.push(node);
+    const vis = open.has(id) ? childrenOf(id).filter(matchesId) : [];
+    node.collapsed = !open.has(id) && childrenOf(id).length > 0;
+    node.hidden_n = node.collapsed ? subtreeSize(id) : 0;
+    if (!vis.length) { node.y = slot++ * ROW; node.leaf = true; return node; }
+    const cs = vis.map(c => walk(c, depth + 1, id));
+    node.y = (cs[0].y + cs[cs.length - 1].y) / 2;
+    return node;
+  })(roots[0], 0, null);
+
+  const maxDepth = Math.max(...nodes.map(n => n.depth));
+  const colW = new Array(maxDepth + 1).fill(0);
+  for (const n of nodes) colW[n.depth] = Math.max(colW[n.depth], n.w + 46);
+  const xRight = [];
+  let acc = PAD;
+  for (let d = 0; d <= maxDepth; d++) { xRight[d] = acc; acc += colW[d] + COLGAP; }
+  const width = acc + PAD;
+  for (const n of nodes) n.x = width - xRight[n.depth];     // right-to-left
+  const height = (slot + 1) * ROW + PAD;
+  return {nodes, width, height};
+}
+
+let LAYOUT = null;
+function drawTree(keepView) {
+  LAYOUT = layout();
+  const {nodes, width, height} = LAYOUT;
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  while (SVG.firstChild) SVG.removeChild(SVG.firstChild);
+  const g = el('g', {id: 'cam'});
+  const gE = el('g', {}), gN = el('g', {});
+  g.appendChild(gE); g.appendChild(gN);
+  SVG.appendChild(g);
+
+  for (const n of nodes) {
+    if (!n.parent) continue;
+    const p = byId.get(n.parent);
+    const x1 = p.x - p.w - 8, y1 = p.y;          // parent's left edge
+    const x2 = n.x + 10, y2 = n.y;               // child's right edge
+    const mx = (x1 + x2) / 2;
+    const q = isMatn(n.id) ? undefined : edgeP(n.parent, n.id);
+    const inMap = !isMatn(n.id) && MAPG[n.id] === n.parent;
+    const cls = 'edge' + (inMap ? ' map' : '') + (q !== undefined && q < 0.5 ? ' low' : '');
+    const sw = q === undefined ? 1 : (0.8 + 1.8 * q);
+    gE.appendChild(el('path', {class: cls, 'stroke-width': sw.toFixed(2),
+      d: `M${x1.toFixed(1)},${y1.toFixed(1)} C${mx.toFixed(1)},${y1.toFixed(1)} ${mx.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`,
+      opacity: q === undefined ? 0.5 : (0.35 + 0.65 * q).toFixed(2)}));
+  }
+  for (const n of nodes) {
+    const t = el('text', {x: n.x, y: n.y, 'text-anchor': 'start', direction: 'rtl',
+      class: (isMatn(n.id) ? 'matn' : '') + (selected === n.id ? ' sel' : '') +
+             (filter && labelOf(n.id).includes(filter) ? ' hit' : ''),
+      'data-id': n.id}, labelOf(n.id));
+    t.appendChild(el('title', {}, isMatn(n.id) ? D.attestations[+n.id.slice(1)].text : labelOf(n.id)));
+    gN.appendChild(t);
+    if (!isMatn(n.id)) {
+      const bits = [];
+      if (n.id !== ROOT && N[n.id].floruit !== null) bits.push(N[n.id].floruit + 'h');
+      if (witnesses[n.id]) bits.push(witnesses[n.id] + 'w');
+      if (bits.length) gN.appendChild(el('text', {x: n.x + 12, y: n.y, class: 'yr',
+        direction: 'ltr', 'text-anchor': 'start'}, bits.join(' · ')));
+    }
+    const kidN = isMatn(n.id) ? 0 : childrenOf(n.id).length;
+    if (kidN) {
+      const kx = n.x - n.w - 14;
+      const knob = el('circle', {cx: kx, cy: n.y, r: 5.5,
+        class: 'knob' + (n.collapsed ? ' closed' : ''), 'data-tw': n.id});
+      gN.appendChild(knob);
+      if (n.collapsed) gN.appendChild(el('text', {x: kx, y: n.y + 0.5, class: 'count'},
+        String(n.hidden_n > 99 ? '99+' : n.hidden_n)));
+    }
+  }
+  // the viewBox tracks the container 1:1 in CSS pixels; all zoom and pan live in
+  // the camera transform, so nothing is scaled twice
+  syncViewBox();
+  if (!keepView) { fit(true); sizeBox(); }
+  applyView();
+}
+/* the canvas is as tall as the drawing needs, never a field of empty paper */
+function sizeBox() {
+  if (!LAYOUT) return;
+  const maxH = Math.max(300, Math.round(window.innerHeight * 0.78));
+  const want = Math.round(LAYOUT.height * view.k + 24);
+  const h = Math.max(300, Math.min(maxH, want));
+  if (Math.abs(h - BOX.getBoundingClientRect().height) > 2) {
+    BOX.style.height = h + 'px';
+    syncViewBox();
+    fit(true);
+  }
+}
+function syncViewBox() {
+  const r = BOX.getBoundingClientRect();
+  SVG.setAttribute('viewBox', `0 0 ${Math.max(1, Math.round(r.width))} ${Math.max(1, Math.round(r.height))}`);
+}
+function applyView() {
+  const cam = SVG.querySelector('#cam');
+  if (cam) cam.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+}
+function fit(all) {
+  if (!LAYOUT) return;
+  const r = BOX.getBoundingClientRect();
+  const kx = r.width / LAYOUT.width, ky = r.height / LAYOUT.height;
+  view.k = Math.max(0.08, Math.min(1.6, all ? Math.min(kx, ky) : Math.min(1, kx)));
+  view.x = r.width - LAYOUT.width * view.k;   // the root stays pinned to the right edge
+  view.y = 6;
+  applyView();
+}
+function zoomBy(f, cx, cy) {
+  const r = BOX.getBoundingClientRect();
+  const px = cx === undefined ? r.width / 2 : cx, py = cy === undefined ? r.height / 2 : cy;
+  const k2 = Math.max(0.08, Math.min(4, view.k * f));
+  view.x = px - (px - view.x) * (k2 / view.k);
+  view.y = py - (py - view.y) * (k2 / view.k);
+  view.k = k2;
+  applyView();
+}
+document.getElementById('zin').addEventListener('click', () => zoomBy(1.25));
+document.getElementById('zout').addEventListener('click', () => zoomBy(0.8));
+document.getElementById('zfit').addEventListener('click', () => fit(true));
+BOX.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = BOX.getBoundingClientRect();
+  if (e.ctrlKey || e.metaKey) zoomBy(e.deltaY < 0 ? 1.12 : 0.89, e.clientX - r.left, e.clientY - r.top);
+  else { view.x -= e.deltaX; view.y -= e.deltaY; applyView(); }
+}, {passive: false});
+let drag = null;
+BOX.addEventListener('pointerdown', e => {
+  if (e.target.closest('text,circle,button')) return;
+  drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y};
+  BOX.classList.add('drag'); BOX.setPointerCapture(e.pointerId);
+});
+BOX.addEventListener('pointermove', e => {
+  if (!drag) return;
+  view.x = drag.vx + (e.clientX - drag.x);
+  view.y = drag.vy + (e.clientY - drag.y);
+  applyView();
+});
+const endDrag = () => { drag = null; BOX.classList.remove('drag'); };
+BOX.addEventListener('pointerup', endDrag);
+BOX.addEventListener('pointercancel', endDrag);
+
+/* ---------- inspector ---------- */
+function barList(items) {
+  return '<div class="bars">' + items.map(([lab, p]) =>
+    `<div class="bar"><div class="track"><div class="fill" style="width:${Math.max(0, Math.min(1, p)) * 100}%"></div>
+      <div class="lab">${lab}</div></div><div class="pct">${fmt(p, 3)}</div></div>`).join('') + '</div>';
+}
+function ancestralBlock(v) {
+  const anc = N[v] && N[v].ancestral;
+  if (!anc) return '<p class="empty">Not sampled (this narrator is absent from the posterior graphs under the best-supported source).</p>';
+  const items = [];
+  D.variants.forEach((spec, k) => {
+    const row = anc[k] || [];
+    if (spec.n_states === 2) items.push([esc(spec.name), row[1] || 0]);
+    else row.forEach((p, j) => items.push([esc(spec.name + ' = ' + (spec.labels[j] || j)), p]));
+  });
+  return barList(items);
+}
+function rowTags(a) {
+  return D.variants.map((spec, k) => {
+    const x = a.row[k];
+    if (x < 0) return `<span class="tag na">${esc(spec.name)}: NA</span>`;
+    if (spec.n_states === 2) return `<span class="tag ${x === 1 ? 'yes' : 'no'}">${esc(spec.name)}: ${x === 1 ? 'present' : 'absent'}</span>`;
+    return `<span class="tag yes">${esc(spec.name)}: ${esc(spec.labels[x] || x)}</span>`;
+  }).join('');
+}
+function chainHtml(sanad, anchor) {
+  return '<div class="chain">' + sanad.map((n, i) =>
+    `<span class="${i === 0 ? 'src' : ''}" title="${esc(n)}">${esc(N[n] ? N[n].name : n)}</span>`).join('') + '</div>';
+}
+function inspectNode(v) {
+  const box = document.getElementById('inspect');
+  if (v === ROOT) {
+    box.innerHTML = `<h3>The hadith family</h3>
+      <p>Six companion lines are recorded. The root of the diagram is the tradition itself, not a narrator; the candidate sources are the companions, the common links below them, and one unnamed source above them all.</p>
+      <dl class="dl"><dt>Witnesses</dt><dd class="num">${D.attestations.length}</dd>
+      <dt>Narrators</dt><dd class="num">${Object.keys(N).length}</dd>
+      <dt>Lines</dt><dd>${D.companions.map(c => `<span class="tag ar">${esc(N[c].name)}</span>`).join('')}</dd></dl>`;
+    return;
+  }
+  const n = N[v], p = D.recorded_parent[v];
+  const pp = n.parent_posterior || {};
+  const ppItems = Object.entries(pp).sort((a, b) => b[1] - a[1])
+    .map(([u, q]) => [esc(u === 'UNKNOWN_SOURCE' ? 'unnamed intermediary' : (N[u] ? N[u].name : u)), q]);
+  const isSrc = sp[v];
+  box.innerHTML = `
+    <h3 class="ar">${esc(n.name)}</h3>
+    <dl class="dl">
+      <dt>Floruit</dt><dd class="num">${n.floruit === null ? '—' : n.floruit + ' h' + (n.dated ? ' (dated in the diagram)' : ' (interpolated)')}</dd>
+      <dt>Recorded teacher</dt><dd class="ar">${p ? esc(N[p] ? N[p].name : p) : 'none — head of a line'}</dd>
+      <dt>Edge posterior</dt><dd class="num">${p ? fmt(edgeP(p, v), 3) + (MAPG[v] === p ? ' · in the MAP tree' : ' · not in the MAP tree') : '—'}</dd>
+      <dt>Students recorded</dt><dd class="num">${(kids[v] || []).length}</dd>
+      <dt>Witnesses below</dt><dd class="num">${witnesses[v]}</dd>
+      ${isSrc ? `<dt>As a source</dt><dd class="num">posterior ${sciP(sp[v].posterior)} · log Z ${fmt(lz(v), 1)}</dd>` : ''}
+    </dl>
+    <h3>Posterior over this narrator's teacher</h3>
+    ${ppItems.length ? barList(ppItems) : '<p class="empty">This narrator does not appear in the sampled graphs under the best-supported source.</p>'}
+    <h3>Ancestral matn at this narrator</h3>
+    <p class="note">P(clause present in the text this narrator transmitted), averaged over posterior graphs.</p>
+    ${ancestralBlock(v)}`;
+}
+function inspectMatn(i) {
+  const a = D.attestations[i];
+  document.getElementById('inspect').innerHTML = `
+    <h3>Witness ${esc(a.id)} — ${esc(a.collection)}</h3>
+    <div class="matntext">${esc(a.text)}</div>
+    <h3>Encoded variant units</h3><div>${rowTags(a)}</div>
+    <h3>Recorded isnād</h3>${chainHtml(a.sanad, a.anchor)}
+    <dl class="dl" style="margin-top:10px">
+      <dt>Chain length</dt><dd class="num">${a.sanad.length}</dd>
+      <dt>Independence weight</dt><dd class="num">${fmt(a.weight, 3)}</dd>
+      <dt>Line</dt><dd class="ar">${esc(N[a.companion].name)}</dd>
+    </dl>`;
+}
+
+/* ---------- other panels ---------- */
+function sourcesPanel() {
+  const rows = ranked.map(s => `<tr class="${s === best ? 'best' : ''}">
+    <td><span class="ar">${esc(srcName(s))}</span></td>
+    <td class="n">${fmt(lz(s), 1)}</td>
+    <td class="n">${sciP(sp[s].posterior)}</td>
+    <td class="n">${fmt(sp[s].ess, 0)}</td>
+    <td>${D.credible_set_95.includes(s) ? '<span class="tag yes">in 95% set</span>' : ''}</td></tr>`).join('');
+  let br = '';
+  if (D.branch_results) {
+    br = Object.entries(D.branch_results).map(([line, r]) => {
+      if (!r.posterior) return `<tr><td class="ar">${esc(line)}</td><td class="n">${r.n_attestations}</td><td colspan="3" class="empty">${esc(r.note || '')}</td></tr>`;
+      return `<tr><td class="ar">${esc(line)}</td><td class="n">${r.n_attestations}</td>
+        <td class="ar">${esc(r.map_source)}</td>
+        <td class="n">${fmt(Math.max(...Object.values(r.posterior)), 3)}</td>
+        <td class="n">${fmt(r.log_BF_vs_next, 1)}</td></tr>`;
+    }).join('');
+  }
+  let mo = '';
+  if (D.matn_only) {
+    mo = Object.entries(D.matn_only).map(([line, r]) => `<tr><td class="ar">${esc(line)}</td>
+      <td class="ar">${esc(r.matn_only.map_source)}</td>
+      <td class="ar">${esc((r['sanad_downweighted_0.1'] || {}).map_source || '—')}</td></tr>`).join('');
+  }
+  return `<div class="grid2">
+    <div class="card"><h2>Candidate sources, whole family</h2><div class="scroll"><table>
+      <thead><tr><th>Source</th><th class="n">log Z</th><th class="n">Posterior</th><th class="n">ESS</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div class="body"><p class="note">Z<sub>s</sub> is estimated by annealed SMC; importance sampling from the graph prior collapses here (ESS ≈ 1). A source with log Z = −∞ cannot reach every surviving witness under any sampled graph.</p></div></div>
+    <div class="card"><h2>Within each line</h2><div class="scroll"><table>
+      <thead><tr><th>Line</th><th class="n">Witnesses</th><th>Best source</th><th class="n">Posterior</th><th class="n">log BF</th></tr></thead>
+      <tbody>${br || '<tr><td class="empty" colspan="5">Not computed.</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h2>What the matn alone supports</h2><div class="scroll"><table>
+      <thead><tr><th>Line</th><th>Matn only</th><th>Sanad weighted 0.1</th></tr></thead>
+      <tbody>${mo || '<tr><td class="empty" colspan="3">Not computed.</td></tr>'}</tbody></table></div>
+      <div class="body"><p class="note">With the sanad term switched off the posterior falls back to the common link. The isnād structure is what carries the source up to the companion.</p></div></div>
+  </div>`;
+}
+function graphPanel() {
+  const uncertain = Object.entries(D.recorded_parent)
+    .map(([v, p]) => [v, p, edgeP(p, v)])
+    .filter(([v, p, q]) => q !== undefined && q < 0.999)
+    .sort((a, b) => a[2] - b[2]).slice(0, 40);
+  const missing = Object.entries(MAPG).filter(([v, p]) => D.recorded_parent[v] !== p);
+  return `<div class="grid2">
+    <div class="card"><h2>Graph posterior</h2><div class="body">
+      <dl class="dl">
+        <dt>Particles</dt><dd class="num">${D.graph_posterior.n_particles}</dd>
+        <dt>Distinct graphs</dt><dd class="num">${D.graph_posterior.n_distinct}</dd>
+        <dt>Mass on the MAP graph</dt><dd class="num">${pct(D.graph_posterior.map_mass)}</dd>
+        <dt>MAP log score</dt><dd class="num">${fmt(D.graph_posterior.map_log_score, 2)}</dd>
+      </dl>
+      <p class="note">Yes — a single maximum-probability tree was found, and it carries ${pct(D.graph_posterior.map_mass)} of the posterior mass under the best-supported source. The graph posterior is therefore concentrated, not spread: given these candidate parent sets the recorded structure is essentially the only structure the data support. Few distinct graphs among the particles also means the SMC resampling has collapsed onto that mode, so the estimate of how much mass sits on the runner-up trees is itself uncertain.</p>
+    </div></div>
+    <div class="card"><h2>Edges the posterior is unsure about</h2><div class="scroll"><table>
+      <thead><tr><th>Teacher → student</th><th class="n">P(edge)</th></tr></thead><tbody>
+      ${uncertain.length ? uncertain.map(([v, p, q]) => `<tr><td><span class="ar">${esc(N[p] ? N[p].name : p)} ← ${esc(N[v].name)}</span></td><td class="n">${fmt(q, 3)}</td></tr>`).join('')
+        : '<tr><td class="empty" colspan="2">Every recorded edge has posterior ≥ 0.999.</td></tr>'}
+      </tbody></table></div></div>
+    <div class="card"><h2>Where the MAP tree departs from the record</h2><div class="scroll"><table>
+      <thead><tr><th>Student</th><th>Recorded teacher</th><th>MAP teacher</th></tr></thead><tbody>
+      ${missing.length ? missing.map(([v, p]) => `<tr><td class="ar">${esc(N[v] ? N[v].name : v)}</td>
+        <td class="ar">${esc(N[D.recorded_parent[v]] ? N[D.recorded_parent[v]].name : (D.recorded_parent[v] || '—'))}</td>
+        <td class="ar">${esc(p === 'UNKNOWN_SOURCE' ? 'unnamed intermediary' : (N[p] ? N[p].name : p))}</td></tr>`).join('')
+        : '<tr><td class="empty" colspan="3">The MAP tree reproduces the recorded structure exactly.</td></tr>'}
+      </tbody></table></div></div>
+  </div>`;
+}
+function sensPanel() {
+  const g = D.global_results || {};
+  const tbl = (obj, head) => {
+    if (!obj) return '<p class="empty">Not computed.</p>';
+    const cols = Object.keys(Object.values(obj)[0]);
+    return `<div class="scroll"><table><thead><tr><th>${head}</th>${cols.map(c => `<th class="ar">${esc(c)}</th>`).join('')}</tr></thead>
+      <tbody>${Object.entries(obj).map(([k, v]) => `<tr><td class="num">${esc(k)}</td>${cols.map(c => `<td class="n">${sciP(v[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  };
+  const shrink = o => {
+    if (!o) return null;
+    const out = {};
+    for (const [k, v] of Object.entries(o)) {
+      const top = Object.entries(v).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      out[k] = Object.fromEntries(top);
+    }
+    return out;
+  };
+  return `<div class="grid2">
+    <div class="card"><h2>Source priors</h2><div class="body">${tbl(shrink(g.prior_sensitivity), 'Prior')}
+      <p class="note">Equal, date-informed and unknown-favouring priors give the same conclusion.</p></div></div>
+    <div class="card"><h2>Textual-change and sanad-error rates</h2><div class="body">${tbl(shrink(g.rate_sensitivity), 'Setting')}</div></div>
+    <div class="card"><h2>Permutation test</h2><div class="body">
+      ${g.permutation_test ? `<dl class="dl">
+        <dt>Source tested</dt><dd class="ar">${esc(g.permutation_test.source)}</dd>
+        <dt>Observed posterior</dt><dd class="num">${fmt(g.permutation_test.observed, 3)}</dd>
+        <dt>Null mean</dt><dd class="num">${fmt(g.permutation_test.null_mean, 3)}</dd>
+        <dt>p-value</dt><dd class="num">${fmt(g.permutation_test.p_value, 3)}</dd></dl>
+        <p class="note">Shuffling the matns among the sanads does not move the posterior. With this clause-level encoding the matn carries almost no discrimination between candidate sources; the result rests on the isnād structure.</p>`
+      : '<p class="empty">Not computed.</p>'}</div></div>
+  </div>`;
+}
+function methodPanel() {
+  const rec = D.recovery_test;
+  return `<div class="grid2">
+    <div class="card"><h2>The model</h2><div class="body">
+      <p>P(S=s | X, C, M) ∝ P(S=s)·Z<sub>s</sub>, with Z<sub>s</sub> = Σ<sub>G</sub> P(X|G,s)·P(C|G,s)·P(G|s,M).</p>
+      <ul>
+        <li><strong>Matn</strong>: each variant unit evolves along the tree as a finite-state Markov process, T<sub>r</sub>(t) = exp(Q<sub>r</sub>t); ancestral states are summed out by pruning, never reconstructed first.</li>
+        <li><strong>Sanad</strong>: each recorded chain is a noisy reading of the latent root-to-witness path, scored by a pair-HMM over MATCH / DELETE / INSERT / SUBSTITUTE.</li>
+        <li><strong>Graph</strong>: candidate teachers are filtered by chronology and geography; edge scores (recorded, same city, teacher–student, documented meeting) become parent probabilities by softmax.</li>
+        <li><strong>Evidence</strong>: exact enumeration for small spaces, importance sampling, or annealed SMC — used here.</li>
+      </ul>
+      <p class="note">Each surviving copy hangs off its narrator by its own pendant branch, so two divergent copies from one narrator are not a contradiction. Copies from one collection share an independence group and enter with weight 1/|group|.</p>
+    </div></div>
+    <div class="card"><h2>Validation</h2><div class="body">
+      <p>Pruning is checked against brute-force marginalisation over ancestral states; the pair-HMM against normalisation and monotonicity.</p>
+      ${rec ? `<dl class="dl"><dt>Simulations</dt><dd class="num">12 families</dd>
+        <dt>True source is MAP</dt><dd class="num">${pct(rec.map_accuracy)}</dd>
+        <dt>95% coverage</dt><dd class="num">${pct(rec.coverage95)}</dd>
+        <dt>Mean posterior on truth</dt><dd class="num">${fmt(rec.mean_true_posterior, 3)}</dd></dl>` : ''}
+    </div></div>
+    <div class="card"><h2>Limitations</h2><div class="body"><ul>
+      <li>The posterior is dominated by the sanad term; the eight clause-level variant units are nearly invariant, so the matn barely discriminates. A word-level collation is the next step.</li>
+      <li>Sanad noise is independent per slot: a wholly fabricated chain to a companion is not modelled, and that is the hypothesis which would compete with the whole-family result.</li>
+      <li>Dates are floruits interpolated along the chains between the companion and the dated collector, not researched biographies.</li>
+      <li>Narrator identity is taken from the diagram: same name, different branch means the same person only if the diagram drew it so.</li>
+      <li><span class="ar">غیر واحد</span> ("more than one") is treated as a single node, which it is not.</li>
+    </ul></div></div>
+  </div>`;
+}
+
+/* ---------- tabs ---------- */
+const TABS = [['tree', 'Tree'], ['sources', 'Sources'], ['graph', 'Graph & MAP tree'],
+              ['sens', 'Sensitivity'], ['method', 'Method & limits']];
+const nav = document.getElementById('tabs');
+nav.innerHTML = TABS.map(([id, lab], i) =>
+  `<button role="tab" id="tab-${id}" aria-controls="panel-${id}" aria-selected="${i === 0}">${lab}</button>`).join('');
+const built = {};
+function show(id) {
+  for (const [t] of TABS) {
+    document.getElementById('panel-' + t).hidden = t !== id;
+    document.getElementById('tab-' + t).setAttribute('aria-selected', String(t === id));
+  }
+  if (!built[id]) {
+    const el = document.getElementById('panel-' + id);
+    if (id === 'sources') el.innerHTML = sourcesPanel();
+    if (id === 'graph') el.innerHTML = graphPanel();
+    if (id === 'sens') el.innerHTML = sensPanel();
+    if (id === 'method') el.innerHTML = methodPanel();
+    built[id] = true;
+  }
+}
+nav.addEventListener('click', e => { const b = e.target.closest('button'); if (b) show(b.id.slice(4)); });
+
+/* ---------- interactions ---------- */
+const sel = document.getElementById('branchsel');
+sel.innerHTML = '<option value="">All six lines</option>' +
+  D.companions.map(c => `<option value="${esc(c)}">${esc(N[c].name)}</option>`).join('');
+sel.addEventListener('change', () => { branchFilter = sel.value; if (branchFilter) open.add(branchFilter); drawTree(); });
+document.getElementById('q').addEventListener('input', e => {
+  filter = e.target.value.trim();
+  if (filter) { for (const v of Object.keys(N)) open.add(v); open.add(ROOT); }
+  drawTree();
+});
+document.getElementById('expandall').addEventListener('click', () => {
+  open.add(ROOT); for (const v of Object.keys(N)) open.add(v); drawTree();
+});
+document.getElementById('collapseall').addEventListener('click', () => {
+  open.clear(); open.add(ROOT); for (const c of D.companions) open.add(c); drawTree();
+});
+function activate(id) {
+  selected = id;
+  if (isMatn(id)) inspectMatn(+id.slice(1)); else inspectNode(id);
+  drawTree(true);
+  if (window.innerWidth <= 860) document.getElementById('inspector').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+SVG.addEventListener('click', e => {
+  const knob = e.target.closest('[data-tw]');
+  if (knob) { const v = knob.getAttribute('data-tw');
+    open.has(v) ? open.delete(v) : open.add(v); drawTree(true); return; }
+  const t = e.target.closest('text[data-id]');
+  if (t) activate(t.getAttribute('data-id'));
+});
+window.addEventListener('resize', () => { if (LAYOUT) { syncViewBox(); applyView(); } });
+
+drawTree();
+inspectNode(ROOT);
+show('tree');
+if (document.fonts) {                      // remeasure once the Arabic face is really in
+  const relayout = () => { wCache.clear(); drawTree(); };
+  Promise.all([
+    document.fonts.load('14px "Noto Naskh Arabic"', 'محمد'),
+    document.fonts.load('700 14px "Noto Naskh Arabic"', 'محمد'),
+    document.fonts.ready,
+  ]).then(relayout).catch(relayout);
+}
+</script>
+"""
+    page = (HTML_HEAD.replace("__TITLE__", bundle.get("title", "Hadith source tree"))
+            + body.replace("__DATA__", data)
+                  .replace("__HEADING__", bundle.get("heading", bundle.get("family", ""))))
+    if standalone:
+        head_end = page.index("</style>") + len("</style>")
+        return (SKELETON_OPEN + page[:head_end] + SKELETON_MID + page[head_end:]
+                + SKELETON_CLOSE)
+    return page
+
+
+def main():
+    bundle = json.load(open(os.path.join(HERE, "outputs", "viz_bundle.json"), encoding="utf-8"))
+    for name, standalone in (("sitta_viz.html", True), ("sitta_viz.fragment.html", False)):
+        html = render(bundle, standalone)
+        out = os.path.join(HERE, "outputs", name)
+        open(out, "w", encoding="utf-8").write(html)
+        print("written", out, round(len(html) / 1024), "KB")
+
+
+if __name__ == "__main__":
+    main()

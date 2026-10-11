@@ -1,0 +1,122 @@
+{
+  "_comment": "Canonical keys for the rijāl books. `noor_labels` are the strings Noor prints before a vol/page citation or as a bare source in InfoList; `openiti` is the file under external/datasets/openiti-shia-rijal; `entry_regex` is the heading pattern after '### $ '; `same_edition` says whether Noor's page numbers were measured to match the OpenITI page markers.",
+  "books": {
+    "najashi": {
+      "title": "رجال النجاشي",
+      "noor_labels": ["رجال النجاشي", "النجاشي"],
+      "openiti": "0450Najashi.Rijal.Shia002931-ara1.mARkdown",
+      "entry_regex": "^(\\d+)\\s*-\\s*(.*)$",
+      "same_edition": true,
+      "alphabetical": true,
+      "priority": 1
+    },
+    "tusi_rijal": {
+      "title": "رجال الطوسي",
+      "noor_labels": ["رجال الطوسي"],
+      "openiti": "0460ShaykhTusi.Rijal.Shia002935-ara1.mARkdown",
+      "entry_regex": "^(\\d+)\\s*-\\s*(.*)$",
+      "same_edition": true,
+      "alphabetical": false,
+      "priority": 2
+    },
+    "ghadairi": {
+      "title": "رجال ابن الغضائري",
+      "noor_labels": ["رجال ابن الغضائري", "الغضائري"],
+      "openiti": "0500IbnHusaynGhadairiWasiti.Rijal.Shia002936-ara1.completed",
+      "entry_regex": "^(\\d+)\\s*-\\s*(.*)$",
+      "same_edition": "approx",
+      "alphabetical": true,
+      "priority": 3
+    },
+    "khulasa": {
+      "title": "خلاصة الأقوال",
+      "noor_labels": ["الخلاصة للحلي"],
+      "openiti": "0726CallamaHilli.KhulasatAqwal.Shia002940-ara1.completed",
+      "entry_regex": "^\\[?\\]?\\s*(\\d+)\\s*-\\s*(.*)$",
+      "same_edition": false,
+      "alphabetical": true,
+      "priority": 4
+    },
+    "tusi_fihrist": {
+      "title": "الفهرست",
+      "noor_labels": ["الفهرست للطوسي"],
+      "openiti": "0460ShaykhTusi.Fihrist.Shia002934-ara1.mARkdown",
+      "entry_regex": "^\\[\\d+\\]\\s*(\\d+)\\s*-\\s*(.*)$",
+      "same_edition": false,
+      "alphabetical": true,
+      "priority": 5
+    },
+    "ibn_dawud": {
+      "title": "رجال ابن داود",
+      "noor_labels": ["رجال البرقی-ابن داود", "رجال ابن داود"],
+      "openiti": "0740IbnDawudHilli.Rijal.Masaha004647-ara1.completed",
+      "entry_regex": "^(\\d+)\\s+(.*)$",
+      "same_edition": false,
+      "alphabetical": true,
+      "priority": 7
+    },
+    "tafrishi": {
+      "title": "نقد الرجال",
+      "noor_labels": [],
+      "openiti": "1100MustafaTafrishi.NaqdRijal.Shia002948Vols-ara1.completed",
+      "entry_regex": "^\\d+\\s*/\\s*(\\d+)\\s*-\\s*(.*)$",
+      "same_edition": false,
+      "alphabetical": true,
+      "priority": 7
+    },
+    "ikhtiyar": {
+      "title": "اختيار معرفة الرجال",
+      "noor_labels": ["اختیار معرفة الرجال", "اختيار معرفة الرجال"],
+      "openiti": "0460ShaykhTusi.IkhtiyarMacrifatRijal.Shia002932VolsBK1-ara1.mARkdown",
+      "entry_regex": null,
+      "same_edition": false,
+      "alphabetical": false,
+      "priority": 3
+    },
+    "kashshi": {
+      "title": "رجال الكشي",
+      "noor_labels": [],
+      "openiti": "0329IbnCumarKashshi.Rijal.Masaha005108Vols-ara1",
+      "entry_regex": null,
+      "same_edition": false,
+      "alphabetical": false,
+      "priority": 3
+    },
+    "barqi": {
+      "title": "رجال البرقي",
+      "noor_labels": ["البرقي"],
+      "openiti": "0274AhmadBarqi.Rijal.Masaha003535-ara1",
+      "entry_regex": null,
+      "same_edition": false,
+      "alphabetical": false,
+      "priority": 3
+    },
+    "khulasa_2": {
+      "title": "خلاصة الأقوال (second edition)",
+      "noor_labels": [],
+      "openiti": "0726CallamaHilli.Rijal.Masaha004722-ara1",
+      "entry_regex": null,
+      "same_edition": false,
+      "alphabetical": true,
+      "priority": 4
+    },
+    "jami_ruwat": {
+      "title": "جامع الرواة",
+      "noor_labels": [],
+      "openiti": "1101MuhammadCaliArdabili.JamicRuwat.Shia002953Vols-ara1",
+      "entry_regex": null,
+      "same_edition": false,
+      "alphabetical": true,
+      "priority": 7
+    },
+    "khoei": {
+      "title": "معجم رجال الحديث",
+      "noor_labels": [],
+      "openiti": null,
+      "entry_regex": null,
+      "same_edition": false,
+      "alphabetical": true,
+      "priority": 6
+    }
+  }
+}

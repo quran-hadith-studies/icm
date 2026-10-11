@@ -1,0 +1,5 @@
+{
+ "map_accuracy": 1.0,
+ "coverage95": 1.0,
+ "mean_true_posterior": 0.9999999999967905
+}

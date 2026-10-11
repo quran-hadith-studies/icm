@@ -1,0 +1,52 @@
+narrators 197 {'high': 83, 'low': 62, 'medium': 44, 'none': 8}
+recorded edges with both ends linked: 95 of 180 | attested in KG isnads: 71
+{
+ "map_source": "UNKNOWN (source above all companions)",
+ "posterior": {
+  "عائشة بنت أبی بکر (مدینة؛ 58 ق)": 5.7274440929922065e-05,
+  "علی بن الحسین (مدینة؛ حدود 95ق)": 5.085978705409053e-53,
+  "سلیم بن قیس الهلالی (نیمهی دوم قرن)1": 2.323178230416315e-76,
+  "عمرو بن سعواء الیافعی": 3.109017637521428e-69,
+  "عبد الله بن عباس (68ق)": 2.283080937335953e-76,
+  "أنس بن مالک (93 ق)": 1.7562147641350646e-80,
+  "غیر واحد": 0.0,
+  "عبد الرحمن بن أبی الموالی": 0.0,
+  "قتیبة بن سعید": 0.0,
+  "اسحاق بن محمد الفروی": 0.0,
+  "زید بن علی بن الحسین": 3.3521794290403166e-176,
+  "محمد بن یوسف الفریابی": 0.0,
+  "UNKNOWN (source above all companions)": 0.9999427255590642
+ },
+ "ess": {
+  "عائشة بنت أبی بکر (مدینة؛ 58 ق)": 136.4228593303664,
+  "علی بن الحسین (مدینة؛ حدود 95ق)": 120.93882378944272,
+  "سلیم بن قیس الهلالی (نیمهی دوم قرن)1": 126.75844956256309,
+  "عمرو بن سعواء الیافعی": 124.72680922165416,
+  "عبد الله بن عباس (68ق)": 125.7707723434055,
+  "أنس بن مالک (93 ق)": 145.08501571961386,
+  "غیر واحد": 0.0,
+  "عبد الرحمن بن أبی الموالی": 0.0,
+  "قتیبة بن سعید": 0.0,
+  "اسحاق بن محمد الفروی": 0.0,
+  "زید بن علی بن الحسین": 134.23486500550013,
+  "محمد بن یوسف الفریابی": 0.0,
+  "UNKNOWN (source above all companions)": 135.5001438315413
+ },
+ "seconds": 226.1
+}
+written /Users/mfo19/Downloads/hadith-project/analysis/outputs/sitta_results.json
+عائشة بنت أبی بکر (مدینة؛ 58 ق) -> عائشة بنت أبی بکر (مدینة؛ 58 ق) 1.0
+علی بن الحسین (مدینة؛ حدود 95ق) -> علی بن الحسین (مدینة؛ حدود 95ق) 1.0
+عمرو بن سعواء الیافعی -> عمرو بن سعواء الیافعی 0.999
+written /Users/mfo19/Downloads/hadith-project/analysis/outputs/branch_results.json
+عائشة بنت أبی بکر (مدینة؛ 58 ق) matn_only -> عبد الرحمن بن أبی الموالی
+عائشة بنت أبی بکر (مدینة؛ 58 ق) sanad_downweighted_0.1 -> عائشة بنت أبی بکر (مدینة؛ 58 ق)
+علی بن الحسین (مدینة؛ حدود 95ق) matn_only -> جعفر بن محمد الصادق
+علی بن الحسین (مدینة؛ حدود 95ق) sanad_downweighted_0.1 -> علی بن الحسین (مدینة؛ حدود 95ق)
+عمرو بن سعواء الیافعی matn_only -> احمد بن رشدین المصری
+عمرو بن سعواء الیافعی sanad_downweighted_0.1 -> عمرو بن سعواء الیافعی
+written
+map source UNKNOWN_SOURCE | map graph mass 0.9906832685121506 | distinct graphs 6 / 150
+written /Users/mfo19/Downloads/hadith-project/analysis/outputs/viz_bundle.json 412 KB
+written /Users/mfo19/Downloads/hadith-project/analysis/outputs/sitta_viz.html 419 KB
+written /Users/mfo19/Downloads/hadith-project/analysis/outputs/sitta_viz.fragment.html 419 KB

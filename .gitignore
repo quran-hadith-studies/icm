@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+outputs/_work/
+external/*
+!external/match_narrators.py
+!external/datasets/
+external/datasets/*
+!external/datasets/README.md
+.DS_Store
