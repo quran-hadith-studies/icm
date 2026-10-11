@@ -6,7 +6,8 @@
                                  defaults, phylogeny confirmed) - for tests and replays only
   replay PID                     advance an existing project once
   status [PID]                   list projects or show one
-  sync                           pull/push the cache repository
+  sync [--server U@H:PATH]       commit and push the cache; with --server, first copy the server's cache here
+  eval                           recall of the search against the diagram witnesses and the consensus sets
   build kg|noor|termdf|books     (re)build the laptop-side data files
 """
 from __future__ import annotations
@@ -42,7 +43,8 @@ def main(argv=None) -> int:
     r.add_argument("--user", default="cli")
     rp = sub.add_parser("replay"); rp.add_argument("pid")
     st = sub.add_parser("status"); st.add_argument("pid", nargs="?")
-    sub.add_parser("sync")
+    sy = sub.add_parser("sync"); sy.add_argument("--server", help="user@host:path of the server's cache directory; copied here first")
+    sub.add_parser("eval")
     b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "all"])
     a = ap.parse_args(argv)
     if a.cmd == "worker":
@@ -59,7 +61,17 @@ def main(argv=None) -> int:
         for p in ([project.load(a.pid)] if a.pid else project.list_projects()):
             print(p["pid"], p["status"], p["step"], p["seed"], p["title"])
     elif a.cmd == "sync":
-        print(cache.pull()); print(cache.commit_push("icm: sync"))
+        if a.server:
+            print(*cache.pull_from_server(a.server))
+            from . import project as _p
+            _p.refresh_indexes()
+        else:
+            print(cache.pull())
+        print(*cache.commit_push("icm: sync from server" if a.server else "icm: sync"))
+    elif a.cmd == "eval":
+        from . import evaluate
+        print(json.dumps(evaluate.sitta(), ensure_ascii=False, indent=1))
+        print(json.dumps(evaluate.consensus_oracle(), indent=1))
     elif a.cmd == "build":
         from .build import books_meta, kg_extract, noor_relations, termdf
         for name, mod in (("books", books_meta), ("noor", noor_relations), ("kg", kg_extract), ("termdf", termdf)):

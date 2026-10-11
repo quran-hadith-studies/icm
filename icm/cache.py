@@ -50,3 +50,15 @@ def commit_push(message: str) -> Tuple[bool, str]:
         return False, "rebase failed: " + out
     code, out = _git("push", "-q", "origin", "HEAD")
     return code == 0, out or "pushed"
+
+
+def pull_from_server(remote: str, timeout: int = 900) -> Tuple[bool, str]:
+    """Copy the server's cache directory into this one (laptop side).
+
+    ``remote`` = ``user@host:path/to/cache``. Files are only ever added or replaced by a newer
+    version (``--update``), never deleted; stage, decision and run files are immutable on the
+    server, so existing copies are authoritative."""
+    cmd = ["rsync", "-a", "--update", "--exclude=.git", "--exclude=.lock", "--exclude=*.tmp",
+           remote.rstrip("/") + "/", config.CACHE_DIR.rstrip("/") + "/"]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return p.returncode == 0, (p.stdout + p.stderr).strip()
