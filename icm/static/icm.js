@@ -25,7 +25,7 @@ async function computeInBrowser(pid, ui) {
     ui(`بارگذاری مفسر پایتون در ${fa(nW)} پردازه…`, 0.02);
     await Promise.all(workers.map(w => rpc(w, { cmd: 'boot', base: BASE })));
     const payload = JSON.stringify({ graph: inp.graph, texts: inp.texts, preset: inp.preset, seed: inp.seed });
-    const infos = await Promise.all(workers.map(w => rpc(w, { cmd: 'init', payload })));
+    const infos = (await Promise.all(workers.map(w => rpc(w, { cmd: 'init', payload })))).map(x => JSON.parse(x));
     const n = infos[0].sources.length;
     const light = new Array(n), owner = new Array(n);
     let next = 0, done = 0;
