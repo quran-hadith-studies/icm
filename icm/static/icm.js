@@ -82,6 +82,8 @@ async function home() {
     out.replaceChildren(rs.length ? el('table', {}, rs.map(h => hadithRow(h))) : el('p', { class: 'muted' }, 'چیزی پیدا نشد.'));
   };
   q.addEventListener('keydown', e => { if (e.key === 'Enter') go_(); });
+  const pre = new URLSearchParams(location.search).get('seed');
+  if (pre) { q.value = pre; setTimeout(go_, 0); }
   $app.replaceChildren(
     el('div', { class: 'card' }, el('h2', {}, 'شروع از یک حدیث'),
       el('p', { class: 'muted' }, 'یک حدیث را انتخاب کنید؛ سامانه خانواده‌ی آن را می‌یابد، شما شاهدها و راویان را تأیید می‌کنید و در پایان قدیمی‌ترین منبع قابل‌بازیابی برآورد می‌شود.'),
@@ -353,8 +355,8 @@ function graphSvg(G) {
   const drawn = new Set();
   atts.forEach(a => a.sanad.slice(1).forEach((v, i) => { const u = a.sanad[i], k = u + '>' + v; if (drawn.has(k)) return; drawn.add(k);
     svg.append(mk('line', { x1: X(u), y1: 20 + lane[u] * 16, x2: X(v), y2: 20 + lane[v] * 16, stroke: 'var(--line)', 'stroke-width': 1.2 })); }));
-  Object.keys(lane).forEach(n => { const g = mk('g', {}); const c = mk('circle', { cx: X(n), cy: 20 + lane[n] * 16, r: 4.5, fill: tierColor(n), stroke: (G.nodes[n].date_source === 'interpolated' || !G.nodes[n].date_source) ? 'var(--fg)' : 'none', 'stroke-dasharray': '2 2' });
-    const t = mk('title', {}, `${nodes[n].name}\n${G.nodes[n].date_source || 'بدون تاریخ'} ${nodes[n].death ? Math.round(nodes[n].death[0]) : ''}`); c.append(t); g.append(c);
+  Object.keys(lane).forEach(n => { const g = mk('g', {}); const c = mk('circle', { style: 'cursor:pointer', cx: X(n), cy: 20 + lane[n] * 16, r: 4.5, fill: tierColor(n), stroke: (G.nodes[n].date_source === 'interpolated' || !G.nodes[n].date_source) ? 'var(--fg)' : 'none', 'stroke-dasharray': '2 2' });
+    const t = mk('title', {}, `${nodes[n].name}\n${G.nodes[n].date_source || 'بدون تاریخ'} ${nodes[n].death ? Math.round(nodes[n].death[0]) : ''}`); c.append(t); c.addEventListener('click', () => narratorCard(n)); g.append(c);
     g.append(mk('text', { x: X(n) - 8, y: 24 + lane[n] * 16, 'font-size': 11, 'text-anchor': 'start', fill: 'var(--fg)', 'direction': 'rtl' }, nodes[n].name.slice(0, 26))); svg.append(g); });
   for (let yv = Math.ceil(lo / 100) * 100; yv <= hi; yv += 100) [yv].forEach(yv => { const xx = L + (R - L) * (1 - (yv - lo) / (hi - lo || 1)); svg.append(mk('line', { x1: xx, y1: 0, x2: xx, y2: H - 18, stroke: 'var(--line)', 'stroke-dasharray': '3 4' })); svg.append(mk('text', { x: xx, y: H - 4, 'font-size': 11, fill: 'var(--muted)', 'text-anchor': 'middle' }, fa(yv) + ' ق')); });
   return wrap;
