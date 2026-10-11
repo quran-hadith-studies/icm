@@ -263,6 +263,11 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         body = await request.json()
         payload = _validate(step, body.get("payload") or {}, pid, p)
         n = project.add_decision(pid, step, payload, u["username"], str(body.get("note", ""))[:500])
+        if step == "phylogeny" and payload.get("confirmed"):
+            with project.lock(pid):                     # the next tab at once; the run that follows sets its own step
+                q = project.load(pid)
+                q["step"] = "analysis"
+                project.save(q)
         jobs.enqueue(pid)
         return dict(version=n)
 

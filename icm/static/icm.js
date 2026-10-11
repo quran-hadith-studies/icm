@@ -794,6 +794,9 @@ const panels = {
 
   /* ----- 6: analysis ----- */
   async analysis(main, c) {
+    /* the current run predates the latest decisions: its results belong to the previous version */
+    const cr = P.runs.find(r => r.run === c.p.current_run);
+    if (!c.readonly && cr && Object.keys(P.versions).some(s => (cr.versions || {})[s] !== P.versions[s])) return pendingPanel(main, c, cr);
     if (c.p.status === 'awaiting' && !c.readonly) return awaitingPanel(main, c);
     const R = await stage(c.pid, c.runId, 'results');
     const rows = Object.entries(R.posterior).sort((a, b) => b[1] - a[1]).slice(0, 12);
@@ -806,6 +809,13 @@ const panels = {
       el('iframe', { class: 'viewer', src: `${API}/project/${c.pid}/runs/${c.runId}/viewer` }));
   },
 };
+
+function pendingPanel(main, c, prev) {
+  const failed = c.p.status === 'failed' && !P.job;
+  main.replaceChildren(card('تحلیل نسخه‌ی تازه', el('p', {}, failed ? 'اجرای نسخه‌ی تازه به خطا خورد (پیام بالای صفحه).' : 'نسخه‌ی تازه ساخته شد و در حال آماده شدن است؛ این صفحه خودش به‌روز می‌شود.'),
+    prev.stages && prev.stages.infer ? el('p', { class: 'small muted' }, 'نتیجه‌ی نسخه‌ی پیشین اینجا نشان داده نمی‌شود؛ ',
+      el('a', { href: BASE + stepUrl(c.pid, prev.run, 'analysis'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, prev.run, 'analysis')); } }, 'دیدن آن (فقط‌خواندنی)'), '.') : null));
+}
 
 async function awaitingPanel(main, c) {
   const aw = c.p.awaiting || {};
