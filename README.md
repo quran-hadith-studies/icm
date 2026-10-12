@@ -555,6 +555,19 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    person (`noor:`/`kg:`, every chain) or for a name-only place (`occ:<aid>|<i>`), saved as `dates` in the
    `identities` decision and applied by the graph stage before interpolation (step 5 points here). The narrator card
    (grade, dated facts with evidence, rijāl entries, teachers/students) is one click away.
+   **Suggestions** (`icm/suggest.py`, the card «پیشنهادها از پایگاه‌ها»): what the databases say about the names the
+   sources did not link, each with its evidence and confidence, never applied without the user: a name Noor's linked
+   isnads write exactly so for one narrator (an exact-title index: «ابن عباس» 670 times for عبد الله بن العباس); isnad
+   words glued to a name («عایشه ان رسول الله», «سفیان الثوری باسناده», «علی بن الحسین یحدث»), stripped and the rest
+   matched again; wording read as a name («لما ثقل», «وقال رسول الله», «اقول»; «فقد», «به» re-read from Noor's
+   connectives): drop the place; relatives from Noor or the Imams' table below the automatic threshold, shown only
+   while the narrator before them is the one they assume; a Noor id and a KG id of the family that the narrator
+   database links with low confidence, or with the same name and death year: merge; a witness whose isnad names
+   only its collector: leave it out in step 2. The automatic choices are listed too, to accept one by one; unreviewed
+   ones still apply and are marked «خودکار (بازبینی‌نشده)». The decision gains `drops` (a place is no narrator; the
+   graph leaves it out), `merges` (two ids are one person, called by the Noor id) and `dismissed` suggestions.
+   `parse()` and the defaults are unchanged, so earlier choices keep their places. Older runs get their suggestions
+   when the stage is served.
 5. **Phylogeny**: the recorded transmission graph as the model's `Family`, dated and placed (death
    intervals from the narrator database / KG, the dates entered on step 4, interpolation along chains), with
    chronology warnings. The user confirms *this exact graph* (its hash). It is drawn in one of two shapes: a tree
@@ -568,8 +581,14 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    from the graph nodes' `occ`). The KG's gap markers («موضع تعليق», «موضع إرسال», «موضع انقطاع», «اسم مبهم»)
    are unnamed narrators of their own chain, not one shared node; one at a collector's place puts the work's
    author before it.
-6. **Analysis**: the earliest-source model (annealed SMC per candidate source) and the viewer. The user chooses
-   where it runs when confirming the graph:
+6. **Analysis**: the earliest-source model (annealed SMC per candidate source) and its results as sub-tabs
+   (`icm/static/results.js`, the same code as the standalone page): نتیجه (the verdict, what the unnamed origin
+   means), درخت (the recorded chains with the model's results on them: MAP edges, unsure edges, candidate sources
+   ringed by their posterior, the unnamed origin as a node at the right edge; a details panel for a narrator, an edge
+   or a book; a variant unit chosen colours every narrator by the probability that his text had it and badges every
+   book with what its text has), متن‌ها (every text coloured by the seed's parts, the chosen unit's words marked),
+   مبدأ, درخت بیشینه, حساسیت (says what the wizard does not compute), روش و محدودیت‌ها, راهنما. Only the tree box
+   scrolls; the sub-tab is kept in the address (`?tab=`). The user chooses where it runs when confirming the graph:
    * **in the user's browser** (default): the model code (`icm/static/model.zip`: `hadith_phylogeny/` and
      `icm/{infer,client}.py`) runs in Pyodide Web Workers, one interpreter per core, one candidate source at a time
      per worker (`icm/static/model_worker.js`). The `quick` preset took 95 s with 6 workers in Chrome;
@@ -655,7 +674,8 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 | `jobs.py`, `worker.py` | SQLite queue; one worker process (sets `PYTHONHASHSEED=0`) |
 | `api.py` | FastAPI router (`make_router(get_user)`), validation, permissions, compute-input/result, helper claim |
 | `cache.py`, `cli.py`, `evaluate.py`, `viewer.py`, `devserver.py` | git sync, commands, search evaluation, results page, local dev server |
-| `static/` | `icm.html/css/js` (the wizard, vanilla JS, Persian RTL), `model_worker.js`, `model.zip`, `viewer.css/js` |
+| `suggest.py` | step 4 suggestions from the databases (titles, glued words, non-names, relatives, same person, no isnad) |
+| `static/` | `icm.html/css/js` (the wizard, vanilla JS, Persian RTL), `tree.js/css` (the transmission tree of steps 5 and 6), `results.js/css` (step 6 and the standalone page), `model_worker.js`, `model.zip`, `viewer.css/js` (the standalone page's frame) |
 | `build/` | laptop-only builders: `kg_extract`, `noor_relations`, `termdf`, `books_meta`, `model_zip` |
 
 ### Data flow and files
@@ -718,7 +738,8 @@ token), make `~/ebadollah/data/icm/cache` a clone of `icm-cache`, and remove `IC
   must decide the cards; there is no automatic merge of name-only nodes that refer to the same person.
 * `identities` decisions are keyed by the normalised name of a card, so one choice applies to every chain with that name;
   «فقط همین جا» in the editor stores a per-occurrence override instead.
-* `merges` and `split_nodes` appear in the plan but are not implemented; `chain_edits` and `dates` are (dates in the UI).
+* `merges` (step 4), `drops` (step 4) and `dates` are decided in the UI; `split_nodes` is not implemented, and
+  `chain_edits` (step 5) has no UI.
 * Results computed in a browser or by the helper are checked for consistency but not recomputed by the server.
 * Per-line (companion branch) results, the matn-only ablation and the sensitivity/permutation runs of the diagram case
   are not part of the wizard's analysis step (`infer.matn_only` exists but is not wired in).
@@ -745,33 +766,8 @@ python3 scripts/make_html.py        # → outputs/sitta_viz.html (+ .fragment.ht
 `export_viz.py` is family-agnostic: point it at another `diagram_graph.json`
 and set `VIZ_TITLE` / `VIZ_HEADING` to get the same viewer for another family.
 
-What it shows (tabs: درخت، متن‌ها، مبدأ، درخت بیشینه، حساسیت، روش و محدودیت‌ها، راهنما):
-
-* **Tree** — the recorded chains drawn as in step 5 of the wizard (same code shape): source on the right, the
-  collector and the book at the left end of each chain. Two shapes: a tree of chains from their first narrator (no
-  crossings; a narrator reached by two routes appears twice) or one node per narrator under the teacher most chains
-  give (other teachers dashed); horizontal axis by place in the chain or by death year. Kinds of narrators (how the
-  name was resolved, dated or not) can be hidden, the chain passing through them dotted; a circle closes its subtree.
-  The model's verdict is on the edges: in the MAP tree in the accent colour, posterior below 0.5 red dashed;
-  thickness is the number of chains. Every recorded teacher → student link has an `edges` entry in the bundle (not
-  only a narrator's first teacher). Clicking a narrator shows the full posterior
-  over who its teacher was and the ancestral matn probabilities at that
-  narrator; clicking a book name (a matn witness) shows the text, its encoded variant units,
-  its isnād and its independence weight. Clicking an **edge** shows its
-  posterior, its prior ρ and the parts of its score η, how many independent KG
-  isnāds attest the same teacher → student pair, the witnesses that carry it,
-  and the competing candidate teachers. The narrator view also shows the linked
-  biography (full name, death year, city, rijāl grade, tabaqa, narration count)
-  with the link's confidence. Search and the line selector narrow the drawing.
-* **Texts (متن‌ها)** — all 44 witnesses' matns grouped by line, each variant
-  clause highlighted in its own colour.
-* **Glossary (راهنما)** — a Persian explanation of every quantity on the page.
-* **Sources** — log Z, posterior and ESS for every candidate source, the
-  within-line results, and the matn-only ablation.
-* **Graph & MAP tree** — whether a maximum-probability tree was found, how much
-  posterior mass sits on it, which edges the posterior is unsure about, and
-  where the MAP tree departs from the recorded structure.
-* **Sensitivity** — source priors, textual-change and sanad-error rates, the
-  permutation test.
-* **Method & limits** — the model in brief, the simulation validation, and what
-  the result does not establish.
+It is the results of step 6 of the wizard on a page of their own: `make_html.render` inlines `viewer.css`,
+`tree.css`, `results.css` and `tree.js`, `results.js`, `viewer.js`; the wizard serves the same page for a run at
+`/icm/api/project/<pid>/runs/<run>/viewer`, with the texts' clause marks, the variant units and how each name was
+resolved (`page_context`). The sub-tabs are those of step 6 above. Panels whose numbers the bundle lacks (per-line
+results, sensitivity, the permutation test, the recovery test) say so; the sitta bundle has them.

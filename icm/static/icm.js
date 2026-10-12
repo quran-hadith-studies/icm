@@ -212,7 +212,7 @@ function statusBox(box, p, pid) {
 const panels = {
   async seed(main, c) {
     const S = await stage(c.pid, c.runId, 'search');
-    main.replaceChildren(card('حدیث مبدأ', hadithBlock(S.seed, true), partsHelp(),
+    main.replaceChildren(card(['حدیث مبدأ', partsHelp()], hadithBlock(S.seed, true),
       el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)'].map(t => el('th', {}, t))),
         S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text))))));
   },
@@ -256,29 +256,8 @@ const panels = {
     const chips = Object.keys(CLS).map(k => el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => { ev.target.checked ? show.add(k) : show.delete(k); draw(); } }), ' ', el('span', { class: 'chip ' + k }, `${CLS[k]} ${fa(byClass[k] || 0)}`), ' '));
     const r1 = S.rounds[0] || {}, r2 = S.rounds[1];
     const nSig = sig => S.candidates.filter(x => x.signals.includes(sig)).length;
-    main.replaceChildren(
-      card('حدیث مبدأ و بخش‌هایش', hadithBlock(S.seed, true), partsHelp(),
-        el('table', {}, el('tr', {}, el('th', {}, 'بخش'), el('th', { title: 'بخش‌های تیک‌خورده در دور نخست جستجو پرسیده می‌شوند' }, 'در جستجو'), el('th', {}, 'متن بخش'), el('th', {}, 'در شاهدهای انتخاب‌شده'), el('th', {}, 'پرسش‌های جستجو')),
-          S.clauses.map(cl => { const qs = queriesOf(cl.i);
-            return el('tr', {}, el('td', {}, swatch(cl.i)),
-              el('td', {}, el('input', { type: 'checkbox', checked: clausesSel.has(cl.i), disabled: !c.can, title: 'این بخش در جستجو پرسیده شود', onchange: ev => { ev.target.checked ? clausesSel.add(cl.i) : clausesSel.delete(cl.i); } })),
-              el('td', { class: 'ar' }, clauseRaw(S, cl.i)), covCells[cl.i],
-              el('td', {}, qs.length ? el('details', {}, el('summary', { class: 'small' }, `${fa(qs.length)} پرسش، ${fa(qs.reduce((t, q) => t + q.hits, 0))} یافته`),
-                qs.map(q => el('div', { class: 'small', dir: 'ltr', style: 'text-align:left' }, `${q.corpus} · ${q.expr} → ${q.hits}${q.capped ? ' (capped)' : ''}`)))
-                : el('span', { class: 'small muted' }, clausesSel.has(cl.i) ? 'بی‌واژه‌ی کمیاب' : 'پرسیده نشد')));
-          })),
-        el('details', { class: 'help' }, el('summary', {}, 'تیک «در جستجو» برای چیست؟'),
-          el('p', {}, 'فقط برای یافتن نامزدها. هر بخش تیک‌خورده جداگانه در پیکره پرسیده می‌شود. اگر بخشی بسیار رایج باشد (مثل «قال رسول الله») و نامزدهای بی‌ربط بیاورد، تیکش را بردارید، یا اگر فقط حدیث‌هایی را می‌خواهید که بخش خاصی را دارند، فقط آن را نگه دارید؛ سپس «جستجوی دوباره» را بزنید.'),
-          el('p', {}, 'این تیک روی مرحله‌ی بعد اثری ندارد: مقایسه‌ی هر نامزد با حدیث مبدأ و هم‌ترازی همیشه با همه‌ی بخش‌ها انجام می‌شود. آنچه به مرحله‌ی بعد می‌رود، شاهدهایی است که پایین‌تر تیک می‌زنید.')),
-        c.can ? el('div', { class: 'toolbar' }, extra, el('button', { onclick: async () => {
-          const all = clausesSel.size === S.clauses.length;
-          await post(`/project/${c.pid}/decide/search`, { payload: { part_query: all ? null : [...clausesSel], extra_ids: [...(sdec.extra_ids || []), ...(extra.value.trim() ? [extra.value.trim()] : [])] } });
-          reload(c.pid);
-        } }, 'جستجوی دوباره با بخش‌های تیک‌خورده')) : null,
-        S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
-      card('نامزدها: حدیث‌هایی که بخشی از حدیث مبدأ را دارند',
-        el('p', { class: 'muted small' }, 'هر نامزد بخش‌به‌بخش با حدیث مبدأ سنجیده شد (بی‌توجه به ترتیب بخش‌ها) و سامانه دسته‌ای پیشنهاد کرد. شاهدهایی که تیک می‌زنید ورودی مرحله‌های بعدند: هم‌ترازی متن‌ها، خواندن سندها و ساخت شجره. چهار دسته‌ی نخست از پیش تیک خورده‌اند؛ تصمیم با شماست.'),
-        el('details', { class: 'help' }, el('summary', {}, 'جستجو چگونه انجام شد و دسته‌ها و ستون‌ها چه معنایی دارند؟'),
+    const searchHelp = helpOf('جستجو چگونه انجام شد و دسته‌ها و ستون‌ها چه معنایی دارند؟',
+
           el('ol', {},
             el('li', {}, `دور نخست: برای هر بخش، دو واژه‌ی کمیاب آن با هم و یکی دو عبارت سه‌واژه‌ای کمیاب در دو پیکره (v02 و گراف دانش اهل سنت) پرسیده شد (${fa(S.queries.filter(q => q.round === 1).length)} پرسش)، به‌علاوه‌ی گروه‌بندی‌های موجود: گروه/خوشه/مرتبط‌های نور (${fa(nSig('rel:noor_group') + nSig('rel:noor_cluster') + nSig('rel:noor_related'))} نامزد)، مجموعه‌های هم‌خوانی v02 (${fa(nSig('rel:consensus'))}) و گروه‌های گراف دانش (${fa(nSig('rel:kg_group'))}). ${fa(r1.n_candidates || 0)} نامزد پیدا شد.`),
             r2 ? el('li', {}, `دور دوم: از متن ${fa(Math.min(S.params.expand_max, S.candidates.filter(x => pre.has(x.suggested)).length))} شاهدِ با عبارت‌بندی متفاوت دوباره جستجو شد تا روایت‌هایی که با حدیث مبدأ واژه‌ی مشترک کمتری دارند هم پیدا شوند (${fa(r2.n_candidates)} نامزد خام، ${fa(r2.n_scored)} ماند).`) : null,
@@ -292,7 +271,27 @@ const panels = {
             el('tr', {}, el('td', {}, el('span', { class: 'chip different' }, CLS.different)), el('td', {}, 'شباهت قابل‌استفاده‌ای نیست (پیش‌فرض پنهان است).'))),
           el('p', {}, el('b', {}, 'شباهت: '), '«از حدیث مبدأ» = چند درصد واژه‌های حدیث مبدأ در این متن پیدا شد؛ «از این متن» = چند درصد این متن با حدیث مبدأ منطبق شد. اولی پایین یعنی بخش‌هایی نیامده؛ دومی پایین یعنی این متن افزوده دارد.'),
           el('p', {}, el('b', {}, 'بخش‌ها: '), 'یک خانه برای هر بخش حدیث مبدأ به رنگ همان بخش: ', strip([{ clause: 0, state: 'present', cov: 1 }], S), ' کامل (≥۸۰٪ واژه‌ها)، ', strip([{ clause: 0, state: 'partial', cov: .5 }], S), ' بخشی (۴۰–۸۰٪)، ', strip([{ clause: 0, state: 'changed', cov: 0 }], S), ' دگرگون (واژه‌های جایگزین)، ', strip([{ clause: 0, state: 'absent', cov: 0 }], S), ' نیامده.'),
-          el('p', {}, el('b', {}, 'متن: '), 'جای هر بخش در متن نامزد به رنگ همان بخش است؛ متن بی‌رنگ در حدیث مبدأ نیست (افزوده‌ی این روایت).')),
+          el('p', {}, el('b', {}, 'متن: '), 'جای هر بخش در متن نامزد به رنگ همان بخش است؛ متن بی‌رنگ در حدیث مبدأ نیست (افزوده‌ی این روایت).'));
+    main.replaceChildren(
+      card(['حدیث مبدأ و بخش‌هایش', partsHelp()], hadithBlock(S.seed, true),
+        el('table', {}, el('tr', {}, el('th', {}, 'بخش'), el('th', { title: 'بخش‌های تیک‌خورده در دور نخست جستجو پرسیده می‌شوند' }, 'در جستجو', helpOf('تیک «در جستجو» برای چیست؟', el('p', {}, 'فقط برای یافتن نامزدها. هر بخش تیک‌خورده جداگانه در پیکره پرسیده می‌شود. اگر بخشی بسیار رایج باشد (مثل «قال رسول الله») و نامزدهای بی‌ربط بیاورد، تیکش را بردارید، یا اگر فقط حدیث‌هایی را می‌خواهید که بخش خاصی را دارند، فقط آن را نگه دارید؛ سپس «جستجوی دوباره» را بزنید.'),
+          el('p', {}, 'این تیک روی مرحله‌ی بعد اثری ندارد: مقایسه‌ی هر نامزد با حدیث مبدأ و هم‌ترازی همیشه با همه‌ی بخش‌ها انجام می‌شود. آنچه به مرحله‌ی بعد می‌رود، شاهدهایی است که پایین‌تر تیک می‌زنید.'))), el('th', {}, 'متن بخش'), el('th', {}, 'در شاهدهای انتخاب‌شده'), el('th', {}, 'پرسش‌های جستجو')),
+          S.clauses.map(cl => { const qs = queriesOf(cl.i);
+            return el('tr', {}, el('td', {}, swatch(cl.i)),
+              el('td', {}, el('input', { type: 'checkbox', checked: clausesSel.has(cl.i), disabled: !c.can, title: 'این بخش در جستجو پرسیده شود', onchange: ev => { ev.target.checked ? clausesSel.add(cl.i) : clausesSel.delete(cl.i); } })),
+              el('td', { class: 'ar' }, clauseRaw(S, cl.i)), covCells[cl.i],
+              el('td', {}, qs.length ? el('details', {}, el('summary', { class: 'small' }, `${fa(qs.length)} پرسش، ${fa(qs.reduce((t, q) => t + q.hits, 0))} یافته`),
+                qs.map(q => el('div', { class: 'small', dir: 'ltr', style: 'text-align:left' }, `${q.corpus} · ${q.expr} → ${q.hits}${q.capped ? ' (capped)' : ''}`)))
+                : el('span', { class: 'small muted' }, clausesSel.has(cl.i) ? 'بی‌واژه‌ی کمیاب' : 'پرسیده نشد')));
+          })),
+        c.can ? el('div', { class: 'toolbar' }, extra, el('button', { onclick: async () => {
+          const all = clausesSel.size === S.clauses.length;
+          await post(`/project/${c.pid}/decide/search`, { payload: { part_query: all ? null : [...clausesSel], extra_ids: [...(sdec.extra_ids || []), ...(extra.value.trim() ? [extra.value.trim()] : [])] } });
+          reload(c.pid);
+        } }, 'جستجوی دوباره با بخش‌های تیک‌خورده')) : null,
+        S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
+      card(['نامزدها: حدیث‌هایی که بخشی از حدیث مبدأ را دارند', searchHelp],
+        el('p', { class: 'muted small' }, 'هر نامزد بخش‌به‌بخش با حدیث مبدأ سنجیده شد (بی‌توجه به ترتیب بخش‌ها) و سامانه دسته‌ای پیشنهاد کرد. شاهدهایی که تیک می‌زنید ورودی مرحله‌های بعدند: هم‌ترازی متن‌ها، خواندن سندها و ساخت شجره. چهار دسته‌ی نخست از پیش تیک خورده‌اند؛ تصمیم با شماست.'),
         el('div', { class: 'toolbar' }, ...chips, el('input', { type: 'text', placeholder: 'پالایش با نام کتاب یا کلمه', oninput: ev => { filter = ev.target.value; draw(); } }), count,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.add(x.wid)); draw(); } }, 'تیک همه‌ی نمایش‌داده‌ها') : null,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک نمایش‌داده‌ها') : null),
@@ -424,29 +423,27 @@ const panels = {
 
     const nPrivate = A.private_variants.length;
     main.replaceChildren(
-      card('هم‌ترازی متن شاهدها، بخش‌به‌بخش',
-        el('p', { class: 'muted small' }, `${fa(W.length)} شاهد (حدیث مبدأ و شاهدهایی که در مرحله‌ی ۲ انتخاب شدند)، ${fa(A.clauses.length)} بخش. هر ردیف یک شاهد است و از راست به چپ مثل متن خوانده می‌شود؛ هر ستون یک جایگاه واژه. رنگ هر گروه ستون همان رنگ بخش در مرحله‌ی ۲ است. نام کتاب را بزنید تا متن کامل آن را ببینید.`),
-        el('details', { class: 'help' }, el('summary', {}, 'هم‌ترازی چگونه ساخته شد؟'),
+      card(['هم‌ترازی متن شاهدها، بخش‌به‌بخش', helpOf('هم‌ترازی چگونه ساخته شد؟',
           el('ol', {},
             el('li', {}, 'جای هر بخش حدیث مبدأ در متن هر شاهد جداگانه پیدا شد، بی‌توجه به ترتیب؛ پس شاهدی که بندها را جابه‌جا آورده هم درست هم‌تراز می‌شود. عبارت‌هایی مثل «قال رسول الله صلی الله علیه وآله» جزو بخش شمرده نمی‌شوند.'),
             el('li', {}, 'تکه‌ای که در حدیث مبدأ نیست ولی دست‌کم دو شاهد آن را دارند، «بخش افزوده» شد. تکه‌هایی که فقط یک شاهد دارد پایین‌تر فهرست شده‌اند.'),
             el('li', {}, 'واژه‌های هر بخش در همه‌ی شاهدهای دارای آن بخش با هم هم‌تراز شد (هم‌ترازی چندگانه با یک دور بازبینی برای هر ردیف). واژه‌هایی که فقط در «و/ف/ال» فرق دارند یکسان شمرده می‌شوند، «و» جدانوشته به واژه‌ی بعدش چسبانده می‌شود، و عددها (ستة، سبعة، خمسة…) در یک ستون می‌آیند.'),
             el('li', {}, 'خانه‌ی خالی پیش از نخستین یا پس از واپسین واژه‌ی یک شاهد یعنی متن آن شاهد آنجا کوتاه‌تر است؛ این «افتادگی» شمرده نمی‌شود. شاهدی که با «وساق الحدیث / بنحوه…» خلاصه شده، برای بخش‌هایی که نیاورده «نامعلوم» است.'),
-            el('li', {}, 'شماره‌های کوچک بالای ستون‌ها واحدهای تغییرند (جدول پایین)؛ با زدن هر کدام، ستون‌ها و شاهدهای هر حالت نشان داده می‌شوند.'))),
+            el('li', {}, 'شماره‌های کوچک بالای ستون‌ها واحدهای تغییرند (جدول پایین)؛ با زدن هر کدام، ستون‌ها و شاهدهای هر حالت نشان داده می‌شوند.')))],
+        el('p', { class: 'muted small' }, `${fa(W.length)} شاهد (حدیث مبدأ و شاهدهایی که در مرحله‌ی ۲ انتخاب شدند)، ${fa(A.clauses.length)} بخش. هر ردیف یک شاهد است و از راست به چپ مثل متن خوانده می‌شود؛ هر ستون یک جایگاه واژه. رنگ هر گروه ستون همان رنگ بخش در مرحله‌ی ۲ است. نام کتاب را بزنید تا متن کامل آن را ببینید.`),
         old && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است (پیش از درست شدن جابه‌جایی برخی ردیف‌ها و هم‌ستون شدن عددها). ',
           c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
           el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند؛ اجرای کنونی پاک نمی‌شود.')) : null,
         tools, pickBox, body),
-      card('واحدهای تغییر: ورودی مدل شجره',
-        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.`),
-        el('details', { class: 'help' }, el('summary', {}, 'این واحدها چه کاری می‌کنند؟'),
+      card(['واحدهای تغییر: ورودی مدل شجره', helpOf('این واحدها چه کاری می‌کنند؟',
           el('p', {}, 'مدل شجره (مرحله‌ی ۵) هم سندها را می‌بیند و هم این واحدها را. شاهدهایی که در واحدهای بیشتری حالتِ کم‌یاب مشترک دارند (مثلاً «سبعة» به جای «ستة» و پرسشِ «ومن هم یا رسول الله») به احتمال بیشتر از یک منبع یا یک راوی مشترک گرفته‌اند. پس این جدول همان چیزی است که متن‌ها در برآورد «قدیمی‌ترین منبع» می‌گویند.'),
           el('ul', {},
             el('li', {}, el('b', {}, 'حضور بخش: '), 'آیا شاهد این بخش را دارد؟ (دارد / ندارد)'),
             el('li', {}, el('b', {}, 'حضور واژه: '), 'چند واژه‌ی کنار هم که برخی شاهدها دارند و برخی نه.'),
             el('li', {}, el('b', {}, 'واژه‌ی جایگزین: '), 'در یک جایگاه، شاهدها واژه‌های مختلف دارند؛ هر واژه یک حالت.'),
             el('li', {}, el('b', {}, 'عدد: '), 'عددی که حدیث می‌گوید (۴، ۵، ۶، ۷…).')),
-          el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست.`)),
+          el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست.`))],
+        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.`),
         unitsBox,
         nPrivate ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(nPrivate)} واحد کنارگذاشته (فقط یک شاهد متفاوت)`),
           el('div', { class: 'small ar' }, A.private_variants.map(u => u.name.split(':').slice(1).join(':')).join('  ·  '))) : null,
@@ -898,16 +895,20 @@ const panels = {
     const cr = P.runs.find(r => r.run === c.p.current_run);
     if (!c.readonly && cr && Object.keys(P.versions).some(s => (cr.versions || {})[s] !== P.versions[s])) return pendingPanel(main, c, cr);
     if (c.p.status === 'awaiting' && !c.readonly) return awaitingPanel(main, c);
-    const R = await stage(c.pid, c.runId, 'results');
-    const rows = Object.entries(R.posterior).sort((a, b) => b[1] - a[1]).slice(0, 12);
-    main.replaceChildren(
-      card('نتیجه', el('p', {}, 'بهترین‌پشتیبانی‌شده: ', el('b', { class: 'ar' }, R.map_source), ' — مجموعه‌ی اطمینان ۹۵٪: ', R.credible_set_95.join('، ')),
-        R.map_source_id === 'UNKNOWN_SOURCE' ? el('p', { class: 'small' }, '«مبدأ بی‌نام» یک راوی نیست و مدل کسی را پیدا نکرده است: یعنی هیچ‌یک از راویان ثبت‌شده منبع مشترک همه‌ی متن‌ها نیست و طریق‌ها تا بالاتر از نخستین راویشان مستقل‌اند، جایی که گوینده‌ی حدیث یا منبعی ثبت‌نشده می‌نشیند. توضیح کامل، با فهرست طریق‌ها و آنچه این نتیجه را قوی‌تر کرده: در نمایشگر پایین روی «این یعنی چه؟» بزنید.') : null,
-        R.bayes_factor_top_vs_next ? el('p', { class: 'small muted' }, `لگاریتم عامل بیز نسبت به نامزد بعدی (${R.bayes_factor_top_vs_next.pair[1]}): ${fa(R.bayes_factor_top_vs_next.log_BF.toFixed(1))}`) : null,
-        el('table', {}, el('tr', {}, ...['نامزد منبع', 'احتمال پسین', 'log Z'].map(t => el('th', {}, t))), rows.map(([n, v]) => el('tr', {}, el('td', { class: 'ar' }, n), el('td', {}, el('div', { class: 'bar' }, el('i', { style: `width:${Math.round(v * 100)}%` })), pct(v)), el('td', {}, R.log_Z[n] == null ? '−∞' : fa(R.log_Z[n].toFixed(1)))))),
-        el('p', { class: 'small muted' }, 'محاسبه: ' + ({ browser: 'در مرورگر یک کاربر', helper: 'روی رایانه‌ی کمکی', server: 'روی سرور' }[(R.provenance || { kind: 'server' }).kind] || '—') + (R.provenance && R.provenance.workers ? ` (${fa(R.provenance.workers)} پردازه)` : '') + '؛ نتیجه‌ی رایانه‌های کاربران بازتولید مستقل نشده است و اعتبارش همان ورود کاربر است.'),
-        el('p', { class: 'small muted' }, `اجرا: ${R.preset} — ${fa(R.n_particles)} ذره، ${fa(R.n_steps)} دما، ${fa(R.seconds)} ثانیه. این نتیجه به شجره‌ی تأییدشده و پارامترهای ثابت مدل وابسته است؛ بخش «روش و محدودیت‌ها» در نمایشگر را بخوانید.`)),
-      el('iframe', { class: 'viewer', src: `${API}/project/${c.pid}/runs/${c.runId}/viewer` }));
+    /* the results as sub-tabs (results.js): the verdict, the tree with the model's results on it, the texts, ... */
+    const [R, D, G, A, S] = await Promise.all(['results', 'viz', 'graph', 'align', 'search'].map(x => stage(c.pid, c.runId, x).catch(() => null)));
+    if (!R || !D) { main.replaceChildren(card('نتیجه', el('p', { class: 'muted' }, 'نتیجه‌ی این اجرا در دسترس نیست.'))); return; }
+    const texts = {};
+    if (S) [S.seed, ...S.candidates].forEach(x => [x.wid, ...(x.copies || [])].forEach(w => { texts[w] = { matn: x.matn, marks: x.marks || [] }; }));
+    const qs = new URLSearchParams(location.search);
+    const host = el('div');
+    const top = () => { const hd = document.querySelector('header.top'); host.style.setProperty('--rv-top', (hd && getComputedStyle(hd).position === 'sticky' ? hd.getBoundingClientRect().height : 0) + 'px'); };
+    top(); addEventListener('resize', top);
+    main.replaceChildren(host);
+    ICMResults.mount(host, D, { R, units: A && A.units, texts, clauses: S ? S.clauses.map(x => x.text) : null, nodes: G && G.nodes, narratorCard,
+      help: popover, tab: qs.get('tab'), standalone: `${API}/project/${c.pid}/runs/${c.runId}/viewer`,
+      goStep4: occ => { const q = new URLSearchParams({ h: occ.slice(0, occ.lastIndexOf('|')).split('#')[0], n: occ }); go(stepUrl(c.pid, null, 'identities') + '?' + q); },
+      onTab: t => { const u = new URLSearchParams(location.search); u.set('tab', t); history.replaceState(history.state, '', location.pathname + '?' + u); } });
   },
 };
 
@@ -950,6 +951,8 @@ function info(content, opts = {}) {
     if (opts.modal) { closePop(); modal(el('div', { class: 'helpbox' }, body)); } else popover(ev.currentTarget, body);
   } }, 'i');
 }
+/* a long explanation behind (i) next to the title it explains: opens in the modal */
+const helpOf = (title, ...kids) => info(() => [el('h3', {}, title), ...kids], { modal: true, title });
 let POP = null;
 function popover(anchor, body) {
   const again = POP && POP._a === anchor;
@@ -995,7 +998,7 @@ function clauseRaw(S, i) {   // the seed's own spelling of part i (falls back to
 const STATE_FA = { present: 'کامل', partial: 'بخشی', changed: 'دگرگون', absent: 'نیامده' };
 const strip = (parts, S) => el('span', { class: 'strip' }, parts.map(p => el('i', { class: p.state, style: `--h:${hue(p.clause)}`, title: `بخش ${fa(p.clause + 1)}: ${S.clauses[p.clause].text} — ${STATE_FA[p.state]} ${pct(p.cov)}` })));
 function partsHelp() {
-  return el('details', { class: 'help' }, el('summary', {}, 'بخش‌ها چگونه ساخته شدند؟'),
+  return helpOf('بخش‌ها چگونه ساخته شدند؟',
     el('p', {}, 'متن حدیث مبدأ خودکار و فقط با قاعده‌های نگارشی به بخش‌ها بریده شده است (بی‌آنکه معنا فهمیده شود): در نشانه‌های نگارشی (، ؛ . : ؟)، پیش از «و/ف» که اسمی با «ال» را آغاز می‌کند (آغاز هر بند در فهرست‌هایی مثل «و المکذب… و التارک…»)، بخش‌های بلندتر از ۱۲ واژه در نزدیک‌ترین حرف ربط (و، ف، ثم، الذی، من…) به میانه، و بخش یک‌واژه‌ای به همسایه‌اش چسبانده می‌شود. پیش از بریدن، اعراب حذف و املا یکسان می‌شود (ي→ی، ك→ک، ة→ه، أ/إ/آ→ا).'),
     el('p', {}, 'چرا بخش‌به‌بخش؟ روایت‌های یک حدیث بندها را جابه‌جا، کوتاه یا بلند می‌کنند. هر بخش جداگانه جستجو و جداگانه مقایسه می‌شود، پس روایتی که فقط یک بند را دارد یا ترتیب دیگری دارد هم پیدا و درست سنجیده می‌شود. چون بریدن خودکار است، گاهی دو بند در یک بخش می‌مانند یا یک بند دو تکه می‌شود؛ این فقط دقت جستجو را کمی کم می‌کند.'));
 }
@@ -1058,155 +1061,11 @@ async function narratorCard(id) {
 const yearTxt = d => d[0] === d[1] ? fa(Math.round(d[0])) : `${fa(Math.round(d[0]))}–${fa(Math.round(d[1]))}`;
 const DSRC = { user: 'واردشده‌ی کاربر', 'author-death': 'درگذشت مؤلف کتاب', 'hadith-kg': 'گراف دانش', kg: 'گراف دانش', noor: 'نور', imam: 'تاریخ امام', interpolated: 'برآورد از جای سند', wikishia: 'ویکی‌شیعه', fixed: 'ثابت' };
 const shortName = (s, n = 4) => { const w = String(s).replace(/\s*،\s*/g, ' ').split(/\s+/).filter(Boolean); return w.length > n ? w.slice(0, n).join(' ') + '…' : w.join(' '); };
-/* the recorded graph. Two shapes: a tree of chains from their first narrator (no crossings; a narrator reached by two
-   routes appears twice), or one node per narrator under the teacher most chains give (other teachers dashed, ordered to
-   cross little). Horizontal axis: time (right = older) or the place in the tree. Kinds of narrators can be hidden (their
-   chains pass through, dotted); a subtree can be closed. */
+const TREE_HELP = 'درخت بی‌تقاطع: سندها از نخستین راویشان شاخه می‌شوند؛ راوی‌ای که از دو راه رسیده دو بار آمده است (نشانگر را رویش ببرید تا همه‌ی جاهایش حلقه بگیرند). هر راوی یک بار: هر راوی زیر استادی است که بیشتر سندها می‌آورند و استادهای دیگر خط‌چین‌اند. دایره را بزنید تا زیرشاخه بسته یا باز شود؛ نام را بزنید برای کارت راوی. راویان پنهان‌شده از سند حذف نمی‌شوند: سند از رویشان می‌گذرد (خط نقطه‌چین). خط پررنگ‌تر = سندهای بیشتر.';
+/* the recorded graph (tree.js): step 5 draws it as confirmed, step 6 with the model's results on it */
 function graphSvg(G) {
-  const nodes = G.narrators, info = G.nodes, atts = G.attestations;
-  const year = n => { const d = nodes[n].death; return d ? (d[0] + d[1]) / 2 : null; };
-  const undated = n => !info[n].date_source || info[n].date_source === 'interpolated';
-  const cat = n => { const t = info[n].tiers || []; return t.includes('exact') ? 'exact' : t.includes('chosen') || t.includes('derived') ? 'chosen' : t.includes('default') ? 'auto' : t.includes('anon') ? 'anon' : 'name'; };
-  const CATS = [['exact', 'قطعی', 'var(--good)'], ['chosen', 'برگزیده یا استنباطی', 'var(--accent)'], ['auto', 'پیش‌فرض خودکار', 'var(--warn)'], ['name', 'فقط نام', 'var(--muted)'], ['anon', 'نامعلوم', 'var(--line)']];
-  const DATES = [['dated', 'تاریخ‌دار'], ['undated', 'بی‌تاریخ']];
-  const color = n => CATS.find(c => c[0] === cat(n))[2];
-  const count = {}; Object.keys(nodes).forEach(n => [cat(n), undated(n) ? 'undated' : 'dated'].forEach(k => count[k] = (count[k] || 0) + 1));
-  let mode = pref('icm.gmode', 'gen'), shape = pref('icm.gshape', 'tree'), zoom = +pref('icm.gzoom', '1') || 1, show;
-  try { show = new Set(JSON.parse(pref('icm.gshow', 'null')) || [...CATS, ...DATES].map(c => c[0])); } catch (_) { show = new Set([...CATS, ...DATES].map(c => c[0])); }
-  const collapsed = { tree: new Set(), graph: new Set() };
-  const visible = n => show.has(cat(n)) && show.has(undated(n) ? 'undated' : 'dated');
-
-  function build() {
-    const T = { key: '', kids: [] }, by = {}, paths = [], extra = [];
-    const mkN = (key, nid) => by[key] ||= { key, nid, kids: [], atts: [], ends: [], skip: 0 };
-    const seqs = atts.map(a => { const s = []; let hid = 0; a.sanad.forEach(n => { if (!visible(n)) { hid++; return; } s.push([n, hid]); hid = 0; }); return s; });
-    if (shape === 'tree') {
-      seqs.forEach((s, ai) => {
-        let cur = T; const p = [];                   // every unnamed narrator is his own node: two gaps are not one man
-        s.forEach(([n, hid]) => { const k = cur.key + '>' + n, fresh = !by[k], x = mkN(k, n); if (fresh) { x.parent = cur; cur.kids.push(x); } x.skip = Math.max(x.skip, hid); x.atts.push(ai); p.push(cur = x); });
-        if (cur !== T) cur.ends.push(ai);
-        paths.push(p);
-      });
-    } else {
-      const ec = {}, ps = {}, skip = {};
-      seqs.forEach(s => s.forEach(([v, h], i) => { if (!i) return; const u = s[i - 1][0], k = u + '>' + v; ec[k] = (ec[k] || 0) + 1; (ps[v] ||= new Set()).add(u); skip[k] = Math.max(skip[k] || 0, h); }));
-      const prim = {};
-      Object.entries(ps).forEach(([v, us]) => { prim[v] = [...us].sort((a, b) => ec[b + '>' + v] - ec[a + '>' + v] || (year(a) ?? 1e4) - (year(b) ?? 1e4))[0]; });
-      Object.keys(prim).forEach(v => { const seen = new Set([v]); for (let u = prim[v]; u != null; u = prim[u]) { if (u === v) { delete prim[v]; break; } if (seen.has(u)) break; seen.add(u); } });
-      seqs.forEach(s => s.forEach(([n]) => mkN(n, n)));
-      Object.values(by).forEach(x => { const u = prim[x.nid]; x.parent = u != null ? by[u] : T; x.parent.kids.push(x); if (u != null) x.skip = skip[u + '>' + x.nid]; });
-      seqs.forEach((s, ai) => { s.forEach(([n]) => by[n].atts.push(ai)); if (s.length) by[s[s.length - 1][0]].ends.push(ai); paths.push(s.map(([n]) => by[n])); });
-      Object.keys(ec).forEach(k => { const [u, v] = k.split('>'); if (prim[v] !== u) extra.push([by[u], by[v], skip[k]]); });
-    }
-    return { T, by, paths, extra };
-  }
-
-  function place(B) {
-    const col = collapsed[shape], shown = [];
-    let rows = 0;
-    const go = (x, d) => {
-      x.depth = d; shown.push(x);
-      const ks = col.has(x.key) ? [] : x.kids;
-      if (!ks.length) { x.row = rows++; return; }
-      ks.forEach(k => go(k, d + 1));
-      x.row = (ks[0].row + ks[ks.length - 1].row) / 2;
-    };
-    B.T.kids.forEach(r => { r.lo = rows; go(r, 0); r.hi = rows - 1; rows += 0.6; });
-    return { rows, shown };
-  }
-
-  function order(B) {
-    const size = x => x._n ??= x.kids.length ? x.kids.reduce((s, c) => s + size(c), 0) : 1;
-    const bySize = x => { x.kids.sort((a, b) => size(b) - size(a)); x.kids.forEach(bySize); };
-    bySize(B.T);
-    if (!B.extra.length) return;
-    /* barycentre passes: sibling subtrees move towards the rows their dashed partners sit on */
-    const part = new Map(); B.extra.forEach(([u, v]) => { (part.get(u) || part.set(u, []).get(u)).push(v); (part.get(v) || part.set(v, []).get(v)).push(u); });
-    for (let it = 0; it < 4; it++) {
-      place(B);
-      const bc = new Map(), sum = x => { let s = 0, c = 0; (part.get(x) || []).forEach(z => { s += z.row; c++; }); x.kids.forEach(k => { const r = sum(k); s += r[0]; c += r[1]; }); bc.set(x, c ? s / c : x.row); return [s, c]; };
-      B.T.kids.forEach(sum);
-      const re = x => { x.kids.sort((a, b) => bc.get(a) - bc.get(b)); x.kids.forEach(re); };
-      re(B.T);
-    }
-  }
-
-  const ns = 'http://www.w3.org/2000/svg';
-  const mk = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt != null) e.textContent = txt; return e; };
-  const box = el('div', { class: 'gwrap' }), tools = el('div', { class: 'gtools small' });
-
-  function draw() {
-    const B = build(); order(B);
-    const { rows, shown } = place(B), col = collapsed[shape], time = mode === 'time';
-    const ys = shown.map(x => year(x.nid)).filter(v => v != null), lo = Math.floor(Math.min(...ys, 0) / 50) * 50, hi = Math.ceil(Math.max(...ys, 100) / 50) * 50;
-    const maxD = Math.max(1, ...shown.map(x => x.depth));
-    const W = time ? Math.max(1200, (hi - lo) * 3.4) : Math.max(1000, (maxD + 1) * 160), L = 240, R = W - 70, RH = 34, TOP = 34, H = TOP + rows * RH + 30;
-    const X = x => time ? L + (R - L) * (1 - ((year(x.nid) ?? lo) - lo) / (hi - lo || 1)) : R - (R - L) * x.depth / maxD;
-    const Y = x => TOP + x.row * RH;
-    const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, width: Math.round(W * zoom), height: Math.round(H * zoom), class: 'gsvg' });
-    B.T.kids.forEach((r, i) => { if (i % 2) svg.append(mk('rect', { x: 0, y: TOP + (r.lo - 0.5) * RH, width: W, height: (r.hi - r.lo + 1) * RH, class: 'band' })); });
-    if (time) for (let yv = Math.ceil(lo / 50) * 50; yv <= hi; yv += 50) {
-      const xx = L + (R - L) * (1 - (yv - lo) / (hi - lo || 1)), major = yv % 100 === 0;
-      svg.append(mk('line', { x1: xx, y1: 14, x2: xx, y2: H - 16, class: major ? 'grid' : 'grid minor' }));
-      if (major) [10, H - 4].forEach(y => svg.append(mk('text', { x: xx, y, class: 'axis' }, fa(yv) + ' ق')));
-    }
-    const on = new Set(shown), edge = new Map(), dots = {};
-    const link = (x1, y1, x2, y2) => x2 < x1 - 34 && y1 !== y2   // bend next to the teacher, then run along the student's row: a tree never crosses
-      ? `M${x1},${y1} C${x1 - 20},${y1} ${x1 - 20},${y2} ${x1 - 34},${y2} L${x2},${y2}` : `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
-    shown.forEach(x => {
-      if (x.parent === B.T) return;
-      const p = mk('path', { d: link(X(x.parent), Y(x.parent), X(x), Y(x)), class: 'e' + (x.skip ? ' skip' : ''), 'stroke-width': 1 + Math.log2(x.atts.length) });
-      if (x.skip) p.append(mk('title', {}, `${fa(x.skip)} راوی پنهان میان این دو`));
-      edge.set(x, p); svg.append(p);
-    });
-    B.extra.forEach(([u, v, s]) => { if (on.has(u) && on.has(v)) svg.append(mk('path', { d: link(X(u), Y(u), X(v), Y(v)), class: 'e sec' + (s ? ' skip' : '') })); });
-    const hot = (x, v) => {
-      svg.classList.toggle('dim', v);
-      x.atts.forEach(ai => B.paths[ai].forEach(y => { const e = edge.get(y); if (e) e.classList.toggle('hot', v); }));
-      (dots[x.nid] || []).forEach(c => c.classList.toggle('twin', v));
-    };
-    const books = x => [...new Set(x.ends.map(ai => atts[ai].collection))].map(b => shortName(b, 3)).join('، ');
-    shown.forEach(x => {
-      const n = x.nid, g = mk('g', { class: 'nd' }), cx = X(x), cy = Y(x), closed = col.has(x.key) && x.kids.length, leaf = closed || !x.kids.length, d = nodes[n].death;
-      const below = x.atts.length - x.ends.length;
-      g.append(mk('title', {}, `${nodes[n].name}\n${d ? (undated(n) ? 'حدود ' : 'ف ') + yearTxt(d) + ' — ' + (DSRC[info[n].date_source] || info[n].date_source || '') : 'بی‌تاریخ'}\n${fa(x.atts.length)} سند` +
-        (x.kids.length ? `\nدایره را بزنید تا زیرشاخه ${closed ? 'باز' : 'بسته'} شود؛ نام را بزنید برای کارت راوی.` : '\nبرای کارت راوی بزنید.')));
-      const c = mk('circle', { cx, cy, r: cat(n) === 'anon' ? 3.5 : 5, class: (undated(n) ? 'und' : '') + (closed ? ' closed' : ''), style: `--c:${color(n)}` });
-      (dots[n] ||= []).push(c);
-      c.addEventListener('click', ev => { ev.stopPropagation(); if (!x.kids.length) return narratorCard(n); col.has(x.key) ? col.delete(x.key) : col.add(x.key); keep(draw); });
-      const name = shortName(nodes[n].name, leaf ? 5 : 4);
-      const t = leaf ? mk('text', { x: cx - 9, y: cy + 4, class: 'lb', 'text-anchor': 'start', direction: 'rtl' }, name + (closed ? `  (+${fa(below)} سند)` : '') + (x.ends.length ? '  ·  ' + books(x) : ''))
-        : mk('text', { x: cx, y: time && x.depth % 2 ? cy + 17 : cy - 9, class: 'lb', 'text-anchor': 'middle', direction: 'rtl' }, name);
-      t.addEventListener('click', () => narratorCard(n));
-      g.append(c, t);
-      g.addEventListener('mouseenter', () => hot(x, true)); g.addEventListener('mouseleave', () => hot(x, false));
-      svg.append(g);
-    });
-    box.replaceChildren(svg);
-    drawTools(B);
-  }
-  const keep = f => { const l = box.scrollLeft, t = box.scrollTop; f(); box.scrollLeft = l; box.scrollTop = t; };
-
-  function drawTools(B) {
-    const seg = (cur, opts, set) => el('span', { class: 'seg' }, opts.map(([v, t]) => el('button', { class: 'small' + (cur === v ? ' on' : ''), onclick: () => set(v) }, t)));
-    const chip = ([k, t, c]) => el('label', { class: 'fchip' + (show.has(k) ? ' on' : '') }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => {
-      ev.target.checked ? show.add(k) : show.delete(k); setPref('icm.gshow', JSON.stringify([...show])); setTimeout(() => keep(draw)); } }),
-      k === 'undated' ? el('i', { class: 'und' }) : c ? el('i', { style: `background:${c}` }) : null, t, el('span', { class: 'muted' }, ' ' + fa(count[k] || 0)));
-    const depthSel = el('select', { onchange: ev => { const k = +ev.target.value; collapsed[shape] = new Set(k ? Object.values(B.by).filter(x => x.kids.length && depthOf(x) === k - 1).map(x => x.key) : []); ev.target.value = ''; draw(); } },
-      el('option', { value: '' }, 'بستن زیرشاخه‌ها…'), el('option', { value: '0' }, 'همه باز'), [2, 3, 4, 5, 6].map(k => el('option', { value: k }, `نمایش تا جای ${fa(k)} در سند`)));
-    tools.replaceChildren(
-      el('div', { class: 'toolbar' }, 'محور افقی: ', seg(mode, [['time', 'زمان'], ['gen', 'جای در درخت']], v => { mode = v; setPref('icm.gmode', v); draw(); }),
-        ' شکل: ', seg(shape, [['tree', 'درخت بی‌تقاطع'], ['graph', 'هر راوی یک بار']], v => { shape = v; setPref('icm.gshape', v); draw(); }),
-        ' ', depthSel,
-        ' اندازه: ', el('button', { class: 'small', onclick: () => { zoom = Math.max(0.4, zoom / 1.25); setPref('icm.gzoom', zoom); draw(); } }, '−'),
-        el('button', { class: 'small', onclick: () => { zoom = Math.min(2.5, zoom * 1.25); setPref('icm.gzoom', zoom); draw(); } }, '+')),
-      el('div', { class: 'toolbar' }, 'نمایش: ', CATS.map(chip), el('span', { class: 'muted' }, ' | '), DATES.map(chip)));
-  }
-  const depthOf = x => { let d = 0; for (let p = x.parent; p && p.key !== ''; p = p.parent) d++; return d; };
-  draw();
-  return el('div', {}, tools, box, el('p', { class: 'small muted' },
-    'درخت بی‌تقاطع: سندها از نخستین راویشان شاخه می‌شوند؛ راوی‌ای که از دو راه رسیده دو بار آمده است (نشانگر را رویش ببرید تا همه‌ی جاهایش حلقه بگیرند). هر راوی یک بار: هر راوی زیر استادی است که بیشتر سندها می‌آورند و استادهای دیگر خط‌چین‌اند. ',
-    'دایره را بزنید تا زیرشاخه بسته یا باز شود؛ نام را بزنید برای کارت راوی. راویان پنهان‌شده از سند حذف نمی‌شوند: سند از رویشان می‌گذرد (خط نقطه‌چین). خط پررنگ‌تر = سندهای بیشتر.'));
+  return ICMTree.make({ narrators: G.narrators, nodes: G.nodes, attestations: G.attestations, prefKey: 'icm.g', onNode: narratorCard, onBook: null,
+    extraTools: () => info(TREE_HELP) }).root;
 }
 
 render();

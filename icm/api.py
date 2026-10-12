@@ -111,7 +111,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     # -- pages -----------------------------------------------------------------------------------
     def page() -> HTMLResponse:
         # Cloudflare caches /static for hours whatever our Cache-Control says: version the URLs instead
-        v = "%x" % max(int(os.path.getmtime(os.path.join(STATIC, f))) for f in ("icm.js", "icm.css"))
+        v = "%x" % max(int(os.path.getmtime(os.path.join(STATIC, f))) for f in ("icm.js", "icm.css", "tree.js", "tree.css", "results.js", "results.css", "icm.html"))
         html = open(os.path.join(STATIC, "icm.html"), encoding="utf-8").read().replace("__BASE__", prefix).replace("__V__", v)
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
@@ -202,13 +202,28 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(404)
         return project.decision(pid, step, v) or {}
 
+    def _page_context(pid: str, run: str) -> dict:
+        """What step 6 shows besides the bundle (clause marks of the texts, the variant units, how each name was
+        resolved), for the standalone page of a run."""
+        S, A, G = (project.run_stage(pid, run, x) for x in ("search", "align", "graph"))
+        ctx = {}
+        if S:
+            S = search_mod.with_marks(S)
+            ctx["texts"] = {w: dict(matn=x["matn"], marks=x.get("marks", [])) for x in [S["seed"], *S["candidates"]] for w in [x["wid"], *x.get("copies", [])]}
+            ctx["clauses"] = [c["text"] for c in S["clauses"]]
+        if A:
+            ctx["units"] = [{k: u.get(k) for k in ("name", "kind", "unit_kind", "clause", "labels")} for u in A["units"]]
+        if G:
+            ctx["nodes"] = {n: dict(tiers=i.get("tiers", []), date_source=i.get("date_source")) for n, i in G["nodes"].items()}
+        return ctx
+
     @r.get("/api/project/{pid}/runs/{run}/viewer", response_class=HTMLResponse)
     def run_viewer(pid: str, run: str):
         _project(pid)
         out = project.run_stage(pid, run, "infer")
         if out is None:
             raise HTTPException(404, "no analysis in this run")
-        return HTMLResponse(viewer.render(out["viz"]))
+        return HTMLResponse(viewer.render(dict(out["viz"], page_context=_page_context(pid, run))))
 
     @r.get("/api/project/{pid}/runs/{run}/{stage}")
     def run_stage(pid: str, run: str, stage: str):
