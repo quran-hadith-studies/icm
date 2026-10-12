@@ -24,6 +24,9 @@ NARRATORS_DB = os.environ.get("ICM_NARRATORS_DB", os.path.join(HERE, "external",
 HUB_BOOKS = os.environ.get("ICM_HUB_BOOKS", os.path.join(PROJECT, "hadith-hub", "books"))
 JOBS_DB = os.environ.get("ICM_JOBS_DB", os.path.join(DATA_DIR, "icm_jobs.sqlite"))
 
+# open mode (for now): no login needed, every visitor may do anything; ICM_OPEN=0 restores the user rules
+OPEN = os.environ.get("ICM_OPEN", "1") != "0"
+
 # Noor hadith ids inside v02 are offset (convert_afreshte.py)
 NOOR_OFFSET = 800_000_000
 

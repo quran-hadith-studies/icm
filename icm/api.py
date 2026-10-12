@@ -6,6 +6,7 @@
 readable by anyone; creating projects, deciding and re-running need a logged-in user, and changes to a
 project need its owner or an admin. Writes must carry the header ``X-ICM: 1`` (a custom header cannot be
 sent cross-site without a CORS pre-flight, which keeps cookie-authenticated writes safe from CSRF).
+While ``config.OPEN`` is set, every visitor counts as an admin (anonymous ones as "guest").
 """
 from __future__ import annotations
 
@@ -39,6 +40,12 @@ MAX_OPEN = 20          # unfinished projects per (non-admin) user
 
 def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/icm") -> APIRouter:
     r = APIRouter(prefix=prefix)
+    if config.OPEN:
+        host_user = get_user
+
+        def get_user(request: Request) -> dict:
+            u = host_user(request)
+            return dict(username=u["username"] if u else "guest", is_admin=True)
 
     # -- helpers ----------------------------------------------------------------------------------
     def need_user(request: Request) -> dict:
