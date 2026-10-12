@@ -1,6 +1,7 @@
 """Compute-elsewhere endpoints: input, result validation, helper token. Needs fastapi, not the corpus."""
 import json, os, shutil, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ["ICM_OPEN"] = "0"                         # these tests check who may compute, which open mode switches off
 try:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

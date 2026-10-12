@@ -242,7 +242,41 @@ def _same_person(add, chains, cards, picks) -> None:
     for (a, b), ev in sorted(pairs.items()):
         add(id=f"same_person:{a}|{b}", kind="same_person", aid=None, i=None, occ=None, wid=None, card=None,
             proposal=dict(op="merge", pair=[a, b], label=f"{_label(a)} = {_kglabel(kc, b)}"), evidence=ev, confidence="low")
-    kc.close()
+    # kc is corpus's shared per-thread connection: closing it broke every later kg read in the same process
+
+
+def wiki_same_person(I: dict, persons_for) -> List[dict]:
+    """Ids of this family that the narrator wiki (/narrator) records as one person: merge suggestions, never applied
+    by themselves. Computed when the stage is served (the wiki changes; the stage file does not).
+    ``persons_for(ids) -> {id: {person_id, name, also}}`` is ``narwiki.lookup.persons_for``."""
+    chains, cards = I["chains"], I["cards"]
+    used = {e["exact"] for ch in chains for e in ch["elems"] if e.get("exact")}
+    used |= {cd["default"] for cd in cards.values() if cd.get("default")}
+    cand = used | {c["id"] for cd in cards.values() for c in cd["candidates"][:3]}
+    cand = sorted(i for i in cand if i.startswith(("noor:", "kg:")))
+    if not cand:
+        return []
+    wiki = persons_for(cand)
+    auto = identity._same_person(cand)                  # pairs the identify stage already treats as one person
+    by: Dict[int, List[str]] = defaultdict(list)
+    for i in cand:
+        if i in wiki:
+            by[wiki[i]["person_id"]].append(i)
+    out = []
+    for pid, ids in sorted(by.items()):
+        if len(ids) < 2 or not any(i in used for i in ids):
+            continue
+        ids.sort(key=lambda x: (not x.startswith("noor:"), x))
+        a = ids[0]
+        for b in ids[1:]:
+            if auto.get(b) == a or auto.get(a) == b:
+                continue
+            out.append(dict(id=f"same_person:wiki:{a}|{b}", kind="same_person", aid=None, i=None, occ=None, wid=None,
+                            card=None, via="wiki", person=pid,
+                            proposal=dict(op="merge", pair=[a, b], label=f"{_label(a) if a.startswith('noor:') else a} = {b}"),
+                            evidence=f"در پایگاه راویان (ebadollah.ir/narrator، شخص {pid}: {wiki[a]['name']}) این دو شناسه یک شخص‌اند",
+                            confidence="high"))
+    return out
 
 
 def _kglabel(kc, kid: str) -> str:

@@ -82,6 +82,8 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
             iddec_in["dates"] = iddec["dates"]
         if iddec.get("drops"):
             iddec_in["drops"] = iddec["drops"]
+        if iddec.get("splits"):                                   # likewise: people the user split off an identity
+            iddec_in["splits"] = iddec["splits"]
         k_graph = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
         G = _get_or_run(pid, "graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S), hashes)
         if phdec.get("confirmed") != k_graph:

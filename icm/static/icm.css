@@ -160,3 +160,12 @@ h2 .info,h3 .info{font-size:11px}
 .sugw{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}.suge b{font-size:14.5px}.suga{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 @media (max-width:700px){.sug{grid-template-columns:1fr}}
 
+/* full texts (step 2, 3, 4, 5), merge and split (step 4) */
+.fulltext .sanad{color:var(--muted);font-size:14px}
+.fulltext mark,.matn mark{background:color-mix(in srgb,var(--warn) 35%,transparent);color:inherit;border-radius:2px}
+details.fullt{margin:4px 0;flex-basis:100%}details.fullt>summary{cursor:pointer;color:var(--accent)}
+details.fullt .fulltext{border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-top:4px;background:var(--bg)}
+.occ details.fullt{width:100%}
+.mlist{display:flex;flex-wrap:wrap;gap:4px;max-height:180px;overflow:auto;margin:4px 0}
+.mcand{text-align:start}.mchip{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:0 4px 0 10px;margin:2px}
+details.splitd{margin:8px 0}details.splitd>summary{cursor:pointer;color:var(--accent)}

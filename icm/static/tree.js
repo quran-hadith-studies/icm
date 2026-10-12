@@ -1,6 +1,6 @@
 /* The recorded transmission tree, shared by step 5 (the graph to confirm), step 6 and the standalone results page.
 
-   ICMTree.make(o) -> {root, redraw, select, selectEdge, bring, setLens, setMapOnly, setFilter, setBranch}
+   ICMTree.make(o) -> {root, redraw, select, selectEdge, bring, setLens, setMapOnly, setFilter, setBranch, setPath}
      o.narrators {nid: {name, death:[lo,hi]|null, year?}}   o.nodes {nid: {tiers, date_source}} (optional: kinds and dates)
      o.attestations [{sanad: [nid source -> collector], collection, text?}]
      o.verdict {edgeProb, mapGraph, edges, sources: {nid: {posterior, log_Z}}, mapSource}  the model's results (step 6)
@@ -12,7 +12,8 @@
    chains pass through, dotted); a circle closes its subtree. With a verdict: edges of the most probable tree in the
    accent colour, posterior below 0.5 red dashed, candidate sources ringed by their posterior, the unnamed origin as
    a node at the right edge. A lens colours every narrator by a value (the probability of a text state) and badges
-   the books. */
+   the books. setPath([nid source -> collector], label) draws one maximum path (طریق بیشینه) over the tree: its recorded
+   edges thick, its steps no chain records dashed. */
 (function () {
   const NS = 'http://www.w3.org/2000/svg', UNK = 'UNKNOWN_SOURCE';
   const FA = '۰۱۲۳۴۵۶۷۸۹', fa = x => String(x).replace(/[0-9]/g, d => FA[d]).replace(/\./g, '٫').replace(/-/g, '−');
@@ -34,7 +35,7 @@
     const year = n => { const d = N[n] && N[n].death; return d ? (d[0] + d[1]) / 2 : (N[n] && N[n].year != null ? N[n].year : null); };
     const undated = n => { const ds = info(n).date_source; return ds === undefined ? !(N[n] && N[n].death) : !ds || ds === 'interpolated'; };
     const cat = n => { const t = info(n).tiers;
-      if (!t || !t.length) return /^anon:/.test(n) ? 'anon' : /^(name|rel):/.test(n) ? 'name' : 'exact';
+      if (!t || !t.length) return /^anon:/.test(n) ? 'anon' : /^(name|rel):/.test(n) ? 'name' : /^split:/.test(n) ? 'chosen' : 'exact';
       return t.includes('exact') ? 'exact' : t.includes('chosen') || t.includes('derived') ? 'chosen' : t.includes('default') ? 'auto' : t.includes('anon') ? 'anon' : 'name'; };
     const color = n => CATS.find(c => c[0] === cat(n))[2];
     const count = {}; Object.keys(N).forEach(n => [cat(n), undated(n) ? 'undated' : 'dated'].forEach(k => { count[k] = (count[k] || 0) + 1; }));
@@ -43,6 +44,7 @@
     const collapsed = { tree: new Set(), graph: new Set() };
     const visible = n => show.has(cat(n)) && show.has(undated(n) ? 'undated' : 'dated');
     let selected = null, selEdge = null, filter = '', branch = '', lens = null, mapOnly = false, LAST = null, SVG = null, edgeOf = new Map();
+    let pathNodes = null, pathLabel = '';
     const heads = [...new Set(ATT.map(a => a.sanad[0]))].sort((a, b) => ATT.filter(x => x.sanad[0] === b).length - ATT.filter(x => x.sanad[0] === a).length);
     const used = ai => {
       const a = ATT[ai];
@@ -121,7 +123,9 @@
       const W = (time ? Math.max(1100, (hi - lo) * 3.4) : Math.max(900, (maxD + 1) * 160)) + UW, L = 250, R = W - 80 - UW, RH = 34, TOP = 34, H = TOP + rows * RH + 30;
       const X = x => time ? L + (R - L) * (1 - ((year(x.nid) ?? lo) - lo) / (hi - lo || 1)) : R - (R - L) * x.depth / maxD;
       const Y = x => TOP + x.row * RH;
-      const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, width: Math.round(W * zoom), height: Math.round(H * zoom), class: 'gsvg' + (mapOnly ? ' maponly' : '') + (lens ? ' lensed' : ''), role: 'img', 'aria-label': 'درخت انتقال، از راست به چپ' });
+      const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, width: Math.round(W * zoom), height: Math.round(H * zoom), class: 'gsvg' + (mapOnly ? ' maponly' : '') + (lens ? ' lensed' : '') + (pathNodes ? ' pathon' : ''), role: 'img', 'aria-label': 'درخت انتقال، از راست به چپ' });
+      const pairs = new Set(), drawnPairs = new Set();
+      if (pathNodes) pathNodes.forEach((n, i) => { if (i) pairs.add(pathNodes[i - 1] + '>' + n); });
       B.T.kids.forEach((r, i) => { if (i % 2) svg.append(sv('rect', { x: 0, y: TOP + (r.lo - 0.5) * RH, width: W, height: (r.hi - r.lo + 1) * RH, class: 'band' })); });
       if (time) for (let yv = Math.ceil(lo / 50) * 50; yv <= hi; yv += 50) {
         const xx = L + (R - L) * (1 - (yv - lo) / (hi - lo || 1)), major = yv % 100 === 0;
@@ -134,7 +138,7 @@
       const verdict = (u, v) => { const k = u + '>' + v, q = V && V.edgeProb ? V.edgeProb[k] : undefined; return { k, q, map: !!(V && V.mapGraph && V.mapGraph[v] === u), low: q !== undefined && q < 0.5 }; };
       if (unkKids.length || UW) {                     // the unnamed origin, above every first narrator
         const ux = W - 40, uy = unkKids.length ? unkKids.reduce((s, x) => s + Y(x), 0) / unkKids.length : TOP;
-        unkKids.forEach(x => svg.append(sv('path', { d: link(ux, uy, X(x), Y(x)), class: 'e unk' })));
+        unkKids.forEach(x => { const k = UNK + '>' + x.nid; if (pairs.has(k)) drawnPairs.add(k); svg.append(sv('path', { d: link(ux, uy, X(x), Y(x)), class: 'e unk' + (pairs.has(k) ? ' mp' : '') })); });
         const post = V.sources[UNK].posterior || 0, g = sv('g', { class: 'nd' });
         g.append(sv('title', {}, `مبدأ بی‌نام (بالاتر از همه‌ی راویان ثبت‌شده)\nاحتمال مبدأ بودن: ${fa(post.toFixed(3))}\n${fa(unkKids.length)} طریق در محتمل‌ترین درخت مستقیم به آن می‌رسند. برای توضیح بزنید.`));
         g.append(sv('circle', { cx: ux, cy: uy, r: 6 + 10 * Math.sqrt(post), class: 'unkc' + (V.mapSource === UNK ? ' mapsrc' : '') + (selected === UNK ? ' pick' : ''), 'data-origin': 1 }));
@@ -144,7 +148,8 @@
       shown.forEach(x => {
         if (x.parent === B.T) return;
         const d = link(X(x.parent), Y(x.parent), X(x), Y(x)), vd = verdict(x.parent.nid, x.nid);
-        const p = sv('path', { d, class: 'e' + (x.skip ? ' skip' : '') + (vd.map ? ' map' : '') + (vd.low ? ' low' : '') + (selEdge === vd.k ? ' sel' : ''), 'stroke-width': 1 + Math.log2(x.atts.length) });
+        const onPath = pairs.has(vd.k); if (onPath) drawnPairs.add(vd.k);
+        const p = sv('path', { d, class: 'e' + (x.skip ? ' skip' : '') + (vd.map ? ' map' : '') + (vd.low ? ' low' : '') + (selEdge === vd.k ? ' sel' : '') + (onPath ? ' mp' : ''), 'stroke-width': 1 + Math.log2(x.atts.length) });
         if (vd.q !== undefined) p.setAttribute('stroke-opacity', (0.25 + 0.7 * vd.q).toFixed(2));
         edgeOf.set(x, p); svg.append(p);
         if (!x.skip && V && V.edges && V.edges[vd.k]) {
@@ -153,7 +158,20 @@
           svg.append(h);
         } else if (x.skip) p.append(sv('title', {}, `${fa(x.skip)} راوی پنهان میان این دو`));
       });
-      B.extra.forEach(([u, v, s]) => { if (on.has(u) && on.has(v)) { const vd = verdict(u.nid, v.nid); svg.append(sv('path', { d: link(X(u), Y(u), X(v), Y(v)), class: 'e sec' + (s ? ' skip' : '') + (vd.map ? ' map' : '') })); } });
+      B.extra.forEach(([u, v, s]) => { if (on.has(u) && on.has(v)) { const vd = verdict(u.nid, v.nid), onP = pairs.has(vd.k); if (onP) drawnPairs.add(vd.k); svg.append(sv('path', { d: link(X(u), Y(u), X(v), Y(v)), class: 'e sec' + (s ? ' skip' : '') + (vd.map ? ' map' : '') + (onP ? ' mp' : '') })); } });
+      if (pathNodes) {                                 /* steps of the maximum path that no drawn chain has: dashed */
+        const at = n => shown.find(x => x.nid === n);
+        pairs.forEach(k => {
+          if (drawnPairs.has(k)) return;
+          const [u, v] = k.split('>'), xu = at(u), xv = at(v);
+          if (!xv) return;
+          const x1 = u === UNK ? W - 40 : xu ? X(xu) : null, y1 = u === UNK ? TOP : xu ? Y(xu) : null;
+          if (x1 == null) return;
+          const pth = sv('path', { d: link(x1, y1, X(xv), Y(xv)), class: 'e mpx' });
+          pth.append(sv('title', {}, `${nm(u)} ← ${nm(v)}\nدر طریق بیشینه، ولی در هیچ سندی پشت‌سرهم نیامده‌اند`));
+          svg.append(pth);
+        });
+      }
       const hit = n => filter && norm(nm(n)).includes(norm(filter));
       shown.forEach(x => {
         const n = x.nid, g = sv('g', { class: 'nd' }), cx = X(x), cy = Y(x), closed = col.has(x.key) && x.kids.length, leaf = closed || !x.kids.length, d = N[n] && N[n].death;
@@ -216,6 +234,7 @@
     function drawLegend() {
       const it = (cls, t) => hh('span', {}, hh('i', { class: cls }), t);
       legend.replaceChildren(...[
+        pathNodes ? hh('span', { class: 'pathl' }, hh('i', { class: 'mp' }), (pathLabel || 'طریق بیشینه') + ' (خط‌چین: گامی که در سندها نیست) ', hh('button', { type: 'button', class: 'small', onclick: () => { pathNodes = null; keep(draw); } }, 'برداشتن')) : null,
         V ? it('map', 'یال در محتمل‌ترین درخت') : null, V ? it('low', 'احتمال پسین زیر ۰٫۵') : null, it('skip', 'راوی پنهان میان دو نام'),
         shape === 'graph' ? it('sec', 'استاد دیگر (خط‌چین)') : null, V && V.sources ? hh('span', {}, hh('i', { class: 'ring' }), 'نامزد مبدأ (اندازه = احتمال)، ★ محتمل‌ترین') : null,
         hh('span', {}, hh('i', { class: 'bk' }), 'نام کتاب (متن)'), hh('span', { class: 'muted' }, 'ضخامت یال = شمار سندها · دایره‌ی توخالی = بی‌تاریخ'),
@@ -272,6 +291,7 @@
       select(id) { selected = id; selEdge = null; keep(draw); }, selectEdge(k) { selEdge = k; selected = null; keep(draw); },
       bring, setLens(l) { lens = l; keep(draw); }, setMapOnly(b) { mapOnly = b; keep(draw); },
       setFilter(q) { filter = q; draw(); }, setBranch(h) { branch = h; draw(); },
+      setPath(nodes, label) { pathNodes = nodes && nodes.length > 1 ? nodes : null; pathLabel = label || ''; if (pathNodes) { branch = ''; filter = ''; } keep(draw); },
     };
   }
   window.ICMTree = { make, CATS };

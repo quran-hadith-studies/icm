@@ -91,6 +91,31 @@ def test_resolve_drops_and_merges():
         assert all("name:فلان" not in a["sanad"] for a in G["attestations"]) and G["dropped"] == ["w:2#t|0"]
 
 
+def test_free_merges_and_splits():
+    """Merges name any node (a name-only place too); a split moves places off an identity, even one the source fixed;
+    a user merge naming a kg id still applies after the database maps that id to its Noor id."""
+    ch = _chains()
+    ch[1]["elems"][1]["exact"] = "noor:2607"                     # the source fixed this one
+    cards = identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"})
+    ident = identity.with_node_ids(dict(chains=ch, cards=cards))
+    assert ch[1]["elems"][0]["node_name"] == "name:فلان" and ch[0]["elems"][0]["node_name"] == "name:زید بن علی"
+    r = identity.resolve(ident, dict(choices={}, merges=[["name:فلان", "noor:2608"]],
+                                     overrides={"w:2#t|1": "split:1"}, splits={"split:1": dict(label="زيد آخر", **{"from": "noor:2607"})}))
+    nid = {(c["aid"], e["i"]): (e["nid"], e["tier"]) for c in r["chains"] for e in c["elems"]}
+    assert nid[("w:2#t", 0)][0] == "noor:2608"                   # the name-only place merged into a person
+    assert nid[("w:2#t", 1)] == ("split:1", "chosen")            # split off the source's own link
+    assert r["nodes"]["split:1"]["names"][0] == "زيد آخر" and r["nodes"]["split:1"]["label"] == "زيد آخر"
+    assert identity._union([["name:x", "split:2"], ["split:2", "rel:a:1"]]) == {"name:x": "split:2", "rel:a:1": "split:2"}
+    saved = identity._same_person
+    identity._same_person = lambda ids: {"kg:3151": "noor:2607"}
+    try:                                                         # kg:3151 is noor:2607 for the database; the user merges it with 2608
+        r = identity.resolve(dict(chains=_chains(), cards=cards), dict(choices={}, merges=[["kg:3151", "noor:2608"]],
+                                                                       overrides={"w:1#t|0": "kg:3151"}))
+        assert r["chains"][0]["elems"][0]["nid"] == "noor:2607" and r["alias"]["noor:2608"] == "noor:2607"
+    finally:
+        identity._same_person = saved
+
+
 def _sug_ident(elems, trad="shia", source="text"):
     ch = [dict(aid="w:1#t", wid="w:1", source=source, tradition=trad, elems=elems, speaker=None, quoted_work=None, flags=[])]
     return dict(chains=ch, cards=identity.make_cards(ch, {"w:1": trad}), flags=[])

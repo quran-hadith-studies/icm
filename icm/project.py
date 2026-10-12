@@ -205,6 +205,28 @@ def refresh_indexes() -> None:
             hidx.setdefault(w, []).append(dict(pid=p["pid"], status=p["status"], step=p["step"]))
     atomic_write(os.path.join(config.CACHE_DIR, "index.json"), dict(projects=sorted(idx, key=lambda x: x["updated"], reverse=True)))
     atomic_write(os.path.join(config.CACHE_DIR, "hadith_index.json"), hidx)
+    atomic_write(os.path.join(config.CACHE_DIR, "narrator_index.json"), narrator_index(projs))
+
+
+def narrator_index(projs) -> Dict[str, list]:
+    """noor:/kg: id -> the projects whose current graph has that narrator (the narrator wiki's «پروژه‌های ICM»)."""
+    out: Dict[str, list] = {}
+    for p in projs:
+        run = p.get("current_run")
+        if not run:
+            continue
+        m = read(os.path.join(pdir(p["pid"]), "runs", run, "manifest.json"))
+        key = m and m.get("stages", {}).get("graph")
+        if not key:
+            continue
+        try:
+            nodes = (stage_get(p["pid"], "graph", key) or {}).get("nodes", {})
+        except Exception:                            # an unreadable stage file must not stop the index
+            continue
+        for nid in nodes:
+            if nid.startswith(("noor:", "kg:")):
+                out.setdefault(nid, []).append(dict(pid=p["pid"], title=p["title"], status=p["status"]))
+    return out
 
 
 def projects_of(wid: str) -> List[dict]:

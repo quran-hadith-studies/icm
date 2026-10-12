@@ -1,5 +1,6 @@
 import os, sys, tempfile, shutil
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ["ICM_OPEN"] = "0"                         # these tests check the user rules, which open mode switches off
 try:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -54,6 +55,14 @@ def test_permissions_and_validation():
         assert got["merges"] == sug["merges"] and got["drops"] == ["v02:1#t|3"] and got["dismissed"] == sug["dismissed"]
         for bad in ({"merges": [["noor:1", "noor:1"]]}, {"merges": [["noor:1"]]}, {"merges": [["x", "noor:1"]]},
                     {"drops": ["nobar"]}, {"drops": [3]}, {"dismissed": "x"}):
+            assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
+        free = {"merges": [["name:فلان بن فلان", "noor:12"], ["rel:v02:1#t:2", "split:1"]], "overrides": {"v02:1#t|3": "split:1", "v02:1#t|4": "noor:7"},
+                "splits": {"split:1": {"label": " زيد الآخر ", "from": "noor:12"}, "split:9": {"label": "unused"}}, "dates": {"split:1": [100, 110]}}
+        assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": free}, headers=H("alice")).status_code == 200
+        got = project.decision(pid, "identities")
+        assert got["merges"] == free["merges"] and got["splits"] == {"split:1": {"label": "زيد الآخر", "from": "noor:12"}}   # unused split dropped
+        for bad in ({"overrides": {"v02:1#t|3": "split:x"}}, {"overrides": {"nobar": "noor:1"}}, {"splits": {"split:1": {"label": 3}}},
+                    {"splits": {"x": {"label": "a"}}}, {"merges": [["name:a|b", "noor:1"]]}, {"dates": {"split:a": [1, 2]}}):
             assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
         assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"confirmed": "nope"}}, headers=H("alice")).status_code == 409
     finally:

@@ -24,6 +24,23 @@ def test_split_run_equals_whole_run():
     assert abs(sum(split["posterior"].values()) - 1) < 1e-9
 
 
+def test_max_paths():
+    """Every witness gets a path from the best source to its collector: modal over the particles inside a run,
+    marginal (no particles) for a bundle alone; both modes give the same keys."""
+    b = infer.run(FX["graph"], FX["texts"], preset="tiny")["bundle"]
+    mp = b["max_paths"]
+    assert mp["method"] == "particles" and mp["n_particles"] and mp["source"] == b["map_source"]
+    assert set(mp["paths"]) == {a["id"] for a in b["attestations"]}
+    for a in b["attestations"]:
+        x = mp["paths"][a["id"]]
+        assert x["path"][0] == b["map_source"] and x["path"][-1] == a["anchor"], x
+        assert 0 < x["mass"] <= 1 + 1e-9 and len(x["edge_probs"]) == len(x["path"]) - 1
+    lazy = infer.max_paths(b)
+    assert lazy["method"] == "marginal" and set(lazy["paths"]) == set(mp["paths"])
+    for aid, x in lazy["paths"].items():
+        assert x["mass"] is None and (x["path"] is None or x["path"][-1] == mp["paths"][aid]["anchor"])
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

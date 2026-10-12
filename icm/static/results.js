@@ -4,11 +4,14 @@
      D    the viewer bundle (hadith_phylogeny.report.build_bundle; icm.infer adds tiers and date sources)
      ctx  what the wizard knows besides (all optional): R (step-6 results), units (the align stage's units, index-aligned
           with D.variants), texts {wid: {matn, marks}} (search stage, clause colours), clauses [text], nodes (graph stage),
-          narratorCard(nid), goStep4(occ), standalone (url), tab, onTab(tab), help(anchor, body)
+          narratorCard(nid), goStep4(occ), standalone (url), tab, onTab(tab), help(anchor, body), align (icm.serve.align_view:
+          the reconstructed text), full {wid: {sanad, matn, title}} (full texts, standalone page), openHadith(wid)
 
    Tabs: نتیجه (the verdict), درخت (the recorded chains with the model's results on them, and a details panel),
    متن‌ها (the texts, coloured by part, a chosen variant highlighted), مبدأ (every candidate source), درخت بیشینه (how
-   concentrated the posterior over trees is), حساسیت, روش و محدودیت‌ها, راهنما. Choosing a variant unit (in درخت or متن‌ها)
+   concentrated the posterior over trees is), طریق بیشینه (per witness, the most probable chain from the best source
+   to its collector, D.max_paths), متن بازسازی‌شده (the running text a narrator most probably had, recon.js), حساسیت,
+   روش و محدودیت‌ها, راهنما. Choosing a variant unit (in درخت or متن‌ها)
    colours every narrator by the probability that his text had it and badges every book with what its text has. */
 (function () {
   const UNK = 'UNKNOWN_SOURCE', UNK_NAME = 'مبدأ بی‌نام (بالاتر از همه‌ی راویان ثبت‌شده)';
@@ -66,7 +69,7 @@
     const wid = a => String(a.id).split('#')[0];
     const edgeKey = (p, c) => p + '>' + c;
     const tiers = id => (ctx.nodes && ctx.nodes[id] && ctx.nodes[id].tiers) || (N[id] && N[id].tiers) || [];
-    const cat = id => { const t = tiers(id); if (!t.length) return /^anon:/.test(id) ? 'anon' : /^(name|rel):/.test(id) ? 'name' : 'exact';
+    const cat = id => { const t = tiers(id); if (!t.length) return /^anon:/.test(id) ? 'anon' : /^(name|rel):/.test(id) ? 'name' : /^split:/.test(id) ? 'chosen' : 'exact';
       return t.includes('exact') ? 'exact' : t.includes('chosen') || t.includes('derived') ? 'chosen' : t.includes('default') ? 'auto' : t.includes('anon') ? 'anon' : 'name'; };
     const year = id => N[id] && N[id].death ? (N[id].death[0] + N[id].death[1]) / 2 : (N[id] ? N[id].year : null);
 
@@ -82,7 +85,9 @@
 
     /* ---------- skeleton: sub-tabs and panels ---------- */
     const TABS = [['result', 'نتیجه'], ['tree', 'درخت'], ['texts', 'متن‌ها'], ['sources', 'مبدأ'], ['graph', 'درخت بیشینه'],
-      ['sens', 'حساسیت'], ['method', 'روش و محدودیت‌ها'], ['gloss', 'راهنما']];
+      ['paths', 'طریق بیشینه'], ['recon', 'متن بازسازی‌شده'], ['sens', 'حساسیت'], ['method', 'روش و محدودیت‌ها'], ['gloss', 'راهنما']];
+    const hb = key => (window.ICMHelp ? window.ICMHelp.html(key) : '');
+    const MP = D.max_paths || null;
     const root = document.createElement('div');
     root.className = 'rv';
     root.innerHTML = `<nav class="rvtabs" role="tablist">${TABS.map(([id, t]) => `<button type="button" role="tab" data-tab="${id}">${t}</button>`).join('')}</nav>
@@ -97,7 +102,7 @@
       cur = id;
       root.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === id)));
       root.querySelectorAll('.rvp').forEach(p => { p.hidden = p.dataset.p !== id; });
-      if (!built[id]) { built[id] = true; ({ result: resultPanel, tree: treePanel, texts: textsPanel, sources: sourcesPanel, graph: graphPanel, sens: sensPanel, method: methodPanel, gloss: glossPanel })[id](panel(id)); }
+      if (!built[id]) { built[id] = true; ({ result: resultPanel, tree: treePanel, texts: textsPanel, sources: sourcesPanel, graph: graphPanel, paths: pathsPanel, recon: reconPanel, sens: sensPanel, method: methodPanel, gloss: glossPanel })[id](panel(id)); }
       if (id === 'texts') drawTexts();
       if (ctx.onTab) ctx.onTab(id);
     }
@@ -117,6 +122,8 @@
       map: 'درخت بیشینه‌ی پسین (MAP) محتمل‌ترین درخت انتقال برای مبدأ برتر است. اگر سهمش بزرگ باشد، پسین روی یک ساختار متمرکز است؛ کم بودن شمار درخت‌های متمایز همچنین یعنی نمونه‌گیر روی چند درخت جمع شده و سهم رقیبان نامطمئن است.',
       unsure: 'یال‌های ثبت‌شده‌ای که احتمال پسینشان کمتر از ۰٫۹۹۹ است: جاهایی که مدل استاد دیگری (حذف یک واسطه، هم‌دوره‌ی هم‌طریق یا مبدأ بی‌نام) را محتمل‌تر یا هم‌اندازه می‌داند.',
       departs: 'شاگردانی که استادشان در درخت بیشینه هیچ‌یک از استادهای ثبت‌شده‌ی او در سندهای این خانواده نیست.',
+      paths: 'برای هر شاهد، محتمل‌ترین زنجیره از منبع بیشینه تا گردآورنده‌ی آن، کنار سندی که خودش ثبت کرده. «روی ذرات»: پرتکرارترین مسیر میان درخت‌های نمونه‌برداری‌شده و احتمال آن. «حاشیه‌ای» (اجراهای پیشین): مسیری که حاصل‌ضرب احتمال پسین استادِ هر راوی را بیشینه می‌کند؛ امتیاز است نه احتمال.',
+      recon: 'متن پیوسته‌ای که این راوی به احتمال زیاد نقل کرده: در هر واحد تغییر، محتمل‌ترین حالت در متن نیاکانی او؛ جاهای بی‌اختلاف از متن مشترک. سبز ≥۹۰٪، زرد ۶۰ تا ۹۰٪، نارنجی کمتر؛ خط‌خورده = احتمالاً نداشته.',
     };
     root.addEventListener('click', ev => {
       const hb = ev.target.closest('[data-help]');
@@ -132,7 +139,13 @@
       const nc = ev.target.closest('[data-card]');
       if (nc && ctx.narratorCard) { ctx.narratorCard(nc.getAttribute('data-card')); return; }
       const s4 = ev.target.closest('[data-step4]');
-      if (s4 && ctx.goStep4) ctx.goStep4(s4.getAttribute('data-step4'));
+      if (s4 && ctx.goStep4) { ctx.goStep4(s4.getAttribute('data-step4')); return; }
+      const pa = ev.target.closest('[data-path]');
+      if (pa) { showPath(pa.getAttribute('data-path')); return; }
+      const rc = ev.target.closest('[data-recon]');
+      if (rc) { showRecon(rc.getAttribute('data-recon')); return; }
+      const fh = ev.target.closest('[data-hadith]');
+      if (fh) { openHadith(fh.getAttribute('data-hadith')); return; }
     });
     root.addEventListener('change', ev => { if (ev.target.matches('.lenssel')) setLens(ev.target.value); });
     let POP = null;
@@ -185,11 +198,15 @@
         ['درخت‌های متمایز در نمونه', `<span class="v num">${fa(gp.n_distinct ?? '—')} از ${fa(gp.n_particles ?? '—')}</span>`, 'distinct'],
         ['راویان پیوندخورده با کتب رجال', `<span class="v num">${fa(ks.linked ?? 0)} از ${fa(ks.total ?? 0)}</span>`, 'kg']];
       const top = ranked.slice(0, 12);
-      el.innerHTML = `<div class="card"><h2 class="ar">${esc(D.heading || D.family || '')}</h2>
+      el.innerHTML = hb('step6.result') + `<div class="card"><h2 class="ar">${esc(D.heading || D.family || '')}</h2>
           <div class="small muted">${fa(ATT.length)} شاهد (متن) · ${fa(Object.keys(N).length)} راوی · ${fa(D.variants.length)} واحد اختلاف متن · تاریخ اجرا ${fa(D.generated || '')}</div>
           <div class="vchips">${chips.map(([k, v, h, x]) => `<div class="vchip"><span class="k">${k} ${helpBtn(h)}</span>${v}${x || ''}</div>`).join('')}</div>
           ${R && R.credible_set_95 ? `<p class="small">مجموعه‌ی اطمینان ۹۵٪: <span class="ar">${R.credible_set_95.map(esc).join('، ')}</span></p>` : ''}
+          <p class="small">منبع بیشینه: <b class="ar">${esc(nm(best))}</b> · درخت بیشینه: ${pct(gp.map_mass)} از احتمال · <button type="button" class="lnk" data-tab="graph">درخت بیشینه</button> · <button type="button" class="lnk" data-tab="paths">طریق بیشینه</button> · <button type="button" class="lnk" data-tab="recon">متن بازسازی‌شده</button></p>
         </div>
+        ${pathsSummary()}
+        <div class="card"><h2>متن بازسازی‌شده‌ی ${best === UNK ? 'مبدأ بی‌نام' : '<span class="ar">' + esc(shortName(nm(best), 5)) + '</span>'} (منبع بیشینه) ${helpBtn('recon')}</h2>
+          <div class="reconhost"></div><p class="small muted"><button type="button" class="lnk" data-tab="recon">متن بازسازی‌شده‌ی هر راوی و جدول تصمیم‌ها</button></p></div>
         ${best === UNK ? `<div class="card"><h2>${esc(UNK_NAME)}: این یعنی چه؟</h2><div class="body">${originHtml()}</div></div>` : ''}
         <div class="card"><h2>نامزدهای مبدأ ${helpBtn('sources')}</h2><div class="scroll"><table class="rvt">
           <thead><tr><th>نامزد</th><th>احتمال پسین</th><th class="n">log Z</th></tr></thead><tbody>
@@ -198,6 +215,8 @@
           </tbody></table></div>${ranked.length > top.length ? `<p class="small muted">${fa(ranked.length - top.length)} نامزد دیگر در زبانه‌ی «<button type="button" class="lnk" data-tab="sources">مبدأ</button>».</p>` : ''}</div>
         ${R ? `<div class="card"><h2>اجرا</h2><p class="small muted">محاسبه: ${({ browser: 'در مرورگر یک کاربر', helper: 'روی رایانه‌ی کمکی', server: 'روی سرور' })[(R.provenance || { kind: 'server' }).kind] || '—'}${R.provenance && R.provenance.workers ? ` (${fa(R.provenance.workers)} پردازه)` : ''}؛ نتیجه‌ی رایانه‌های کاربران بازتولید مستقل نشده است و اعتبارش همان ورود کاربر است.</p>
           <p class="small muted">${esc(R.preset || '')} — ${fa(R.n_particles ?? '—')} ذره، ${fa(R.n_steps ?? '—')} دما، ${fa(R.seconds ?? '—')} ثانیه. این نتیجه به شجره‌ی تأییدشده و پارامترهای ثابت مدل وابسته است؛ زبانه‌ی «<button type="button" class="lnk" data-tab="method">روش و محدودیت‌ها</button>» را بخوانید.${ctx.standalone ? ` · <a href="${esc(ctx.standalone)}" target="_blank" rel="noopener">صفحه‌ی جدا (برای چاپ یا هم‌رسانی)</a>` : ''}</p></div>` : ''}`;
+      const rh = el.querySelector('.reconhost');
+      if (rh) drawRecon(rh, best, true);
     }
     /* the unnamed origin is not a narrator: what it stands for, why it can win, and what pushes it up */
     function originHtml() {
@@ -221,7 +240,7 @@
 
     /* ---------- درخت ---------- */
     function treePanel(el) {
-      el.innerHTML = `<div class="explorer"><div class="card treecard"><h2>درخت انتقال، آن‌گونه که در اسناد ثبت شده است ${helpBtn('tree')}</h2><div class="treehost"></div></div>
+      el.innerHTML = hb('step6.tree') + `<div class="explorer"><div class="card treecard"><h2>درخت انتقال، آن‌گونه که در اسناد ثبت شده است ${helpBtn('tree')}</h2><div class="treehost"></div></div>
         <div class="card insp"><h2>جزئیات</h2><div class="body"></div></div></div>`;
       INS = el.querySelector('.insp .body');
       const sources = Object.fromEntries(Object.entries(sp).map(([s, v]) => [s, { posterior: v.posterior, log_Z: v.log_Z }]));
@@ -317,6 +336,7 @@
         <p class="help">توزیع پسین روی استادانِ ممکن: علاوه بر استاد ثبت‌شده، استادِ استاد (حذف یک واسطه) و راویان هم‌دوره‌ی هم‌طریق نیز نامزدند.</p>
         ${pp.length ? barList(pp) : '<p class="empty">—</p>'}
         <h3>متنی که این راوی احتمالاً نقل کرده</h3>
+        ${n.ancestral && ctx.align ? `<p><button type="button" class="small" data-recon="${esc(id)}">متن بازسازی‌شده‌ی این راوی</button></p>` : ''}
         <p class="help">احتمال هر حالتِ هر واحد اختلاف در متنِ نیاکانیِ این راوی، میانگین روی درخت‌های پسین؛ بازسازی‌شده از متن‌های شاگردانش، نه دیده‌شده. واحدی را در «واحد اختلاف متن» برگزینید تا همه‌ی درخت به رنگ آن درآید.</p>
         ${anc}`;
     }
@@ -356,7 +376,9 @@
         <div class="matntext ar">${textHtml(i)}</div>
         <h3>واحدهای اختلاف این متن</h3><div>${rowTags(a)}</div>
         <p class="help">«نامعلوم» برای متن‌های کوتاه‌شده («بنحوه»، «وساق الحديث») است: نبودِ بخش در چنین متنی به معنای حذف آن نیست.</p>
+        ${fullHtml(wid(a))}
         <h3>سند</h3>${chainHtml(a.sanad)}
+        ${MP && MP.paths && MP.paths[a.id] && MP.paths[a.id].path ? `<h3>طریق بیشینه ${helpBtn('paths')}</h3>${pathHtml(MP.paths[a.id])}<p><button type="button" class="small" data-path="${esc(a.id)}">نمایش طریق در درخت</button></p>` : ''}
         <dl class="dl" style="margin-top:10px">
           <dt>طول سند</dt><dd>${fa(a.sanad.length)} راوی</dd>
           <dt>وزن استقلال</dt><dd>${fmt(a.weight, 2)} <span class="help">${a.weight < 1 ? 'چند نسخه از همین کتاب در داده هست؛ هر کدام با این وزن به حساب می‌آید' : 'نسخه‌ی مستقل'}</span></dd>
@@ -404,7 +426,7 @@
     }
     let textsEl = null;
     function textsPanel(el) {
-      el.innerHTML = `<div class="card"><h2>متن‌های حدیث (${fa(ATT.length)} شاهد) ${helpBtn('texts')}</h2>
+      el.innerHTML = hb('step6.texts') + `<div class="card"><h2>متن‌های حدیث (${fa(ATT.length)} شاهد) ${helpBtn('texts')}</h2>
         <div class="toolbar">${lensSel()}</div><div class="clkey"></div><div class="texts"></div></div>`;
       textsEl = el;
       el.querySelector('.lenssel').value = lens ? `${lens.k}:${lens.j}` : '';
@@ -434,7 +456,7 @@
         ? `<tr><td class="ar">${esc(line)}</td><td class="n">${fa(r.n_attestations)}</td><td colspan="3" class="empty">تنها یک شاهد</td></tr>`
         : `<tr><td class="ar">${esc(line)}</td><td class="n">${fa(r.n_attestations)}</td><td class="ar">${esc(r.map_source)}</td>
            <td class="n">${fmt(Math.max(...Object.values(r.posterior)), 3)}</td><td class="n">${fmt(r.log_BF_vs_next, 1)}</td></tr>`).join('') : '';
-      el.innerHTML = `<div class="card"><h2>نامزدهای مبدأ — کل خانواده ${helpBtn('sources')}</h2><div class="scroll"><table class="rvt">
+      el.innerHTML = hb('step6.sources') + `<div class="card"><h2>نامزدهای مبدأ — کل خانواده ${helpBtn('sources')}</h2><div class="scroll"><table class="rvt">
           <thead><tr><th>مبدأ</th><th class="n">log Z</th><th class="n">احتمال پسین</th><th class="n">ESS</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
           <p class="small muted">روی هر ردیف بزنید تا در درخت نشان داده شود.</p></div>
         <div class="card"><h2>درون هر طریق</h2>${br ? `<div class="scroll"><table class="rvt">
@@ -449,11 +471,11 @@
       const mm = GP.map_mass;
       const read = mm == null ? '' : mm >= 0.5 ? `پسین متمرکز است: ${pct(mm)} از احتمال (برای مبدأ برتر) روی یک درخت است.`
         : mm >= 0.1 ? `پسین میان چند درخت پخش است؛ محتمل‌ترین درخت ${pct(mm)} را دارد.` : `پسین پراکنده است؛ محتمل‌ترین درخت تنها ${pct(mm)} را دارد و نتیجه‌ی هر یال را باید با احتمالش خواند.`;
-      el.innerHTML = `<div class="grid2">
+      el.innerHTML = hb('step6.map') + `<div class="grid2">
         <div class="card"><h2>محتمل‌ترین درخت ${helpBtn('map')}</h2><div class="body">
           <dl class="dl"><dt>ذرات (نمونه‌ها)</dt><dd>${fa(GP.n_particles ?? '—')}</dd><dt>درخت‌های متمایز</dt><dd>${fa(GP.n_distinct ?? '—')}</dd>
             <dt>سهم محتمل‌ترین درخت</dt><dd>${pct(mm)}</dd><dt>امتیاز لگاریتمی آن</dt><dd>${fmt(GP.map_log_score, 2)}</dd></dl>
-          <p class="note">${read} در زبانه‌ی «<button type="button" class="lnk" data-tab="tree">درخت</button>» گزینه‌ی «فقط درخت بیشینه» یال‌های بیرون از آن را کم‌رنگ می‌کند.</p></div></div>
+          <p class="note">${read} در زبانه‌ی «<button type="button" class="lnk" data-tab="tree">درخت</button>» گزینه‌ی «فقط درخت بیشینه» یال‌های بیرون از آن را کم‌رنگ می‌کند. زنجیره‌ی هر شاهد در این ساختار در زبانه‌ی «<button type="button" class="lnk" data-tab="paths">طریق بیشینه</button>» آمده است.</p></div></div>
         <div class="card"><h2>یال‌هایی که مدل درباره‌شان مطمئن نیست ${helpBtn('unsure')}</h2><div class="scroll"><table class="rvt">
           <thead><tr><th>استاد ← شاگرد</th><th class="n">احتمال پسین</th></tr></thead><tbody>
           ${unsure.length ? unsure.map(([k, e]) => `<tr class="click" data-goedge="${esc(k)}"><td class="ar">${esc(nm(e.teacher))} ← ${esc(nm(e.student))}</td><td class="n">${fmt(e.posterior, 3)}</td></tr>`).join('')
@@ -463,6 +485,108 @@
           ${departs.length ? departs.map(([v, p]) => `<tr class="click" data-showtree="${esc(v)}"><td class="ar">${esc(nm(v))}</td><td class="ar">${esc([...(teachersOf[v] || [])].map(nm).join('، ') || '—')}</td><td class="ar">${esc(nm(p))}</td></tr>`).join('')
             : '<tr><td colspan="3" class="empty">درخت بیشینه دقیقاً همان ساختار ثبت‌شده است.</td></tr>'}</tbody></table></div></div></div>`;
     }
+
+    /* ---------- طریق بیشینه ---------- */
+    const isUnk = n => String(n).startsWith(UNK);
+    const pname = n => (n === UNK ? 'مبدأ بی‌نام' : nm(n));
+    function pathHtml(x) {
+      const p = x.path, ep = x.edge_probs || [], rec = x.recorded || [];
+      let weak = -1; ep.forEach((q, i) => { if (q != null && q < 0.999 && (weak < 0 || q < ep[weak])) weak = i; });
+      return '<div class="chainx mp">' + p.map((n, i) => (i ? `<span class="arr">←</span>${ep[i - 1] != null && ep[i - 1] < 0.999 ? `<span class="ep${i - 1 === weak ? ' weak' : ''}" title="احتمال پسین این یال">${fmt(ep[i - 1], 2)}</span>` : ''}` : '') +
+        (isUnk(n) && n !== UNK ? '<span class="unkl" title="واسطه‌ی بی‌نامِ ویژه‌ی همین راوی">؟</span>'
+          : `<button type="button" class="${i === 0 ? 'src' : ''}${i > 0 && !rec.includes(n) ? ' added' : ''}" data-go="${esc(n)}">${esc(pname(n))}</button>`)).join('') + '</div>';
+    }
+    const recHtml = x => '<div class="chainx">' + x.recorded.map((n, i) => `${i ? '<span class="arr">←</span>' : ''}<button type="button" class="${(x.path || []).includes(n) ? '' : 'gone'}" data-go="${esc(n)}" title="${(x.path || []).includes(n) ? '' : 'در طریق بیشینه نیامده'}">${esc(nm(n))}</button>`).join('') + '</div>';
+    const probOf = x => (x.mass != null ? x.mass : x.dp_score);
+    function diffChips(x) {
+      if (!x.path) return '<span class="tag no">طریقی یافت نشد</span>';
+      if (x.same_as_recorded) return '<span class="tag yes">همان سند ثبت‌شده</span>';
+      const d = x.diff || {}, out = [];
+      if ((d.only_recorded || []).length) out.push(`<span class="tag no" title="${esc(d.only_recorded.map(nm).join('، '))}">در سند هست، در طریق نیست: ${fa(d.only_recorded.length)}</span>`);
+      const added = (d.only_path || []).filter(n => !isUnk(n));
+      if (added.length) out.push(`<span class="tag me" title="${esc(added.map(nm).join('، '))}">واسطه‌ی افزوده: ${fa(added.length)}</span>`);
+      if ((d.only_path || []).some(n => isUnk(n) && n !== UNK)) out.push('<span class="tag me">واسطه‌ی بی‌نام</span>');
+      if (d.source_above && MP.source !== UNK) out.push('<span class="tag">منبع بالاتر از سرآغاز سند</span>');
+      return out.join(' ') || '<span class="tag">ترتیب دیگر</span>';
+    }
+    function pathsSummary() {
+      if (!MP || !MP.paths) return '';
+      const xs = Object.values(MP.paths), same = xs.filter(x => x.same_as_recorded).length;
+      return `<div class="card"><h2>طریق بیشینه ${helpBtn('paths')}</h2><p>برای ${fa(same)} از ${fa(xs.length)} شاهد، طریق بیشینه (محتمل‌ترین زنجیره از منبع بیشینه تا گردآورنده) همان سند ثبت‌شده‌ی خودِ شاهد است؛ ${fa(xs.length - same)} شاهد طریق دیگری دارند.
+        ${MP.method === 'particles' ? `برآورد روی ${fa(MP.n_particles)} ذره.` : 'برآورد حاشیه‌ای: این اجرا پیش از افزوده شدن طریق بیشینه محاسبه شده است.'}</p>
+        <p class="small"><button type="button" class="lnk" data-tab="paths">جدول طریق بیشینه‌ی همه‌ی شاهدها</button></p></div>`;
+    }
+    function pathsPanel(el) {
+      if (!MP || !MP.paths) { el.innerHTML = hb('step6.paths') + '<div class="card"><p class="empty">طریق بیشینه برای این اجرا در دسترس نیست.</p></div>'; return; }
+      const rows = h => ATT.map((a, i) => [a, i]).filter(([a]) => a.sanad[0] === h);
+      el.innerHTML = hb('step6.paths') + `<div class="card"><h2>طریق بیشینه‌ی هر شاهد ${helpBtn('paths')}</h2>
+        <p class="small muted">${MP.method === 'particles' ? `روی ذرات: پرتکرارترین مسیر از منبع بیشینه (${esc(pname(MP.source))}) تا گردآورنده‌ی هر شاهد در ${fa(MP.n_particles)} درخت نمونه‌برداری‌شده؛ عدد = احتمال پسین همان مسیر.`
+          : 'حاشیه‌ای: این اجرا ذرات را نگه نداشته است؛ مسیری که حاصل‌ضرب احتمال پسین استادِ هر راوی را بیشینه می‌کند (عدد = این حاصل‌ضرب، نه احتمال مسیر).'}
+          عددهای کوچک روی پیکان‌ها احتمال پسین یال‌اند (فقط زیر ۰٫۹۹۹؛ کمترینشان نارنجی). نام کم‌رنگ در سند ثبت‌شده: در طریق بیشینه نیامده. نام قاب‌دار در طریق بیشینه: در سند نیامده. «؟» واسطه‌ای بی‌نام است. شاهدهای یک گردآورنده طریق یکسان دارند.</p>
+        <div class="scroll"><table class="rvt paths"><thead><tr><th>شاهد</th><th>سند ثبت‌شده</th><th>طریق بیشینه</th><th class="n">${MP.method === 'particles' ? 'احتمال' : 'امتیاز'}</th><th>فرق</th></tr></thead><tbody>
+        ${heads.map(h => `<tr class="grp"><td colspan="5" class="ar">سندهایی که با ${esc(nm(h))} آغاز می‌شوند</td></tr>` + rows(h).map(([a, i]) => {
+          const x = MP.paths[a.id]; if (!x) return '';
+          const alt = x.map_path && x.path && x.map_path.join('>') !== x.path.join('>');
+          return `<tr><td><button type="button" class="lnk ar" data-go="a${i}">${esc(a.collection)}</button></td><td>${recHtml(x)}</td>
+            <td>${x.path ? pathHtml(x) : '—'}${alt ? `<details class="small"><summary class="muted">در درخت بیشینه</summary>${pathHtml(Object.assign({}, x, { path: x.map_path, edge_probs: [] }))}</details>` : ''}</td>
+            <td class="n">${probOf(x) == null ? '—' : fmt(probOf(x), 3)}</td><td>${diffChips(x)}${x.path ? `<div><button type="button" class="small" data-path="${esc(a.id)}">نمایش در درخت</button></div>` : ''}</td></tr>`;
+        }).join('')).join('')}
+        </tbody></table></div></div>`;
+    }
+    function showPath(aid) {
+      const x = MP && MP.paths[aid]; if (!x || !x.path) return;
+      const i = ATT.findIndex(a => a.id === aid);
+      show('tree');
+      if (tree && tree.setPath) tree.setPath(x.path.filter(n => !isUnk(n) || n === UNK), `طریق بیشینه‌ی ${ATT[i] ? ATT[i].collection : ''}`);
+      if (i >= 0) selectNode('a' + i, true);
+    }
+
+    /* ---------- متن بازسازی‌شده ---------- */
+    let reconDraw = null, reconSel = null;
+    const ancAtSource = () => { const a = R && R.ancestral_matn_at_map_source; return a ? D.variants.map(v => a[v.name] || null) : null; };
+    const vecOf = id => (N[id] && N[id].ancestral) || (id === best ? ancAtSource() : null);
+    const reconLegend = '<div class="rc-legend small muted">واژه‌ی تعیین‌شده با یک واحد: <span class="rc-t hi">مطمئن (≥۹۰٪)</span> <span class="rc-t me">محتمل (۶۰ تا ۹۰٪)</span> <span class="rc-t lo">نامطمئن</span> <span class="rc-t om">احتمالاً نداشته</span> · بی‌رنگ: شاهدها اختلافی نداشتند · نشانگر را روی واژه نگه دارید.</div>';
+    function drawRecon(host, id, legend) {
+      if (!window.ICMRecon || !ctx.align || !ctx.units) { host.innerHTML = '<p class="empty">جدول هم‌ترازی این اجرا در دسترس نیست؛ متن بازسازی‌شده ساخته نمی‌شود.</p>'; return null; }
+      const vec = vecOf(id);
+      if (!vec) { host.innerHTML = '<p class="empty">برای این راوی متن نیاکانی محاسبه نشده است (در درخت‌های نمونه‌برداری‌شده زیر منبع بیشینه نیامده است).</p>'; return null; }
+      const rec = ICMRecon.build({ align: ctx.align, units: ctx.units, variants: D.variants, vec });
+      ICMRecon.render(host, rec, { hue, fa, unitName });
+      if (legend) host.insertAdjacentHTML('beforeend', reconLegend);
+      return rec;
+    }
+    function reconPanel(el) {
+      const opts = [best, ...Object.keys(N).filter(n => n !== best && N[n].ancestral).sort((a, b) => (year(a) ?? 1e4) - (year(b) ?? 1e4))];
+      const seedT = ctx.align && ctx.texts && ctx.texts[ctx.align.seed];
+      el.innerHTML = hb('step6.recon') + `<div class="card"><h2>متن بازسازی‌شده ${helpBtn('recon')}</h2>
+        <div class="toolbar"><label class="small">متنِ کدام راوی: <select class="reconsel">${opts.map(n => `<option value="${esc(n)}">${n === best ? '★ منبع بیشینه: ' : ''}${esc(shortName(pname(n), 6))}${n !== UNK && year(n) != null ? ' (' + fa(Math.round(year(n))) + ')' : ''}</option>`).join('')}</select></label>
+          <button type="button" class="small reconto">نمایش این راوی در درخت</button></div>
+        <div class="reconbody"></div>${reconLegend}
+        <h3>تصمیم هر واحد (نامطمئن‌ترها نخست)</h3><div class="recontab"></div>
+        ${seedT ? `<h3>متن حدیث مبدأ، برای مقایسه</h3><div class="matntext ar">${esc(seedT.matn)}</div>` : ''}</div>`;
+      const sel = el.querySelector('.reconsel'), body = el.querySelector('.reconbody'), tab = el.querySelector('.recontab');
+      const draw = id => {
+        if (!opts.includes(id)) id = best;
+        reconSel = id; sel.value = id;
+        const rec = drawRecon(body, id, false);
+        tab.innerHTML = rec && rec.decided.length ? `<div class="scroll"><table class="rvt"><thead><tr><th>واحد</th><th>حالت برگزیده</th><th class="n">احتمال</th><th>حالت‌های دیگر</th></tr></thead><tbody>
+          ${rec.decided.slice().sort((a, b) => a.p - b.p).map(d => `<tr><td class="ar">${esc(unitName(d.k))}</td><td class="ar">${esc(stateName(d.k, d.state))}</td><td class="n">${pct(d.p)}</td>
+            <td class="ar small">${(d.alts || []).map(([l, q]) => esc(ulab(l)) + ' ' + pct(q)).join('، ')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">—</p>';
+      };
+      sel.addEventListener('change', () => draw(sel.value));
+      el.querySelector('.reconto').addEventListener('click', () => goTree(reconSel));
+      reconDraw = draw;
+      draw(reconSel || best);
+    }
+    function showRecon(id) { reconSel = id; show('recon'); if (reconDraw) reconDraw(id); }
+
+    /* ---------- full texts ---------- */
+    function fullHtml(w) {
+      const f = ctx.full && ctx.full[w];
+      if (f) return `<details class="small"><summary>سند و متن کامل</summary>${f.sanad ? `<div class="ar matntext">${esc(f.sanad)}</div>` : ''}<div class="ar matntext">${esc(f.matn)}</div></details>`;
+      return ctx.openHadith ? `<p><button type="button" class="small" data-hadith="${esc(w)}">سند و متن کامل</button></p>` : '';
+    }
+    function openHadith(w) { if (ctx.openHadith) ctx.openHadith(w); }
 
     /* ---------- حساسیت ---------- */
     const SENS_FA = { equal: 'یکنواخت', favour_unknown: 'ترجیح مبدأ ناشناخته', date_informed: 'مبتنی بر تاریخ',
@@ -477,7 +601,7 @@
       const missing = [['حساسیت به پیشینِ مبدأ', 'اگر به همه‌ی نامزدها احتمال پیشینِ برابر ندهیم (مثلاً به مبدأ بی‌نام وزن بیشتر، یا بر پایه‌ی تاریخ)، آیا نتیجه تغییر می‌کند؟', g.prior_sensitivity],
         ['حساسیت به نرخ تغییر متن و خطای سند', 'با نرخ‌های تند‌تر یا کندتر برای دگرگونی متن و خطای ثبت سند، مبدأ برتر همان می‌ماند؟', g.rate_sensitivity],
         ['آزمون جایگشت', 'متن‌ها را تصادفی میان سندها جابه‌جا می‌کنیم؛ اگر احتمال مبدأ افت نکند، متن در نتیجه نقشی ندارد و نتیجه بر ساختار سندها استوار است.', pt]];
-      el.innerHTML = `${any ? '' : '<div class="card"><p>این آزمون‌ها در اجرای این خانواده محاسبه نشده‌اند (هر کدام چند اجرای دیگرِ مدل می‌خواهد). آنچه هر کدام نشان می‌داد:</p></div>'}
+      el.innerHTML = hb('step6.sens') + `${any ? '' : '<div class="card"><p>این آزمون‌ها در اجرای این خانواده محاسبه نشده‌اند (هر کدام چند اجرای دیگرِ مدل می‌خواهد). آنچه هر کدام نشان می‌داد:</p></div>'}
         <div class="grid2">${missing.map(([t, d, v]) => `<div class="card"><h2>${t} ${helpBtn(d)}</h2><div class="body">
           ${!v ? '<p class="empty">محاسبه نشده</p>' : v === pt ? `<dl class="dl"><dt>مبدأ آزموده</dt><dd class="ar">${esc(pt.source)}</dd><dt>احتمال مشاهده‌شده</dt><dd>${fmt(pt.observed, 3)}</dd>
             <dt>میانگین در جایگشت‌ها</dt><dd>${fmt(pt.null_mean, 3)}</dd><dt>p-value</dt><dd>${fmt(pt.p_value, 3)}</dd></dl>` : tbl(v)}</div></div>`).join('')}</div>`;
@@ -487,7 +611,7 @@
     function methodPanel(el) {
       const rec = D.recovery_test, kinds = {};
       D.variants.forEach((v, k) => { const u = U(k), kk = (u && u.kind) || (presence(k) ? 'presence' : 'lexical'); kinds[kk] = (kinds[kk] || 0) + 1; });
-      el.innerHTML = `<div class="grid2">
+      el.innerHTML = hb('step6.method') + `<div class="grid2">
         <div class="card"><h2>مدل</h2><div class="body">
           <p class="num" style="direction:ltr;text-align:left">P(S=s | X, C, M) ∝ P(S=s) · Z<sub>s</sub> ,&nbsp; Z<sub>s</sub> = Σ<sub>G</sub> P(X|G,s) · P(C|G,s) · P(G|s,M)</p>
           <ul>
@@ -526,10 +650,14 @@
         ['واحد اختلاف متن', 'بخشی از متن که میان روایت‌ها فرق می‌کند: بودن یا نبودن یک بخش یا چند واژه، واژه‌ای که جای دیگری نشسته، یا عددی دیگر. از هم‌ترازی مرحله‌ی ۳ آمده‌اند.'],
         ['نامعلوم', 'متن کوتاه‌شده است («بنحوه»، «وساق الحديث»)؛ نبودِ بخش به معنای حذف نیست و مدل آن را بی‌اطلاع حساب می‌کند.'],
         ['متن نیاکانی', 'متنی که یک راوی (که متنش به دست ما نرسیده) احتمالاً نقل کرده، بازسازی‌شده از متن‌های شاگردانش.'],
+        ['منبع بیشینه', 'نامزد مبدأ با بیشترین احتمال پسین (★).'],
+        ['درخت بیشینه', 'محتمل‌ترین درخت انتقال زیر منبع بیشینه: برای هر راوی یک استاد.'],
+        ['طریق بیشینه', 'برای یک شاهد، محتمل‌ترین زنجیره‌ی راویان از منبع بیشینه تا گردآورنده‌ی آن؛ ممکن است با سند ثبت‌شده‌ی خود شاهد فرق داشته باشد.'],
+        ['متن بازسازی‌شده', 'متن پیوسته‌ای که از محتمل‌ترین حالت هر واحد تغییر در متن نیاکانی یک راوی و متن مشترک شاهدها ساخته می‌شود.'],
         ['وزن استقلال', 'نسخه‌های یک کتاب مستقل نیستند؛ هر کدام با وزن ۱ تقسیم بر شمار نسخه‌ها وارد می‌شود.'],
         ['حلقه‌ی مشترک', 'راوی‌ای که چند شاگرد مستقل از او نقل کرده‌اند؛ نقطه‌ی انشعاب در درخت.'],
       ];
-      el.innerHTML = `<div class="card"><h2>راهنمای اصطلاحات</h2><div class="body"><dl class="gloss">${G.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join('')}</dl></div></div>`;
+      el.innerHTML = hb('step6.gloss') + `<div class="card"><h2>راهنمای اصطلاحات</h2><div class="body"><dl class="gloss">${G.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join('')}</dl></div></div>`;
     }
 
     show(ctx.tab || 'result');

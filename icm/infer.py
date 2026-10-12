@@ -21,6 +21,7 @@ from hadith_phylogeny.report import build_bundle
 from hadith_phylogeny.sanad_model import SanadModel
 from hadith_phylogeny.text_model import VariantModel
 from . import config
+from .paths import max_paths
 
 MAX_HEADS = 12
 MAX_COMMON = 6
@@ -162,6 +163,7 @@ def assemble(ctx: Ctx, ev: Dict[str, Evidence], seconds: float, provenance: Opti
     for nid, b in bundle["narrators"].items():           # what step 5 colours by: how the name was resolved, where the date is from
         g = ctx.graph.get("nodes", {}).get(nid, {})
         b["tiers"], b["date_source"] = g.get("tiers", []), g.get("date_source")
+    bundle["max_paths"] = max_paths(bundle, ev[best].graphs, ev[best].log_w)
     return dict(results=results, bundle=bundle)
 
 

@@ -10,7 +10,6 @@ While ``config.OPEN`` is set, every visitor counts as an admin (anonymous ones a
 """
 from __future__ import annotations
 
-import copy
 import hmac
 import math
 import os
@@ -23,18 +22,20 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, identity, jobs, narrator_info, project, viewer
+from . import config, corpus, export, identity, jobs, narrator_info, project, serve, viewer
 from . import graph as graph_mod
-from . import search as search_mod
-from . import suggest as suggest_mod
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
+ASSETS = ("icm.js", "icm.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
+          "model_worker.js", "model.zip")
 ID_RE = re.compile(r"^(noor|kg):\d+$")
+SPLIT_RE = re.compile(r"^split:\d{1,6}$")
+NODE_RE = re.compile(r"^(?:(?:noor|kg):\d+|split:\d{1,6}|name:[^|]{1,200}|(?:rel|anon):[^|]{1,200}:\d+)$")   # any node a merge may name
 PLACE_RE = re.compile(r"^[^|]{1,200}\|\d+$")
-_SUG: dict = {}                                    # identify outputs of older runs with their suggestions filled in
 WID_RE = re.compile(r"^(v02|kg):\d+$")
-STAGES = {"search", "align", "identify", "graph", "infer"}
+STAGES = serve.STAGES
+EXPORTS = ("seed", "selection", "alignment", "identities", "phylogeny", "analysis", "all")
 MAX_OPEN = 20          # unfinished projects per (non-admin) user
 
 
@@ -118,7 +119,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     # -- pages -----------------------------------------------------------------------------------
     def page() -> HTMLResponse:
         # Cloudflare caches /static for hours whatever our Cache-Control says: version the URLs instead
-        v = "%x" % max(int(os.path.getmtime(os.path.join(STATIC, f))) for f in ("icm.js", "icm.css", "tree.js", "tree.css", "results.js", "results.css", "icm.html"))
+        v = "%x" % max(int(os.path.getmtime(os.path.join(STATIC, f))) for f in ASSETS)
         html = open(os.path.join(STATIC, "icm.html"), encoding="utf-8").read().replace("__BASE__", prefix).replace("__V__", v)
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
@@ -157,10 +158,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     def hadith(wid: str):
         if not WID_RE.match(wid):
             raise HTTPException(400, "bad id")
-        rec = corpus.get(wid)
+        rec = serve.hadith(wid)
         if rec is None:
             raise HTTPException(404, "not found")
-        rec = {k: v for k, v in rec.items() if k != "rowid"}
         rec["projects"] = project.projects_of(wid)
         return rec
 
@@ -209,54 +209,46 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(404)
         return project.decision(pid, step, v) or {}
 
-    def _page_context(pid: str, run: str) -> dict:
-        """What step 6 shows besides the bundle (clause marks of the texts, the variant units, how each name was
-        resolved), for the standalone page of a run."""
-        S, A, G = (project.run_stage(pid, run, x) for x in ("search", "align", "graph"))
-        ctx = {}
-        if S:
-            S = search_mod.with_marks(S)
-            ctx["texts"] = {w: dict(matn=x["matn"], marks=x.get("marks", [])) for x in [S["seed"], *S["candidates"]] for w in [x["wid"], *x.get("copies", [])]}
-            ctx["clauses"] = [c["text"] for c in S["clauses"]]
-        if A:
-            ctx["units"] = [{k: u.get(k) for k in ("name", "kind", "unit_kind", "clause", "labels")} for u in A["units"]]
-        if G:
-            ctx["nodes"] = {n: dict(tiers=i.get("tiers", []), date_source=i.get("date_source")) for n, i in G["nodes"].items()}
-        return ctx
-
     @r.get("/api/project/{pid}/runs/{run}/viewer", response_class=HTMLResponse)
     def run_viewer(pid: str, run: str):
         _project(pid)
-        out = project.run_stage(pid, run, "infer")
-        if out is None:
+        v = serve.stage(pid, run, "viz")
+        if v is None:
             raise HTTPException(404, "no analysis in this run")
-        return HTMLResponse(viewer.render(dict(out["viz"], page_context=_page_context(pid, run))))
+        ctx = serve.page_context(pid, run)
+        ctx["R"] = serve.stage(pid, run, "results")
+        return HTMLResponse(viewer.render(dict(v, page_context=ctx)))
+
+    @r.get("/api/project/{pid}/runs/{run}/export/{what}.html", response_class=HTMLResponse)
+    def run_export(pid: str, run: str, what: str):
+        """One self-contained HTML file: a step of the wizard (or all of them) with its data, texts and help."""
+        p = _project(pid)
+        if what not in EXPORTS:
+            raise HTTPException(404)
+        rid = p.get("current_run") if run == "current" else run
+        if not rid or project.run_stage(pid, rid, "search") is None:
+            raise HTTPException(404, "no such run")
+        html = export.render(pid, rid, what)
+        fn = f"icm-{pid}-{what}.html"
+        return HTMLResponse(html, headers={"Content-Disposition": f'attachment; filename="{fn}"', "Cache-Control": "no-store"})
 
     @r.get("/api/project/{pid}/runs/{run}/{stage}")
     def run_stage(pid: str, run: str, stage: str):
         _project(pid)
         if stage not in STAGES | {"viz", "results"}:
             raise HTTPException(404)
-        src = "infer" if stage in ("viz", "results") else stage
-        out = project.run_stage(pid, run, src)
+        out = serve.stage(pid, run, stage)
         if out is None:
             raise HTTPException(404, "stage not available in this run")
-        if stage == "search":
-            out = search_mod.with_marks(out)
-        if stage == "identify" and "suggestions" not in out:      # runs from before step-4 suggestions
-            key = (pid, out.get("inputs_hash") or run)
-            if key not in _SUG:
-                c = copy.deepcopy(out)
-                c["suggestions"] = suggest_mod.suggest(c)
-                if len(_SUG) > 20:
-                    _SUG.clear()
-                _SUG[key] = c
-            out = _SUG[key]
-        return finite(out["viz"] if stage == "viz" else out["results"] if stage == "results" else out)
+        return finite(out)
 
     @r.get("/api/narrator/{nid}")
     def narrator(nid: str):
-        return narrator_info.card(nid)
+        out = narrator_info.card(nid)
+        w = wiki_persons([nid]).get(nid)
+        if w:
+            out["wiki"] = w                              # the person's page in the narrator wiki
+        return out
 
     @r.get("/api/narrators/deaths")
     def narrator_deaths(ids: str = ""):
@@ -273,6 +265,18 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         out = [dict(c, db="noor") for c in identity.noor_candidates(q, k=15)]
         out += [dict(c, db="kg") for c in identity.kg_candidates(q, death, k=15)]
         out.sort(key=lambda d: -d["score"])
+        wiki = wiki_persons([c["id"] for c in out])
+        if wiki:                    # one row per person of the narrator wiki; the other ids of that person go with it
+            seen, keep = set(), []
+            for c in out:
+                w = wiki.get(c["id"])
+                if w:
+                    if w["person_id"] in seen:
+                        continue
+                    seen.add(w["person_id"])
+                    c["wiki"] = w
+                keep.append(c)
+            out = keep
         return out[:25]
 
     # -- write -----------------------------------------------------------------------------------
@@ -373,25 +377,39 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         if step == "identities":
             ch = pl.get("choices", {})
             ov = pl.get("overrides", {})
-            for d in (ch, ov):
-                if not isinstance(d, dict) or not all(v in (None, "none") or (isinstance(v, str) and ID_RE.match(v)) for v in d.values()):
-                    raise HTTPException(400, "choices must map to noor:<id>, kg:<id> or none")
+            if not isinstance(ch, dict) or not all(v in (None, "none") or (isinstance(v, str) and ID_RE.match(v)) for v in ch.values()):
+                raise HTTPException(400, "choices must map to noor:<id>, kg:<id> or none")
+            if not (isinstance(ov, dict) and len(ov) <= 3000 and all(isinstance(k, str) and PLACE_RE.match(k) for k in ov) and all(
+                    v in (None, "none") or (isinstance(v, str) and (ID_RE.match(v) or SPLIT_RE.match(v))) for v in ov.values())):
+                raise HTTPException(400, "overrides must map places to noor:<id>, kg:<id>, split:<n> or none")
+            splits = pl.get("splits", {}) or {}
+            if not (isinstance(splits, dict) and len(splits) <= 200 and all(
+                    isinstance(k, str) and SPLIT_RE.match(k) and isinstance(v, dict) and isinstance(v.get("label", ""), str)
+                    and len(v.get("label", "")) <= 120 and (v.get("from") is None or (isinstance(v["from"], str) and NODE_RE.match(v["from"])))
+                    for k, v in splits.items())):
+                raise HTTPException(400, "splits must map split:<n> to {label, from}")
+            used = {v for v in ov.values() if isinstance(v, str) and SPLIT_RE.match(v)}
+            splits = {k: dict(label=v.get("label", "").strip(), **({"from": v["from"]} if v.get("from") else {}))
+                      for k, v in splits.items() if k in used}            # a split nobody is moved to is gone
             dates = pl.get("dates", {})
             if not (isinstance(dates, dict) and len(dates) <= 2000 and all(
-                    isinstance(k, str) and len(k) <= 300 and (ID_RE.match(k) or k.startswith("occ:")) and isinstance(v, list) and len(v) == 2
+                    isinstance(k, str) and len(k) <= 300 and (ID_RE.match(k) or SPLIT_RE.match(k) or k.startswith("occ:")) and isinstance(v, list) and len(v) == 2
                     and all(isinstance(x, (int, float)) and not isinstance(x, bool) and -100 <= x <= 1500 for x in v) and v[0] <= v[1]
                     for k, v in dates.items())):
                 raise HTTPException(400, "dates must map noor:<id>, kg:<id> or occ:<place> to [lo, hi] hijri years")
             merges, drops, dismissed = pl.get("merges", []), pl.get("drops", []), pl.get("dismissed", [])
             if not (isinstance(merges, list) and len(merges) <= 500 and all(
-                    isinstance(m, list) and len(m) == 2 and all(isinstance(x, str) and ID_RE.match(x) for x in m) and m[0] != m[1]
+                    isinstance(m, list) and len(m) == 2 and all(isinstance(x, str) and NODE_RE.match(x) for x in m) and m[0] != m[1]
                     for m in merges)):
-                raise HTTPException(400, "merges must be pairs of distinct noor:<id> / kg:<id>")
+                raise HTTPException(400, "merges must be pairs of distinct node ids (noor:, kg:, split:, name:, rel:, anon:)")
             if not (isinstance(drops, list) and len(drops) <= 2000 and all(isinstance(x, str) and PLACE_RE.match(x) for x in drops)):
                 raise HTTPException(400, "drops must be places <aid>|<i>")
             if not (isinstance(dismissed, list) and len(dismissed) <= 3000 and all(isinstance(x, str) and len(x) <= 300 for x in dismissed)):
                 raise HTTPException(400, "dismissed must be suggestion ids")
-            return dict(choices=ch, overrides=ov, merges=merges, drops=sorted(set(drops)), dismissed=sorted(set(dismissed)), dates=dates)
+            out = dict(choices=ch, overrides=ov, merges=merges, drops=sorted(set(drops)), dismissed=sorted(set(dismissed)), dates=dates)
+            if splits:
+                out["splits"] = splits
+            return out
         if step == "phylogeny":
             dates = pl.get("dates", {})
             edits = pl.get("chain_edits", {})
@@ -414,3 +432,12 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         raise HTTPException(400)
 
     return r
+
+
+def wiki_persons(ids) -> dict:
+    """{id: {person_id, name, also}} from the narrator wiki (/narrator) when its database is present, else {}."""
+    try:
+        from narwiki import lookup
+        return lookup.persons_for(list(ids)) if lookup.available() else {}
+    except Exception:                                   # the wiki is optional: ICM works without it
+        return {}

@@ -2,7 +2,7 @@
 
     python3 -m icm build model
 
-Contents: hadith_phylogeny/ and icm/{__init__,config,infer,client}.py. numpy comes from Pyodide itself.
+Contents: hadith_phylogeny/ and icm/{__init__,config,infer,paths,client}.py. numpy comes from Pyodide itself.
 tests/test_icm_client.py fails when the committed zip no longer matches the sources."""
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import zipfile
 
 from .. import config
 
-FILES = ["icm/__init__.py", "icm/config.py", "icm/infer.py", "icm/client.py"]
+FILES = ["icm/__init__.py", "icm/config.py", "icm/infer.py", "icm/paths.py", "icm/client.py"]
 OUT = os.path.join(config.HERE, "icm", "static", "model.zip")
 
 

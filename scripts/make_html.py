@@ -43,7 +43,7 @@ def render(bundle: dict, standalone: bool = True) -> str:
     title = bundle.get("title_fa", "درخت حدیث ستة لعنهم الله")
     heading = bundle.get("heading_fa", "حدیث «ستة لعنهم الله» — قدیمی‌ترین منبع قابل‌بازیابی")
     css = "\n".join(_asset(f) for f in ("viewer.css", "tree.css", "results.css"))
-    js = "\n".join(_asset(f) for f in ("tree.js", "results.js", "viewer.js"))
+    js = "\n".join(_asset(f) for f in ("help_fa.js", "tree.js", "recon.js", "results.js", "viewer.js"))
     head = HEAD.replace("__TITLE__", title).replace("__CSS__", css)
     body = BODY.replace("__DATA__", data).replace("__HEADING__", heading).replace("__JS__", js)
     if standalone:

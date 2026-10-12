@@ -581,21 +581,27 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
     """Apply the user's choices. Returns chains of node ids plus the node table.
 
     decisions = {choices: {card_key: "noor:12" | "kg:7" | "none"}, merges: [[nid, nid]], overrides: {"aid|i": nid},
-                 drops: ["aid|i"]}
+                 drops: ["aid|i"], splits: {"split:1": {label, from}}}
+    Merges may name any node (noor:/kg: people, name:/rel:/anon: places with no person, split: people). A split
+    person is a set of places the user moved off an identity (``overrides[place] = "split:<n>"``); ``splits`` only
+    labels them.
     A card without a choice takes its default (a ``high`` candidate), else becomes a name-only node
     and is listed in ``undecided``. A dropped place is no narrator (isnad wording read as a name): it stays in
     the chain with ``dropped`` and no node. Merged ids are one person, named by the Noor id when there is one."""
     d = decisions or {}
     choices, overrides = d.get("choices", {}), d.get("overrides", {})
     drops = set(d.get("drops", []))
-    canon = _union(d.get("merges", []))
+    splits = d.get("splits", {}) or {}
     cards = ident["cards"]
     nodes: Dict[str, dict] = {}
     chains_out = []
     undecided = set()
     all_ids = [c["id"] for ch in ident["chains"] for e in ch["elems"] for c in e["cands"][:1]]
     all_ids += [v for v in choices.values() if isinstance(v, str)]
+    all_ids += [v for v in overrides.values() if isinstance(v, str)] + [x for m in d.get("merges", []) for x in m]
     same = _same_person(all_ids)
+    # the user's merges are taken after the database's kg -> noor mapping, so a merge naming a kg id still applies
+    canon = _union([[same.get(a, a), same.get(b, b)] for a, b in d.get("merges", [])])
     for ch in ident["chains"]:
         out = []
         for e in ch["elems"]:
@@ -626,10 +632,12 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
                         undecided.add(cd["key"])
             if nid is None:
                 nid = (f"rel:{ch['aid']}:{e['i']}" if e["kind"] == "relative"
-                       else f"name:{' '.join(norm(e['name']).split())}")
+                       else f"name:{' '.join(norm(e['name']).split())}")      # = node_name (anon places have their id)
             nid = same.get(nid, nid)
             nid = canon.get(nid, nid)
             node = nodes.setdefault(nid, dict(id=nid, names=[], tiers=set(), n=0))
+            if nid.startswith("split:") and "label" not in node:
+                node["label"] = str((splits.get(nid) or {}).get("label") or e["name"])
             if e["name"] not in node["names"]:
                 node["names"].append(e["name"])
             node["tiers"].add(tier)
@@ -639,6 +647,10 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
                                quoted_work=ch["quoted_work"], flags=ch["flags"]))
     for n in nodes.values():
         n["tiers"] = sorted(n["tiers"])
+        if n.get("label") and n["label"] in n["names"]:     # a split person is named by the user's label
+            n["names"].remove(n["label"])
+        if n.get("label"):
+            n["names"].insert(0, n["label"])
     alias = dict(same)
     alias.update({a: canon.get(b, b) for a, b in same.items()})
     alias.update(canon)
@@ -646,8 +658,26 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
                 dropped=sorted(drops & {f"{ch['aid']}|{e['i']}" for ch in ident["chains"] for e in ch["elems"]}))
 
 
+def node_name(ch: dict, e: dict) -> str:
+    """The node id a place resolves to when no person is chosen for it (what ``resolve`` falls back to)."""
+    if e.get("kind") == "anon":
+        return f"anon:{ch['aid']}:{e['i']}"
+    if e.get("kind") == "relative":
+        return f"rel:{ch['aid']}:{e['i']}"
+    return f"name:{' '.join(norm(e['name']).split())}"
+
+
+def with_node_ids(ident: dict) -> dict:
+    """Add ``node_name`` to every element (for display, not stored): the step-4 page merges and splits
+    name-only people by these ids and must not recompute ``norm`` in JavaScript."""
+    for ch in ident.get("chains", []):
+        for e in ch["elems"]:
+            e["node_name"] = node_name(ch, e)
+    return ident
+
+
 def _union(pairs) -> Dict[str, str]:
-    """id -> the id its group is known by (the Noor id if any, else the smallest) for the user's merges."""
+    """id -> the id its group is known by (Noor id first, then kg, a split person, a name, ...) for the user's merges."""
     up: Dict[str, str] = {}
 
     def find(x):
@@ -662,7 +692,8 @@ def _union(pairs) -> Dict[str, str]:
     for x in list(up):
         groups[find(x)].append(x)
     out = {}
+    rank = {"noor": 0, "kg": 1, "split": 2, "name": 3, "rel": 4, "anon": 5}
     for g in groups.values():
-        name = min(g, key=lambda x: (not x.startswith("noor:"), x))
+        name = min(g, key=lambda x: (rank.get(x.split(":")[0], 6), x))
         out.update({x: name for x in g if x != name})
     return out

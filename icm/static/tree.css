@@ -46,3 +46,8 @@
 .glegend i.bk{width:10px;height:10px;border:0;border-radius:2px;background:var(--warm,#9a5b2a)}
 .glegend .lensl{display:inline-flex;gap:8px;align-items:center;color:var(--fg)}
 .glegend .lensl b{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin-inline-end:3px}
+/* a maximum path (setPath): its recorded edges thick, its unrecorded steps dashed, the rest faint */
+.gsvg .e.mp{stroke:var(--warn);stroke-opacity:1!important;stroke-width:4px}
+.gsvg .e.mpx{stroke:var(--warn);stroke-width:2.5px;stroke-dasharray:6 4;fill:none}
+.gsvg.pathon .e:not(.mp):not(.mpx){stroke-opacity:.12}
+.glegend i.mp{border-top:3px solid var(--warn)}.glegend .pathl{color:var(--fg);display:inline-flex;gap:6px;align-items:center}

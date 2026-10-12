@@ -620,6 +620,36 @@ Results and decisions live in the cache repository [quran-hadith-studies/icm-cac
 (`projects/<id>/{project.json, decisions/, stages/, runs/}`). The server writes a plain directory; the laptop
 pulls it and pushes (the organisation has deploy keys disabled, so the server holds no GitHub credential).
 
+What every step also offers (added 2026-10-13):
+
+* **Full explanations.** Every section has a folded «توضیحات» block (`icm/static/help_fa.js`): what it does, its
+  inputs and outputs, how to read it and its limits. The same texts are in the standalone page and the exports.
+* **Full texts.** Step 2 (each candidate), step 3 (a witness's name), step 4 (the chosen hadith, and every other
+  place of the chosen name, with the name marked) and step 5 (a book) open the whole sanad and matn from
+  `/api/hadith/<wid>` with a link to `/h/i/<id>`. The model still sees the 1,500-character text of the search stage.
+* **HTML export.** «دانلود HTML» in the project bar: `GET /icm/api/project/<pid>/runs/<run>/export/<step|all>.html`
+  (`icm/export.py`) is the wizard page itself with the step's stages, full texts, narrator cards and help inlined;
+  `icm.js` reads `window.ICM_STATIC` instead of the API, keeps a virtual address (a `file://` page cannot change its
+  URL) and is read-only. The whole-project file of a 78-witness family is about 5 MB.
+* **Merge and split (step 4).** «یکی کردن» joins any two identities of the project, name-only places included
+  (`merges` now take `noor:`, `kg:`, `split:`, `name:`, `rel:`, `anon:` ids; `identity.with_node_ids` tells the page
+  the id of a name-only place). «جدا کردن» moves ticked places of an identity to a new person: `overrides[place] =
+  "split:<n>"` and `splits = {"split:<n>": {label, from}}`, applied before the source's own link. A user merge naming
+  a kg id now applies after the database's kg→noor mapping (it used to be lost).
+* **Maximum path (طریق بیشینه).** `icm/paths.py max_paths(bundle, graphs, log_w)`: per witness, the chain from the
+  best source to its collector. Inside a run it is the modal path over the weighted particles, with its posterior
+  mass (`bundle["max_paths"]`, also in browser and helper runs through `model.zip`); for older runs the API adds a
+  marginal estimate (Dijkstra on −log of each narrator's parent posterior; a score, not a probability). Step 6 has a
+  «طریق بیشینه» tab (recorded chain against the path, per-edge probabilities, differences) and draws a path on the tree.
+* **Reconstructed text (متن بازسازی‌شده).** `icm/static/recon.js` builds the running text a narrator most probably had:
+  per variant unit the most probable ancestral state, elsewhere the witnesses' common text, from the step-3 grids.
+  Shown for the best source on the «نتیجه» tab and for any narrator on its own tab, words coloured by confidence.
+  The unnamed root's vector comes from `results.ancestral_matn_at_map_source` (the bundle keeps only narrators').
+* **Narrator wiki.** When `narwiki`'s database is present, `/api/narrators` and the narrator card carry the wiki person,
+  and step 4 offers «یک شخص با دو شناسه» suggestions for ids the wiki holds as one person (computed when the stage is
+  served, so later wiki edits show up; never applied without the user). `project.refresh_indexes` writes
+  `narrator_index.json` (id → projects) for the wiki's «پروژه‌های ICM».
+
 What to keep in mind when reading a result:
 
 * The suggested identities are suggestions. On the «ستة لعنهم الله» family built from the corpus with every
@@ -735,11 +765,12 @@ token), make `~/ebadollah/data/icm/cache` a clone of `icm-cache`, and remove `IC
 ### Known limits and open work
 
 * The identity suggestions are not decisions: one narrator appearing as two nodes can flip the best source. The user
-  must decide the cards; there is no automatic merge of name-only nodes that refer to the same person.
+  must decide the cards; name-only nodes that refer to one person are joined only by the user («یکی کردن»).
 * `identities` decisions are keyed by the normalised name of a card, so one choice applies to every chain with that name;
   «فقط همین جا» in the editor stores a per-occurrence override instead.
-* `merges` (step 4), `drops` (step 4) and `dates` are decided in the UI; `split_nodes` is not implemented, and
-  `chain_edits` (step 5) has no UI.
+* `merges`, `splits`, `drops` (step 4) and `dates` are decided in the UI; `chain_edits` (step 5) has no UI.
+* The marginal maximum path of older runs stitches per-narrator posteriors and may follow a chain no sampled tree
+  contains; rerunning the analysis gives the particle estimate.
 * Results computed in a browser or by the helper are checked for consistency but not recomputed by the server.
 * Per-line (companion branch) results, the matn-only ablation and the sensitivity/permutation runs of the diagram case
   are not part of the wizard's analysis step (`infer.matn_only` exists but is not wired in).
@@ -771,3 +802,83 @@ It is the results of step 6 of the wizard on a page of their own: `make_html.ren
 `/icm/api/project/<pid>/runs/<run>/viewer`, with the texts' clause marks, the variant units and how each name was
 resolved (`page_context`). The sub-tabs are those of step 6 above. Panels whose numbers the bundle lacks (per-line
 results, sensitivity, the permutation test, the recovery test) say so; the sitta bundle has them.
+
+## The narrator wiki (`narwiki/`)
+
+A wiki-like narrator (rijal) database at `https://ebadollah.ir/narrator/`: one page per narrator with both source
+databases side by side, editing with full history, merge and split, a review queue, and merge suggestions. Persian,
+right to left, built like the ICM wizard (FastAPI router + one static page, no build step).
+
+**Model.** A *person* (`person`, numbered in the wiki) carries any number of external ids, stored generically as
+`(kind, ext_id)` rows (`person_ext`): `noor` = Noor RaviId (`narrators.sqlite` `ravi`), `kg` = Hadith Knowledge Graph
+rawi (`kg.sqlite` `rawis`), `wiki` = persons created in the wiki (also the stable "anchor" of split-off persons). A
+further database (e.g. a real Rezwan narrator export) is just another kind. Every value is a `person_field` row
+(name, alias, kunya, laqab, nisba, mazhab, grade, rank, tabaqa, death_lo/hi, birth, places, note) with its provenance:
+`source` (`noor`, `noor/<rijal book of the fact>`, `kg`, `user`), the external id it came from, and the revision that
+wrote it. Values are never deleted, only retired.
+
+**Edits.** Open like ICM today: `NARWIKI_OPEN` (default `1`) makes every visitor an admin (anonymous = `guest`);
+`NARWIKI_OPEN=0` requires a login for writes and an admin for reviews/reverts. Every write (add, edit, merge, split,
+revert) applies at once and records a `revision` with the affected persons before and after, `review_status =
+unreviewed`. The queue page (`/narrator/queue`) is the review: approve, reject, or reject and revert. Edits revert value
+by value; merges and splits revert only while no later revision touched those persons. A merge marks the absorbed
+person `merged` (`merged_into`; its ids and values move, old links follow); accepting a suggestion is a merge.
+
+**Seeding and suggestions (laptop).**
+
+```
+python3 -m narwiki seed            # NARWIKI_DB (default ../narwiki-data/wiki.sqlite, outside the repo); --force rebuilds
+python3 -m narwiki similar         # merge suggestions; re-run any time (replaces only still-proposed ones of its kinds)
+python3 -m narwiki stats
+python3 -m narwiki export-revisions -o revs.json      # the edits made after seeding (+ decided suggestions)
+python3 -m narwiki import-revisions revs.json         # replay them onto a re-seeded database (persons found by ext id)
+python3 -m narwiki serve --port 8098                  # = uvicorn narwiki.devserver:app (NARWIKI_DEV_USER=alice for a name)
+```
+
+`seed` makes one person per Noor narrator (8,120) and per non-stub KG narrator (49,819) with their fields (Noor death
+dates and cities from `narrators.facts.resolve`, without the Imam-period estimate), one approved `seed` revision each,
+and turns the `link` rows of `narrators/link_sunni.py` (target kg, confidence high/medium) into `link_kg` suggestions —
+not merges. KG stubs are created on demand (`store.ensure_ext`). `similar` adds `name_chrono` (Noor ↔ KG: a port of
+`link_kg`: name coverage over the KG narrators sharing the two rarest name tokens, with the father/son guards of
+`match_narrators` and `identity._cov`; chronology +0.15/0/−0.4 at 30/70 years; +0.35 per Noor teacher/student whose
+KG candidates are adjacent in the KG chains, at most 3; Imāmī narrators need one such context hit) and `noor_dup` /
+`kg_dup` (same normalised name, or same name tokens with the same own and father's name; deaths within 5 years or both
+undated; KG undated pairs need a shared teacher or student; name groups above 8 skipped). Seed takes ~5 s, similar
+~12 s; the database is ~80 MB. Every suggestion stores its evidence (JSON), which the suggestions page explains.
+
+**Pages** (`/narrator` + `/`, `/p/<id>`, `/p/<id>/edit`, `/p/<id>/split`, `/p/<id>/history`, `/merge?a=&b=`,
+`/queue`, `/suggestions`, `/new`), each with a «توضیحات» block that explains the page, its data and what each action
+changes. The person page shows the values with provenance, the `icm.narrator_info.card` of every Noor and KG id in two
+columns, linked rijal entries, teachers and students mapped to wiki persons, suggestions with evidence, ICM projects
+(`<ICM_CACHE_DIR>/narrator_index.json`, written by ICM: `{"noor:12": [{"pid", "title", "status"}]}`) and the hadith
+occurrences read live (paged) from `narrators.sqlite slot` (links to `/h/i/<800000000 + id>`) and `kg.sqlite
+sanad_rawis`; they are not copied into the wiki database. `/api/person/<id>/export.html` downloads a self-contained page
+(inline CSS, JS and data; the first 100 occurrences per source).
+
+**API** (`narwiki/api.py`, `make_router(get_user, prefix="/narrator")`): reads `/api/me`, `/api/stats`,
+`/api/search?q=&kind=noor|kg|both|noor_only|kg_only|wiki&dated=1|0&sugg=1`, `/api/person/<id>` (+ `/hadiths?src=noor|kg`,
+`/history`, `/projects`, `/export.html`), `/api/by-ext/<kind>/<id>`, `/api/merge/preview?a=&b=`, `/api/queue`,
+`/api/revision/<id>`, `/api/suggestions`; writes (header `X-NARWIKI: 1`) `POST /api/person`, `/api/person/<id>`,
+`/api/merge`, `/api/person/<id>/split`, `/api/revision/<id>/revert`, `/api/revision/<id>/review`,
+`/api/suggestion/<id>`, `/api/by-ext/<kind>/<id>` (create a KG stub's person). The web app never creates the database:
+until it is installed every API call answers 503.
+
+**ICM side.** `narwiki.lookup` (standard library only) is what ICM imports: `available()` and
+`persons_for(["noor:12", "kg:5"]) -> {"noor:12": {"person_id", "name", "also": [other ids]}}` (read-only, follows
+merges, `{}` on any error). Wiki merges reach ICM projects only as suggestions each project accepts.
+
+**Deploy** (`deploy/`; the package is in the same `~/ebadollah/icm` checkout, so `git pull --ff-only` deploys code):
+
+1. laptop: `seed` + `similar`, then `deploy/sync-narwiki-db.sh` (preview) and `--yes`: a `VACUUM INTO` standalone copy
+   goes to `~/ebadollah/user/narwiki/wiki.sqlite` (`user/` is never deployed over); it refuses when the server already has
+   one (`--force` replaces it and loses the site's edits — export them first).
+2. server, once: `bash ~/ebadollah/icm/deploy/install_narwiki.sh`: copies `deploy/narwiki_routes.py` to `web/`, adds the
+   guarded include after the ICM block of `web/app.py` (import test, rollback), `location /narrator` after every
+   `location /icm` in the nginx conf (`nginx -t`, reload or restore), checks no existing route starts with `/narrator`,
+   restarts `ebadollah-web` and calls `/narrator/api/me`. Idempotent.
+3. backups (suggested crontab on the server; the live database exists only there once people edit it):
+   `0 3 * * * sqlite3 ~/ebadollah/user/narwiki/wiki.sqlite ".backup ~/ebadollah/user/narwiki/backup-$(date +\%u).sqlite"`
+   and `cd ~/ebadollah/icm && NARWIKI_DB=~/ebadollah/user/narwiki/wiki.sqlite ~/.venv-ebad/bin/python -m narwiki export-revisions -o ~/ebadollah/user/narwiki/revisions.json`.
+
+Tests: `python3 -m pytest tests/test_narwiki_store.py -q` (store transitions on a temporary database; the API part
+needs fastapi + httpx).
