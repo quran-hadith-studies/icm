@@ -19,8 +19,9 @@ function sci(x) {
 }
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const lz = s => sp[s].log_Z === null ? NEG : sp[s].log_Z;
-const srcName = s => s === UNK ? 'مبدأ ناشناخته (پیش از همه‌ی صحابه)' : (N[s] ? N[s].name : s);
-const nm = id => id === ROOT ? (D.heading || D.family || 'حدیث') : id === UNK || String(id).startsWith(UNK + '#') ? 'راوی بی‌نامِ میانیِ ویژه‌ی همین راوی' : (N[id] ? N[id].name : id);
+const UNK_NAME = 'مبدأ بی‌نام (بالاتر از همه‌ی راویان ثبت‌شده)';
+const srcName = s => s === UNK ? UNK_NAME : (N[s] ? N[s].name : s);
+const nm = id => id === ROOT ? (D.heading || D.family || 'حدیث') : id === UNK ? UNK_NAME : String(id).startsWith(UNK + '#') ? 'راوی بی‌نامِ میانیِ ویژه‌ی همین راوی' : (N[id] ? N[id].name : id);
 
 /* ---------- variant units: Persian names, colours, and how to find them in a text ---------- */
 const CLAUSES = {
@@ -76,7 +77,7 @@ const ks = D.kg_stats || {};
 document.getElementById('genline').textContent =
   `${fa(D.attestations.length)} شاهد (متن) · ${fa(Object.keys(N).length)} راوی · ${fa(D.variants.length)} واحد اختلاف متن · تاریخ اجرا ${fa(D.generated)}`;
 const CHIPS = [
-  ['محتمل‌ترین مبدأ', `<span class="v ar">${esc(srcName(best))}</span>`, 'راوی (یا منبعی) که بیشترین احتمال پسین را دارد که قدیمی‌ترین منبع قابل‌بازیابی همه‌ی این روایت‌ها باشد.'],
+  ['محتمل‌ترین مبدأ', `<span class="v ar">${esc(srcName(best))}</span>${best === UNK ? '<button class="lnk small" data-showtree="' + UNK + '">این یعنی چه؟</button>' : ''}`, 'راوی (یا منبعی) که بیشترین احتمال پسین را دارد که قدیمی‌ترین منبع قابل‌بازیابی همه‌ی این روایت‌ها باشد.'],
   ['احتمال پسین آن', `<span class="v num">${sci(sp[best].posterior)}</span>`, 'P(S=s | متن‌ها، سندها، رجال): احتمال مبدأ بودن، پس از دیدن همه‌ی داده‌ها و با درنظرگرفتن همه‌ی درخت‌های ممکن.'],
   ['لگاریتم عامل بیز در برابر رقیب', `<span class="v num">${fmt(lz(best) - lz(runner), 1)}</span>`, `تفاضل log Z با رقیب بعدی (${srcName(runner)}). عدد ۵ یعنی داده حدود ۱۵۰ برابر بیشتر از این گزینه پشتیبانی می‌کند؛ بیش از ۱۰ قاطع است.`],
   ['سهم محتمل‌ترین درخت', `<span class="v num">${pct(D.graph_posterior.map_mass)}</span>`, 'چه کسری از احتمال پسین (برای مبدأ برتر) روی یک درخت انتقال واحد، یعنی درخت بیشینه‌ی پسین (MAP)، متمرکز است.'],
@@ -374,8 +375,31 @@ function inspectRoot() {
     <dt>طریق‌ها</dt><dd>${heads.map(c => nodeBtn(c)).join('، ')}</dd></dl>
     <p class="help">روی هر نام در درخت کلیک کنید تا اطلاعات راوی، روی هر یال برای اطلاعات پیوند استاد و شاگرد، و روی نام کتاب (نارنجی، در انتهای هر سند) برای متن کامل حدیث.</p>`;
 }
+/* the unnamed origin is not a narrator: say what it stands for, why it can win, and what pushes it up */
+function inspectOrigin() {
+  const lines = heads.map(h => [h, ATT.filter(a => a.sanad[0] === h).length]);
+  const direct = lines.filter(([h]) => MAPG[h] === UNK), under = lines.filter(([h]) => MAPG[h] && MAPG[h] !== UNK);
+  const late = lines.filter(([h]) => cat(h) === 'anon' || cat(h) === 'name' || (year(h) ?? 0) > 150);
+  const runnerName = srcName(runner), bf = lz(UNK) - lz(runner);
+  const lst = xs => xs.map(([h, k]) => `${nodeBtn(h)} <span class="help">(${fa(k)} سند)</span>`).join('، ');
+  INS.innerHTML = `<h3 class="ar">${esc(UNK_NAME)}</h3>
+    <p>این یک راوی در درخت نیست و مدل کسی را «پیدا» نکرده است. نقطه‌ای است بالاتر از نخستین راویِ همه‌ی سندها: جایی که گوینده‌ی حدیث (مثلاً پیامبر، که در سندها نیامده) یا منبعی کهن‌تر و ثبت‌نشده می‌نشیند. معنایش این است: <b>هیچ‌یک از راویان ثبت‌شده</b> منبع مشترک همه‌ی متن‌ها نیست.</p>
+    <dl class="dl">
+      ${sp[UNK] ? `<dt>احتمال پسین</dt><dd>${sci(sp[UNK].posterior)} · <bdi dir="ltr">log Z ${fmt(lz(UNK), 1)}</bdi></dd>` : ''}
+      ${best === UNK && runner ? `<dt>در برابر رقیب</dt><dd><bdi dir="ltr">log BF ${fmt(bf, 1)}</bdi> در برابر ${esc(runnerName)}</dd>` : ''}
+      <dt>نخستین راویان سندها</dt><dd>${fa(lines.length)} نام متفاوت</dd>
+    </dl>
+    <h3>سندها از چند نفر آغاز می‌شوند؛ این یعنی چه؟</h3>
+    <p class="help">هر نخستین راوی سرِ یک «طریق» است. اگر یک راوی نام‌دار (مثلاً ${esc(runnerName)}) منبع همه باشد، باید همه‌ی طریق‌های دیگر هم در واقع از او گذشته باشند و سندشان نام او را انداخته باشد؛ مدل این افتادگی‌ها را در هر سند جریمه می‌کند. اگر مبدأ بی‌نام باشد، طریق‌ها تا بالا مستقل‌اند و هیچ سندی شکسته فرض نمی‌شود. هرچه طریق‌های مستقل بیشتر و شکستن سندها پرهزینه‌تر، این گزینه قوی‌تر.</p>
+    <p class="help">در محتمل‌ترین درخت زیر این مبدأ، ${fa(direct.length)} طریق مستقیم به آن می‌رسند${under.length ? ` و ${fa(under.length)} طریق زیر راوی دیگری قرار گرفته‌اند (مثلاً ${under.slice(0, 3).map(([h]) => `${esc(nm(h))} زیر ${esc(nm(MAPG[h]))}`).join('، ')})` : ''}.</p>
+    ${direct.length ? `<p class="help">مستقیم زیر مبدأ: ${lst(direct)}</p>` : ''}
+    <h3>آیا فقط چون یک گره‌ی اضافه بالای همه است برنده می‌شود؟</h3>
+    <p class="help">نه به خودیِ خود. درخت‌های زیر این مبدأ، درختی را هم که همه از ${esc(runnerName)} می‌گذرند در بر می‌گیرند؛ امتیاز (log Z) میانگینِ همه‌ی درخت‌هاست، نه بهترینشان، پس گزینه‌های بیشتر به خودی خود امتیاز نمی‌آورند و هر طریقی که مستقیم به این مبدأ وصل شود هزینه‌ی پیشین دارد. برتری‌اش از این است که درخت‌هایی با طریق‌های مستقل، سندهای ثبت‌شده را بهتر توضیح می‌دهند.</p>
+    ${late.length ? `<h3>احتیاط</h3><p class="help">برخی «نخستین راویان» به راوی شناخته‌شده‌ای پیوند نخورده‌اند یا متأخرند. بعضی راوی‌اند و فقط نامشان پیوند نخورده، ولی بعضی اصلاً راوی اولیه نیستند: نام مؤلفی متأخر، تکه‌ای از متن که به جای نام خوانده شده، یا «موضع إرسال» (سندی که خودِ منبع بالایش را افتاده ثبت کرده). هیچ راوی کهنی نمی‌تواند بی‌فرضِ افتادگی منبع اینها باشد، پس اینها مبدأ را به بالا می‌رانند و بخشی از قوّت این نتیجه از آن‌هاست. می‌توانید در مرحله‌ی ۴ نامشان را درست کنید: ${lst(late)}</p>` : ''}`;
+}
 function inspectNode(id) {
   if (id === ROOT) return inspectRoot();
+  if (id === UNK || !N[id]) return inspectOrigin();
   const n = N[id];
   const pp = Object.entries(n.parent_posterior || {}).sort((a, b) => b[1] - a[1]).map(([u, q]) => [esc(nm(u)), q]);
   const post = k => E[k] && E[k].posterior !== null && E[k].posterior !== undefined ? ' · ' + fmt(E[k].posterior, 2) : '';
@@ -475,7 +499,7 @@ function textsPanel() {
     <div class="clkey">${key}</div><div class="texts">${groups}</div></div></div>`;
 }
 function sourcesPanel() {
-  const rows = ranked.map(s => `<tr class="${s === best ? 'best' : ''}"><td class="ar">${esc(srcName(s))}</td>
+  const rows = ranked.map(s => `<tr class="click${s === best ? ' best' : ''}" data-showtree="${esc(s)}" title="${s === UNK ? 'این یعنی چه؟' : 'نمایش در درخت'}"><td class="ar">${esc(srcName(s))}${s === UNK ? ' <span class="help">(این یعنی چه؟)</span>' : ''}</td>
     <td class="n">${fmt(lz(s), 1)}</td><td class="n">${sci(sp[s].posterior)}</td><td class="n">${fmt(sp[s].ess, 0)}</td>
     <td>${D.credible_set_95.includes(s) ? '<span class="tag yes">در مجموعه‌ی ۹۵٪</span>' : ''}</td></tr>`).join('');
   const br = D.branch_results ? Object.entries(D.branch_results).map(([line, r]) => !r.posterior
