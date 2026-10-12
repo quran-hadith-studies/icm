@@ -13,6 +13,7 @@ import traceback
 from typing import Callable, Dict, Optional
 
 from . import STAGE_VERSIONS, align as align_mod, config, corpus, graph as graph_mod, identity, infer, project, search as search_mod
+from . import suggest as suggest_mod
 from .project import h
 
 
@@ -79,6 +80,8 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         iddec_in = dict(choices=iddec.get("choices", {}), overrides=iddec.get("overrides", {}), merges=iddec.get("merges", []))
         if iddec.get("dates"):                                    # only then, so older graphs keep their keys
             iddec_in["dates"] = iddec["dates"]
+        if iddec.get("drops"):
+            iddec_in["drops"] = iddec["drops"]
         k_graph = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
         G = _get_or_run(pid, "graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S), hashes)
         if phdec.get("confirmed") != k_graph:
@@ -111,7 +114,9 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
 def _identify(S: dict, A: dict) -> dict:
     wids = [S["seed"]["wid"]] + [w["wid"] for w in A["witnesses"] if w["wid"] != S["seed"]["wid"]]
     recs = corpus.get_many(wids)
-    return identity.build([recs[w] for w in wids if w in recs])
+    I = identity.build([recs[w] for w in wids if w in recs])
+    I["suggestions"] = suggest_mod.suggest(I)
+    return I
 
 
 def _graph(A: dict, I: dict, iddec: dict, ph: dict, S: dict) -> dict:
@@ -120,7 +125,7 @@ def _graph(A: dict, I: dict, iddec: dict, ph: dict, S: dict) -> dict:
         occ = {f"{c['aid']}|{e['i']}": e["nid"] for c in res["chains"] for e in c["elems"]}
         dates = dict(ph.get("dates", {}))
         for k, v in iddec["dates"].items():
-            nid = occ.get(k[4:]) if k.startswith("occ:") else res["same_person"].get(k, k)
+            nid = occ.get(k[4:]) if k.startswith("occ:") else res["alias"].get(k, k)
             if nid:
                 dates[nid] = v
         ph = dict(ph, dates=dates)

@@ -40,9 +40,10 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
     for ch in resolved["chains"]:
         if ch["wid"] not in X:
             continue
-        nids = [e["nid"] for e in reversed(ch["elems"])]
+        nids = [e["nid"] for e in reversed(ch["elems"]) if not e.get("dropped")]   # a dropped place is no narrator
         for e in ch["elems"]:
-            occ.setdefault(e["nid"], []).append(f"{ch['aid']}|{e['i']}")
+            if not e.get("dropped"):
+                occ.setdefault(e["nid"], []).append(f"{ch['aid']}|{e['i']}")
         if ch["aid"] in ph.get("chain_edits", {}):
             nids = list(ph["chain_edits"][ch["aid"]])
         seen, dd = set(), []
@@ -160,7 +161,7 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
     variants = [{k: u[k] for k in spec_keys} for u in alignment["units"]]
     return dict(
         name=alignment["seed"], narrators=narrators, attestations=atts, variants=variants,
-        nodes=info_out(info), flags=flags,
+        nodes=info_out(info), flags=flags, dropped=resolved.get("dropped", []),
         stats=dict(narrators=len(narrators), attestations=len(atts), witnesses=len({a["wid"] for a in atts}),
                    dated=len(narrators) - len(undated), name_only=sum(1 for n in all_nids if n.split(":")[0] in ("name", "rel", "anon")),
                    units=len(variants)))

@@ -48,6 +48,13 @@ def test_permissions_and_validation():
         assert project.decision(pid, "identities")["dates"] == dated["dates"]
         for bad in ({"x": [1, 2]}, {"noor:12": [130, 120]}, {"noor:12": ["a", 2]}, {"noor:12": [1]}):
             assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"dates": bad}}, headers=H("alice")).status_code == 400, bad
+        sug = {"merges": [["noor:4013", "kg:5739"]], "drops": ["v02:1#t|3", "v02:1#t|3"], "dismissed": ["title_match:shia:x"]}
+        assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": sug}, headers=H("alice")).status_code == 200
+        got = project.decision(pid, "identities")
+        assert got["merges"] == sug["merges"] and got["drops"] == ["v02:1#t|3"] and got["dismissed"] == sug["dismissed"]
+        for bad in ({"merges": [["noor:1", "noor:1"]]}, {"merges": [["noor:1"]]}, {"merges": [["x", "noor:1"]]},
+                    {"drops": ["nobar"]}, {"drops": [3]}, {"dismissed": "x"}):
+            assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
         assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"confirmed": "nope"}}, headers=H("alice")).status_code == 409
     finally:
         shutil.rmtree(d)

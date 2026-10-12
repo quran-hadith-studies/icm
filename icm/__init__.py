@@ -8,8 +8,8 @@ PIPELINE_VERSION = "0.1"
 STAGE_VERSIONS = {
     "search": 1,
     "align": 2,
-    "identify": 4,
-    "graph": 2,
+    "identify": 5,
+    "graph": 3,
     "narrators": 1,
     "infer": 3,
 }

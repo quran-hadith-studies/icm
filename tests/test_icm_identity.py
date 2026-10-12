@@ -74,6 +74,74 @@ def test_relatives_from_noor_chains_and_the_imams():
         identity._noor_rel, identity._noor = saved
 
 
+def test_resolve_drops_and_merges():
+    from icm import graph
+    ch = _chains()
+    cards = identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"})
+    ident = dict(chains=ch, cards=cards)
+    r = identity.resolve(ident, dict(choices={}, drops=["w:2#t|0"], merges=[["kg:3151", "noor:2607"]],
+                                     overrides={"w:1#t|0": "kg:3151"}))
+    e0 = r["chains"][1]["elems"][0]
+    assert e0["dropped"] and e0["nid"] is None and r["dropped"] == ["w:2#t|0"]
+    assert r["chains"][0]["elems"][0]["nid"] == "noor:2607"         # the merged KG id goes by its Noor id
+    assert r["alias"]["kg:3151"] == "noor:2607"
+    A = dict(witnesses=[dict(wid="w:1"), dict(wid="w:2")], X={"w:1": [0], "w:2": [1]}, units=[], seed="w:1")
+    G = graph.run(A, r) if os.path.exists(identity.config.NARRATORS_DB) else None
+    if G:
+        assert all("name:فلان" not in a["sanad"] for a in G["attestations"]) and G["dropped"] == ["w:2#t|0"]
+
+
+def _sug_ident(elems, trad="shia", source="text"):
+    ch = [dict(aid="w:1#t", wid="w:1", source=source, tradition=trad, elems=elems, speaker=None, quoted_work=None, flags=[])]
+    return dict(chains=ch, cards=identity.make_cards(ch, {"w:1": trad}), flags=[])
+
+
+def test_suggest_drops_isnad_words_and_strips_glued_ones():
+    from icm import suggest
+    saved_m, saved_t = identity.match, identity.noor_title_hits
+    aisha = dict(id="kg:4049", label="عائشة بنت أبي بكر", score=1.0, cov=1.0)
+    identity.match = lambda name, *a, **k: [dict(aisha)] if name == "عایشه" else []
+    identity.noor_title_hits = lambda name: []
+    try:
+        I = _sug_ident([_el(0, "الحاکم", [], "collector") | dict(role="collector"), _el(1, "اقول", []),
+                        _el(2, "عایشه ان رسول الله", [])], trad="sunni")
+        got = {s["kind"]: s for s in suggest.suggest(I)}
+        assert got["not_a_name"]["proposal"] == {"op": "drop"} and got["not_a_name"]["occ"] == "w:1#t|1"
+        st = got["strip_words"]
+        assert st["proposal"]["id"] == "kg:4049" and st["card"] == "sunni:عایشه ان رسول الله"
+        assert any(c["id"] == "kg:4049" and c["via"] == "strip" for c in I["cards"][st["card"]]["candidates"])
+        assert I["cards"][st["card"]]["default"] is None                  # a suggestion never becomes the default
+        assert st["id"] == "strip_words:sunni:عایشه ان رسول الله"
+    finally:
+        identity.match, identity.noor_title_hits = saved_m, saved_t
+
+
+def test_suggest_relative_depends_on_its_base():
+    from icm import suggest
+    saved = identity._noor_rel, identity._noor
+    identity._noor_rel = {(2607, "father"): {4013: 6, 9: 2}}
+    identity._noor = dict(ravis={4013: dict(name="علي بن الحسين زين العابدين ع", n=9, mazhab=None, grade=None, toks=[], alts=[]),
+                                 9: dict(name="فلان", n=1, mazhab=None, grade=None, toks=[], alts=[])}, post={})
+    saved_t = identity.noor_title_hits
+    identity.noor_title_hits = lambda name: []
+    try:
+        zayd = _el(0, "زید بن علی", [dict(id="noor:2607", label="زيد بن علي الشهيد", score=1.0, cov=0.7)])
+        I = _sug_ident([zayd, _el(1, "ابیه", [], "relative")])
+        rel = [s for s in suggest.suggest(I) if s["kind"] == "relative"]
+        assert rel[0]["proposal"]["id"] == "noor:4013" and rel[0]["depends_on"] == {"occ": "w:1#t|0", "id": "noor:2607"}
+        assert rel[0]["confidence"] == "low"                              # 6 of 8 chains: below the 0.8 share
+    finally:
+        identity._noor_rel, identity._noor = saved
+        identity.noor_title_hits = saved_t
+
+
+def test_title_index_finds_ibn_abbas():
+    if not os.path.exists(identity.config.NARRATORS_DB):
+        return
+    rid, n, share = identity.noor_title_hits("ابن عباس")[0]
+    assert rid == 3425 and n > 500 and share > 0.9
+
+
 def test_kg_gap_markers_are_unnamed_per_chain():
     from icm import config, corpus
     if not os.path.exists(config.KG_DB):

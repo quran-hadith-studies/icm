@@ -1,6 +1,6 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from icm.sanad_parse import is_anon, parse
+from icm.sanad_parse import is_anon, not_a_name, parse, strip_nonname
 
 
 def names(t):
@@ -73,6 +73,31 @@ def test_empty():
     p = parse("")
     assert p["elems"] == [] and p["speaker"] is None
 
+
+
+def test_strip_nonname():
+    assert strip_nonname("عایشه ان رسول الله") == dict(core="عایشه", stripped=["ان", "رسول", "الله"], reasons=["prophet"])
+    assert strip_nonname("سفیان الثوری باسناده")["core"] == "سفیان الثوری"
+    assert strip_nonname("علی بن الحسین یحدث")["core"] == "علی بن الحسین"
+    assert strip_nonname("علی بن الحسین انه")["core"] == "علی بن الحسین"
+    assert strip_nonname("واخبرنا")["core"] == ""
+    assert strip_nonname("محمد بن یحیی")["stripped"] == []
+
+
+def test_not_a_name():
+    for t in ("لما ثقل", "وقال رسول الله", "اقول", "الحافظ", "فقد", "کلهم", "به ایضا", "قلت ل"):
+        assert not_a_name(t), t
+    for t in ("محمد بن یحیی", "ابن عباس", "ابیه", "سلمان", "عایشه ان رسول الله"):
+        assert not not_a_name(t), t
+
+
+def test_parse_keeps_glued_words_as_one_name():
+    # suggestions (step 4) work on these names; parse() must not change, or saved choices lose their places
+    for t, n in (("عن عائشة ان رسول الله قال", "عایشه ان رسول الله"), ("عن سفيان الثوري باسناده", None),
+                 ("حدثنا اقول واخبرنا الحافظ ابو بكر", "اقول واخبرنا الحافظ ابو بکر")):
+        p = parse(t)
+        if n:
+            assert [e["name"] for e in p["elems"]] == [n], p["elems"]
 
 if __name__ == "__main__":
     fails = 0

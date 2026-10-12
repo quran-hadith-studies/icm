@@ -29,6 +29,8 @@ ANON = [norm(x) for x in _DATA["anonymous"]]
 GAPS = [norm(x) for x in _DATA["gap_markers"]]
 PROPHET = [norm(x) for x in _DATA["prophet"]]
 IMAM_KUNYA = [norm(x) for x in _DATA["imam_kunya"]]
+NON_NAME = {norm(x) for x in _DATA.get("non_name", [])}
+_PROCLITIC = {p + t for p in ("و", "ف") for t in TRANSMIT}
 
 _LEAD_NO = re.compile(r"^\s*\(?\d+\)?\s*[-–ـ.:]\s*")
 _SIGLA = re.compile(r"^\s*([^\]\[،,:]{0,30})[،,]?\s*\[([^\]]{2,60})\]\s*[،,:]?\s*")
@@ -179,3 +181,46 @@ def is_anon(name: str) -> bool:
             break
     s = " ".join(toks)
     return bool(toks) and (_starts_with(toks, ANON) or toks[0] in ("رجل", "رجال", "ذکره", "بعض") or s.startswith("عده من"))
+
+
+def strip_nonname(name: str) -> dict:
+    """What remains of a parsed name once isnad words glued to it are cut off (for step-4 suggestions only).
+
+    «عایشه ان رسول الله» -> core «عایشه», «سفیان الثوری باسناده» -> «سفیان الثوری», «علی بن الحسین یحدث» ->
+    «علی بن الحسین». Returns {core, stripped: [words], reasons: [prophet | gap | connective]}."""
+    toks = norm(name).split()
+    stripped: List[str] = []
+    reasons: List[str] = []
+    while toks and (toks[0] in _PROCLITIC or toks[0] in TRANSMIT or toks[0] in ("و", "ف", "ثم")):
+        stripped.append(toks.pop(0))
+        reasons.append("connective")
+    for i in range(len(toks)):
+        rest = toks[i:]
+        lead = 1 if rest[0] in ("ان", "انه", "قال", "عن") and len(rest) > 1 else 0
+        if i and (_starts_with(rest[lead:], PROPHET) or (rest[lead] in ("النبی", "رسول") and "الله" in rest[lead:lead + 3])):
+            stripped += rest
+            reasons.append("prophet")
+            toks = toks[:i]
+            break
+        if i and _starts_with(rest, GAPS):
+            stripped += rest
+            reasons.append("gap")
+            toks = toks[:i]
+            break
+    while toks and (toks[-1] in NON_NAME or toks[-1] in TRANSMIT or toks[-1] in ("و", "ف", "ثم")):
+        stripped.insert(0, toks.pop())
+        reasons.append("connective")
+    return dict(core=" ".join(toks), stripped=stripped, reasons=sorted(set(reasons)))
+
+
+def not_a_name(name: str) -> bool:
+    """True when a parsed "name" is isnad wording, not a person: «لما ثقل», «وقال رسول الله», «اقول», «فقد»."""
+    toks = norm(name).split()
+    if not toks:
+        return True
+    if toks[0] in ("لما", "اذا", "حین", "قال", "وقال", "فقال") or toks[0] in _PROCLITIC and len(toks) == 1:
+        return True
+    if _starts_with(toks, PROPHET) or (toks[0] in ("النبی", "رسول") and "الله" in toks[:3]):
+        return False                                       # the speaker, handled by parse()
+    words = NON_NAME | TRANSMIT | _PROCLITIC | HONORIFIC | {"و", "ف", "ثم"}
+    return all(t in words for t in toks) or not strip_nonname(name)["core"]

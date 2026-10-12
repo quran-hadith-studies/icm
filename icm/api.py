@@ -9,6 +9,7 @@ sent cross-site without a CORS pre-flight, which keeps cookie-authenticated writ
 """
 from __future__ import annotations
 
+import copy
 import hmac
 import math
 import os
@@ -24,10 +25,13 @@ from hadith_phylogeny.report import finite
 from . import config, corpus, identity, jobs, narrator_info, project, viewer
 from . import graph as graph_mod
 from . import search as search_mod
+from . import suggest as suggest_mod
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 ID_RE = re.compile(r"^(noor|kg):\d+$")
+PLACE_RE = re.compile(r"^[^|]{1,200}\|\d+$")
+_SUG: dict = {}                                    # identify outputs of older runs with their suggestions filled in
 WID_RE = re.compile(r"^(v02|kg):\d+$")
 STAGES = {"search", "align", "identify", "graph", "infer"}
 MAX_OPEN = 20          # unfinished projects per (non-admin) user
@@ -217,6 +221,15 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(404, "stage not available in this run")
         if stage == "search":
             out = search_mod.with_marks(out)
+        if stage == "identify" and "suggestions" not in out:      # runs from before step-4 suggestions
+            key = (pid, out.get("inputs_hash") or run)
+            if key not in _SUG:
+                c = copy.deepcopy(out)
+                c["suggestions"] = suggest_mod.suggest(c)
+                if len(_SUG) > 20:
+                    _SUG.clear()
+                _SUG[key] = c
+            out = _SUG[key]
         return finite(out["viz"] if stage == "viz" else out["results"] if stage == "results" else out)
 
     @r.get("/api/narrator/{nid}")
@@ -347,7 +360,16 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                     and all(isinstance(x, (int, float)) and not isinstance(x, bool) and -100 <= x <= 1500 for x in v) and v[0] <= v[1]
                     for k, v in dates.items())):
                 raise HTTPException(400, "dates must map noor:<id>, kg:<id> or occ:<place> to [lo, hi] hijri years")
-            return dict(choices=ch, overrides=ov, merges=[], dates=dates)
+            merges, drops, dismissed = pl.get("merges", []), pl.get("drops", []), pl.get("dismissed", [])
+            if not (isinstance(merges, list) and len(merges) <= 500 and all(
+                    isinstance(m, list) and len(m) == 2 and all(isinstance(x, str) and ID_RE.match(x) for x in m) and m[0] != m[1]
+                    for m in merges)):
+                raise HTTPException(400, "merges must be pairs of distinct noor:<id> / kg:<id>")
+            if not (isinstance(drops, list) and len(drops) <= 2000 and all(isinstance(x, str) and PLACE_RE.match(x) for x in drops)):
+                raise HTTPException(400, "drops must be places <aid>|<i>")
+            if not (isinstance(dismissed, list) and len(dismissed) <= 3000 and all(isinstance(x, str) and len(x) <= 300 for x in dismissed)):
+                raise HTTPException(400, "dismissed must be suggestion ids")
+            return dict(choices=ch, overrides=ov, merges=merges, drops=sorted(set(drops)), dismissed=sorted(set(dismissed)), dates=dates)
         if step == "phylogeny":
             dates = pl.get("dates", {})
             edits = pl.get("chain_edits", {})

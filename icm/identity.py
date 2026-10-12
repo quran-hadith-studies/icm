@@ -49,7 +49,7 @@ def noor_index() -> dict:
     global _noor
     if _noor is None:
         c = _nconn()
-        ravis, post = {}, defaultdict(list)
+        ravis, post, titles = {}, defaultdict(list), defaultdict(dict)
         for r in c.execute("select ravi_id, name, kunya, laqab_json, mazhab, grade, n_slots from ravi"):
             names = [r["name"]]
             if r["laqab_json"]:
@@ -69,7 +69,10 @@ def noor_index() -> dict:
         for rid, title, n in c.execute("select ravi_id, title, count(*) from slot where ravi_id is not null and title is not null "
                                        "group by ravi_id, title"):
             r = ravis.get(rid)
-            if r is None or n < max(2, 0.01 * r["n"]) or relative_word(title) or sanad_parse.is_anon(title):
+            if r is None or n < 2 or relative_word(title) or sanad_parse.is_anon(title):
+                continue
+            titles[title_key(title)][rid] = titles[title_key(title)].get(rid, 0) + n
+            if n < 0.01 * r["n"]:
                 continue
             toks = name_tokens(title)
             if toks and toks != r["toks"] and len(r["alts"]) < 30:
@@ -77,9 +80,21 @@ def noor_index() -> dict:
                 for t in set(toks):
                     if rid not in post[t]:
                         post[t].append(rid)
-        _noor = dict(ravis=ravis, post=post)
+        _noor = dict(ravis=ravis, post=post, titles=dict(titles))
         c.close()
     return _noor
+
+
+def title_key(name: str) -> str:
+    """A name exactly as written, without honorifics: the key of Noor's title index («ابن عباس» keeps «ابن»)."""
+    return " ".join(sanad_parse._strip_honorific(norm(name or "").split())[0])
+
+
+def noor_title_hits(name: str) -> List[Tuple[int, int, float]]:
+    """[(ravi_id, n, share)] of the narrators Noor's linked isnads write exactly this name for, most often first."""
+    got = noor_index().get("titles", {}).get(title_key(name), {})
+    tot = sum(got.values())
+    return [(rid, n, n / tot) for rid, n in sorted(got.items(), key=lambda x: -x[1])]
 
 
 # ---------------------------------------------------------------------------
@@ -345,16 +360,20 @@ def attach_candidates(chains: List[dict], tradition_of: Dict[str, str]) -> None:
             elif e["kind"] == "relative":
                 e["cands"] = []                             # derived from the narrator before it (_derive_relatives)
             else:
-                cs = []
-                death = e.get("death")
-                if trad == "sunni":
-                    cs = kg_candidates(e["name"], death) + (noor_candidates(e["name"], e["imam_hint"], 4) if e["imam_hint"] else [])
-                else:
-                    cs = noor_candidates(e["name"], e["imam_hint"]) + (kg_candidates(e["name"], death, 3) if e["kind"] == "collector" else [])
-                cs.sort(key=lambda d: -d["score"])
-                e["cands"] = cs[:10]
+                e["cands"] = match(e["name"], trad, e["imam_hint"], e.get("death"), e["kind"] == "collector")
         _derive_relatives(ch)
         _add_context(ch)
+
+
+def match(name: str, trad: str, imam_hint: bool = False, death=None, collector: bool = False) -> List[dict]:
+    """Candidate persons for a name in a chain of this tradition: the KG for Sunni chains (Noor too for an Imam),
+    Noor for Shia chains (the KG too for a collector)."""
+    if trad == "sunni":
+        cs = kg_candidates(name, death) + (noor_candidates(name, imam_hint, 4) if imam_hint else [])
+    else:
+        cs = noor_candidates(name, imam_hint) + (kg_candidates(name, death, 3) if collector else [])
+    cs.sort(key=lambda d: -d["score"])
+    return cs[:10]
 
 
 _NOOR_OF_KEY = {k: f"noor:{v['ravi_id']}" for k, v in _IMAMS.items() if v.get("ravi_id")}
@@ -532,6 +551,8 @@ def build(wits: Sequence[dict]) -> dict:
             if not e["exact"] and e["kind"] == "name" and relative_word(e["name"]):
                 e["kind"], e["name"] = "relative", relative_word(e["name"])
     attach_candidates(chains, trad)
+    for ch in chains:
+        ch["tradition"] = trad.get(ch["wid"]) or ("sunni" if ch["source"] == "kg" else "shia")
     cards = make_cards(chains, trad)
     n_exact = sum(1 for ch in chains for e in ch["elems"] if e["exact"])
     n_el = sum(len(ch["elems"]) for ch in chains)
@@ -559,11 +580,15 @@ def _same_person(ids: Iterable[str]) -> Dict[str, str]:
 def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
     """Apply the user's choices. Returns chains of node ids plus the node table.
 
-    decisions = {choices: {card_key: "noor:12" | "kg:7" | "none"}, merges: [[nid, nid]], overrides: {"aid|i": nid}}
+    decisions = {choices: {card_key: "noor:12" | "kg:7" | "none"}, merges: [[nid, nid]], overrides: {"aid|i": nid},
+                 drops: ["aid|i"]}
     A card without a choice takes its default (a ``high`` candidate), else becomes a name-only node
-    and is listed in ``undecided``."""
+    and is listed in ``undecided``. A dropped place is no narrator (isnad wording read as a name): it stays in
+    the chain with ``dropped`` and no node. Merged ids are one person, named by the Noor id when there is one."""
     d = decisions or {}
     choices, overrides = d.get("choices", {}), d.get("overrides", {})
+    drops = set(d.get("drops", []))
+    canon = _union(d.get("merges", []))
     cards = ident["cards"]
     nodes: Dict[str, dict] = {}
     chains_out = []
@@ -576,6 +601,9 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
         for e in ch["elems"]:
             occ = f"{ch['aid']}|{e['i']}"
             tier = None
+            if occ in drops:
+                out.append(dict(i=e["i"], nid=None, tier="dropped", name=e["name"], collector=e.get("role") == "collector", dropped=True))
+                continue
             if occ in overrides:
                 v = overrides[occ]
                 nid, tier = (None, "name") if v in (None, "none") else (v, "chosen")
@@ -600,6 +628,7 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
                 nid = (f"rel:{ch['aid']}:{e['i']}" if e["kind"] == "relative"
                        else f"name:{' '.join(norm(e['name']).split())}")
             nid = same.get(nid, nid)
+            nid = canon.get(nid, nid)
             node = nodes.setdefault(nid, dict(id=nid, names=[], tiers=set(), n=0))
             if e["name"] not in node["names"]:
                 node["names"].append(e["name"])
@@ -610,6 +639,30 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
                                quoted_work=ch["quoted_work"], flags=ch["flags"]))
     for n in nodes.values():
         n["tiers"] = sorted(n["tiers"])
-    for a, b in d.get("merges", []):
-        pass                                        # merges are applied by the graph stage (node renaming)
-    return dict(chains=chains_out, nodes=nodes, undecided=sorted(undecided), same_person=same)
+    alias = dict(same)
+    alias.update({a: canon.get(b, b) for a, b in same.items()})
+    alias.update(canon)
+    return dict(chains=chains_out, nodes=nodes, undecided=sorted(undecided), same_person=same, alias=alias,
+                dropped=sorted(drops & {f"{ch['aid']}|{e['i']}" for ch in ident["chains"] for e in ch["elems"]}))
+
+
+def _union(pairs) -> Dict[str, str]:
+    """id -> the id its group is known by (the Noor id if any, else the smallest) for the user's merges."""
+    up: Dict[str, str] = {}
+
+    def find(x):
+        while up.setdefault(x, x) != x:
+            x = up[x]
+        return x
+    for a, b in pairs:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            up[ra] = rb
+    groups: Dict[str, List[str]] = defaultdict(list)
+    for x in list(up):
+        groups[find(x)].append(x)
+    out = {}
+    for g in groups.values():
+        name = min(g, key=lambda x: (not x.startswith("noor:"), x))
+        out.update({x: name for x in g if x != name})
+    return out
