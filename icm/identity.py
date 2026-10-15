@@ -6,6 +6,10 @@ For each selected witness the chains are assembled (collector first, as recorded
               between slots re-parsed so that narrators Noor folded into a connective
               («عن أبيه ع عن علي بن الحسين ع») reappear as elements
   kg          the Hadith Knowledge Graph's chains (narrator ids)
+  hadithai    hadith.ai v2's narrator tags of the isnad (``icm.hadithai``; Noor books without parsed
+              slots, sunnah.com), each name classified by the isnad grammar; the author as collector.
+              A name whose neighbours always go with one Noor narrator in Noor's linked isnads gets him
+              as a candidate (``hai``, ``hadithai.sqlite`` mention suggestions; a suggestion, never exact)
   text        everything else: ``sanad_parse.parse`` of the recorded isnad text; the work's
               author is added as the collector
 
@@ -24,7 +28,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from narrators.common import STOP, bare, name_tokens
-from . import config, corpus, sanad_parse
+from . import config, corpus, hadithai, sanad_parse
 from .text import norm
 
 _IMAMS = json.load(open(config.HERE + "/narrators/data/imam_reigns.json", encoding="utf-8"))["imams"]
@@ -328,7 +332,31 @@ def text_chain(rec: dict) -> Optional[dict]:
                 quoted_work=p["quoted_work"], flags=flags)
 
 
+def hadithai_chain(rec: dict) -> Optional[dict]:
+    """The isnad as hadith.ai v2 tagged it (``icm.hadithai``): its narrator names, classified by the isnad grammar."""
+    got = hadithai.chain_elems(rec["hid"])
+    if not got:
+        return None
+    tagged, speaker = got
+    elems = []
+    if rec.get("author"):
+        a = rec["author"]
+        if "،" in a:                                   # "family، given" -> "given family"
+            a = " ".join(reversed([x.strip() for x in a.split("،")]))
+        elems.append(_elem(0, a, None, kind="collector", raw=rec["author"], role="collector", death=rec.get("death")))
+    for e in tagged:
+        kw = dict(hai=e["hai"]) if e.get("hai") else {}
+        elems.append(_elem(len(elems), e["name"], e["term"], e["kind"], imam_hint=e.get("honorific", False), raw=e["raw"],
+                           alts=e.get("alts"), **kw))
+    if speaker and speaker.get("elem") is not None:
+        speaker = dict(speaker, elem=speaker["elem"] + (1 if rec.get("author") else 0))
+    flags = [] if len(elems) >= 2 or speaker else ["no_sanad"]
+    return dict(aid=f"{rec['wid']}#t", wid=rec["wid"], source="hadithai", elems=elems, speaker=speaker,
+                quoted_work=None, flags=flags)
+
+
 def chains_for(rec: dict) -> List[dict]:
+    """Noor's linked isnads, then the KG's, then hadith.ai's narrator tags, then the rule-based parse of the text."""
     if rec["corpus"] == "kg":
         ch = kg_chains(rec)
         if ch:
@@ -337,6 +365,10 @@ def chains_for(rec: dict) -> List[dict]:
         ch = noor_chains(rec)
         if ch:
             return ch
+    if rec["corpus"] == "v02":
+        h = hadithai_chain(rec)
+        if h:
+            return [h]
     t = text_chain(rec)
     return [t] if t else []
 
@@ -362,7 +394,42 @@ def attach_candidates(chains: List[dict], tradition_of: Dict[str, str]) -> None:
             else:
                 e["cands"] = match(e["name"], trad, e["imam_hint"], e.get("death"), e["kind"] == "collector")
         _derive_relatives(ch)
+        for e in ch["elems"]:
+            _hai_candidate(e)
         _add_context(ch)
+
+
+HAI_FA = {"ctx3": "با همان راوی پیش و پس از آن", "ctx_prev": "با همان راوی پیش از آن", "ctx_next": "با همان راوی پس از آن"}
+
+
+def _hai_candidate(e: dict) -> None:
+    """The Noor narrator a hadith.ai mention is tied to (``e['hai']``): Noor's own slot of the same record is
+    exact; a context suggestion (``icm.build.hadithai``: the name with the same neighbours is this person in
+    every one of at least 2-3 linked Noor isnads) is put first among the candidates, never made exact."""
+    m = e.get("hai")
+    if not m or e.get("exact"):
+        return
+    idx = noor_index()["ravis"]
+    if m.get("link") == "noor_slot" and m.get("ravi_id") in idx:
+        e["exact"] = f"noor:{m['ravi_id']}"
+        e["cands"] = [dict(id=e["exact"], label=idx[m["ravi_id"]]["name"], score=9.0, cov=1.0, exact=True)]
+        return
+    rid = m.get("sugg_ravi")
+    if rid not in idx:
+        return
+    cid, r = f"noor:{rid}", idx[rid]
+    reason = f"«{e['raw'] or e['name']}» {HAI_FA.get(m['sugg'], '')} در {m['sugg_n']} سند پیوندخورده‌ی نور همیشه همین راوی است"
+    top = max((c["score"] for c in e["cands"] if c["id"] != cid), default=0.0)
+    c = next((c for c in e["cands"] if c["id"] == cid), None)
+    if c is None:
+        c = dict(id=cid, label=r["name"], cov=round(max([_cov(name_tokens(e["name"]), r["toks"])] + [_cov(name_tokens(e["name"]), a) for a in r["alts"]]), 3),
+                 n=r["n"], mazhab=r["mazhab"], grade=r["grade"], score=0.0)
+        e["cands"].append(c)
+    c["reason"] = (c["reason"] + "؛ " + reason) if c.get("reason") else reason
+    if any(x.get("derived") and x["id"] != cid for x in e["cands"]):
+        return                                         # a relative already derived from a certain narrator stays first
+    c.update(hai=m["sugg"], hai_n=m["sugg_n"], score=round(max(c["score"], top + 0.2), 3))
+    e["cands"].sort(key=lambda d: -d["score"])
 
 
 def match(name: str, trad: str, imam_hint: bool = False, death=None, collector: bool = False) -> List[dict]:
@@ -480,6 +547,10 @@ def _add_context(ch: dict) -> None:
 def tier(c: dict, nxt: Optional[dict], first: bool) -> str:
     if c.get("exact"):
         return "exact"
+    if c.get("hai"):                                   # measured leave-book-out: 99.7% (ctx3), 99.2% (one neighbour)
+        t = "high" if first and c["hai"] == "ctx3" else "medium"
+        own = tier(dict(c, hai=None), nxt, first)      # the name and Noor-context evidence may say more on its own
+        return own if _TIER_RANK.get(own, 0) > _TIER_RANK[t] else t
     cov, ctx = c.get("cov", 0), c.get("ctx", 0)
     margin = (c["score"] - nxt["score"]) if nxt else 1.0
     if first and cov >= 0.88 and ctx >= 1 and margin >= 0.15:

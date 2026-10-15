@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Upload the ICM data files (narrator database, KG extract, term frequencies, Noor relations) to the server.
+# Upload the ICM data files (narrator database, KG extract, term frequencies, Noor relations, hadith.ai segments) to the server.
 # They are databases, so deploy.sh never ships them. Resumable (rsync --partial --inplace).
 #
 #   ./deploy/sync-icm-data.sh          # preview
 #   ./deploy/sync-icm-data.sh --yes    # upload
 #
 # Source: analysis/external/icm/ of the quran-hadith-studies/icm checkout; build it with
-#   python3 -m icm build all          (kg.sqlite, termdf.sqlite, noor_relations.sqlite, books_meta.json)
+#   python3 -m icm build all          (kg.sqlite, termdf.sqlite, noor_relations.sqlite, books_meta.json, hadithai.sqlite)
 # narrators.sqlite there is a standalone copy:  VACUUM INTO 'external/icm/narrators.sqlite'  (no WAL files).
 set -euo pipefail
 HOST="${EBAD_DEPLOY_HOST:-ubuntu@132.145.99.75}"
 DEST="${EBAD_DEPLOY_DEST:-ebadollah}"
 SRC="${ICM_DATA_SRC:-$HOME/Downloads/hadith-project/analysis/external/icm}"
-FILES=(narrators.sqlite kg.sqlite noor_relations.sqlite termdf.sqlite books_meta.json)
+FILES=(narrators.sqlite kg.sqlite noor_relations.sqlite termdf.sqlite books_meta.json hadithai.sqlite)
 for f in "${FILES[@]}"; do [ -f "$SRC/$f" ] || { echo "missing $SRC/$f" >&2; exit 2; }; done
 FLAGS=(-ah --partial --inplace --progress)
 [ "${1:-}" = "--yes" ] || FLAGS+=(--dry-run)

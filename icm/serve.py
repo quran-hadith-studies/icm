@@ -3,7 +3,9 @@
 Stage files stay exactly as computed. What newer pages need from older runs is added here when a stage is
 served, never written back:
 
-* search: the clause marks of every text (``search.with_marks``);
+* search: the clause marks of every text (``search.with_marks``), and the automatic parts for runs from before
+  the user could cut the seed;
+* align: every part's ``key`` (``align.part_keys``) for runs from before the user could correct the parts;
 * identify: step-4 suggestions for runs from before them, and ``node_name`` on every place (merge/split);
 * viz: the maximum paths (``paths.max_paths``, the marginal estimate) for runs from before them.
 """
@@ -12,10 +14,10 @@ from __future__ import annotations
 import copy
 from typing import Dict, Optional
 
-from . import corpus, identity, paths, project
+from . import align as align_mod, corpus, identity, paths, project
 from . import search as search_mod
 from . import suggest as suggest_mod
-from .text import strip_tags
+from .text import strip_tags, token_offsets, tokens
 
 STAGES = {"search", "align", "identify", "graph", "infer"}
 _CACHE: Dict[tuple, dict] = {}
@@ -37,7 +39,13 @@ def stage(pid: str, run: str, name: str) -> Optional[dict]:
         return None
     key = (pid, name, out.get("inputs_hash") or run)
     if name == "search":
+        if "auto_clauses" not in out:                          # every earlier search cut the seed automatically
+            out = dict(out, auto_clauses=[c["span"] for c in out["clauses"]], clauses_by="auto")
         return search_mod.with_marks(out)
+    if name == "align" and out["clauses"] and "key" not in out["clauses"][0]:
+        for c, k in zip(out["clauses"], align_mod.part_keys(out["clauses"])):
+            c["key"] = k
+        return out
     if name == "identify":
         def make():
             c = copy.deepcopy(out)
@@ -55,6 +63,26 @@ def stage(pid: str, run: str, name: str) -> Optional[dict]:
     if name == "results":
         return out["results"]
     return out
+
+
+def words(pid: str, run: str, wid: str) -> Optional[dict]:
+    """A text of the run as the segmentation editors need it: ``tokens`` (the ones slots count in), the character
+    range of each in ``matn``, and ``window`` (the tokens the aligner was given) for a candidate."""
+    S = project.run_stage(pid, run, "search")
+    if S is None:
+        return None
+    if wid == S["seed"]["wid"]:
+        x, tk, win = S["seed"], S["tokens"], None
+    else:
+        x = next((c for c in S["candidates"] if c["wid"] == wid or wid in c.get("copies", [])), None)
+        if x is None:
+            return None
+        tk, win = None, x.get("window")
+    matn = strip_tags(x["matn"])
+    tk = tk if tk is not None else tokens(matn)
+    offs = token_offsets(matn)
+    return dict(wid=x["wid"], matn=matn, tokens=tk, offsets=[list(o) for o in offs[:len(tk)]],
+                window=win or [0, len(tk)], truncated=len(x["matn"]) < (x.get("matn_len") or len(x["matn"])))
 
 
 def hadith(wid: str) -> Optional[dict]:

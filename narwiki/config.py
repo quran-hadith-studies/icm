@@ -22,7 +22,7 @@ OPEN = os.environ.get("NARWIKI_OPEN", "1") != "0"
 ICM_CACHE_DIR = os.environ.get("ICM_CACHE_DIR", os.path.join(PROJECT, "icm-cache"))
 
 # external id kinds the UI knows by name; any other kind is shown as is
-KINDS = {"noor": "نور (جامع الاحادیث)", "kg": "گراف دانش", "wiki": "ویکی"}
+KINDS = {"noor": "نور (جامع الاحادیث)", "kg": "گراف دانش", "dirayah": "درایة النور", "wiki": "ویکی"}
 NOOR_OFFSET = 800_000_000          # Noor hadith ids inside v02 / the public /h/i/<id> pages
 
 
@@ -30,6 +30,20 @@ def narrators_db() -> str:
     """Noor-side narrator database (ICM's config.NARRATORS_DB)."""
     from icm import config as icm_config
     return icm_config.NARRATORS_DB
+
+
+def hadithai_db() -> str:
+    """hadith.ai v2's segmentation and narrator mentions (ICM's config.HADITHAI_DB)."""
+    from icm import config as icm_config
+    return icm_config.HADITHAI_DB
+
+
+def dirayah_db() -> str:
+    """Dirayat al-Noor 3 with its links to Noor (``python3 -m narrators dirayah``); ``NARWIKI_DIRAYAH_DB`` overrides."""
+    if os.environ.get("NARWIKI_DIRAYAH_DB"):
+        return os.environ["NARWIKI_DIRAYAH_DB"]
+    from narrators import dirayah
+    return dirayah.OUT
 
 
 def kg_db() -> str:

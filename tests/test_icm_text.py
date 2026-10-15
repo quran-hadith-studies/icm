@@ -82,6 +82,18 @@ def test_marks_point_at_the_raw_words():
     assert all(a < b for a, b, _ in m) and all(m[i][1] <= m[i + 1][0] for i in range(len(m) - 1))
 
 
+def test_union_cuts_keeps_both_boundaries():
+    from icm.text import union_cuts
+    tk, rules = clauses(SEED)
+    # a coarse semantic cut (one part for the opening, one for all the list) and a cut the rules lack
+    first = tk.index("مجاب") + 1
+    coarse = [(0, first), (first, len(tk))]
+    got = [" ".join(tk[a:b]) for a, b in union_cuts(tk, rules, coarse)]
+    assert got[0].endswith("مجاب") and got[1].startswith("الزاید"), got
+    assert set(" ".join(tk[a:b]) for a, b in rules[1:]) <= set(got), (got, rules)        # every rule boundary kept
+    assert all(len(p.split()) >= 2 for p in got) and "و" not in got
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

@@ -80,6 +80,51 @@ def test_slot_keeps_edge_words_and_drops_formula():
     assert {g["columns"][j].get(w) for w in ("t:1", "t:3")} == {"سبعه", "خمسه"}
 
 
+def test_user_parts_slots_extras_and_drops():
+    """The user's corrections (the ``parts`` decision) replace the automatic slots and extra parts."""
+    w = [
+        SEED,
+        "ستة لعنتهم، المكذب بقدر الله، والزائد في كتاب الله، والتارك لسنتي، والمستأثر بالفيء لنفسه، والمستحل من عترتي ما حرم الله",
+        "ستة لعنتهم، المكذب بقدر الله، والتارك لسنتي، والمستأثر بالفيء لنفسه، والمستحل من عترتي ما حرم الله",
+        "ستة لعنتهم المكذب بقدر الله والزائد في كتاب الله وساق الحديث",
+    ]
+    S = _search(SEED, w)
+    sel = [f"t:{i}" for i in range(len(w))]
+    auto = align.run(S, sel)
+    keys = [c["key"] for c in auto["clauses"]]
+    assert all(k.startswith("s:") for k in keys[:len(S["clauses"])]) and len(set(keys)) == len(keys), keys
+    extra = [c for c in auto["clauses"] if c["kind"] == "extra"]
+    assert extra and "المستاثر" in extra[0]["text"], auto["clauses"]
+    # drop the automatic extra part, add one cut from a witness, and set slots
+    k_tarik = next(c["key"] for c in auto["clauses"] if "التارک" in c["text"])
+    t1 = tokens(w[1])
+    a = t1.index("والمستاثر")
+    parts = dict(extras_dropped=[extra[0]["key"]], extras_added=[dict(wid="t:1", span=[a, a + 1])],
+                 slots={k_tarik: {"t:1": "absent", "t:3": "absent"}})
+    r = align.run(S, sel, parts)
+    ex = [c for c in r["clauses"] if c["kind"] == "extra"]
+    assert len(ex) == 1 and ex[0]["by"] == "user" and ex[0]["text"] == "والمستاثر", ex
+    ci = ex[0]["i"]
+    assert r["segments"][f"{ci}|t:1"]["user"] and r["segments"][f"{ci}|t:1"]["tokens"] == ["والمستاثر"]
+    ti = next(c["i"] for c in r["clauses"] if c["key"] == k_tarik)
+    assert r["segments"][f"{ti}|t:1"]["state"] == "absent" and r["segments"][f"{ti}|t:1"]["user"]
+    pres = [u for u in r["units"] if u["unit_kind"] == "clause" and u["clause"] == ti]
+    assert pres, [u["name"] for u in r["units"]]
+    # an abridged witness the user says lacks the part is absent (0), not unknown
+    assert pres[0]["states"]["t:3"] == 0 and pres[0]["states"]["t:1"] == 0, pres[0]["states"]
+    # a slot given by hand: the tokens of the stored text, in window coordinates
+    k_mukadh = next(c["key"] for c in r["clauses"] if "المکذب" in c["text"])
+    t2 = tokens(w[2])
+    b = t2.index("المکذب")
+    r2 = align.run(S, sel, dict(slots={k_mukadh: {"t:2": [b, b + 2]}}))
+    mi = next(c["i"] for c in r2["clauses"] if c["key"] == k_mukadh)
+    sg = r2["segments"][f"{mi}|t:2"]
+    assert sg["tokens"] == t2[b:b + 2] and sg["span"] == [b, b + 2] and sg["state"] == "present" and sg["user"], sg
+    # corrections for parts or witnesses not in the alignment are reported, not applied
+    r3 = align.run(S, sel, dict(slots={"s:نیست": {"t:1": "absent"}}))
+    assert any(f["kind"] == "part_unused" for f in r3["flags"])
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

@@ -132,6 +132,38 @@ def clauses(raw: str, min_tokens: int = 2, max_tokens: int = 12) -> Tuple[List[s
     return toks, spans
 
 
+def union_cuts(toks: Sequence[str], a_spans, b_spans, min_tokens: int = 2) -> List[Tuple[int, int]]:
+    """Parts cut at every boundary of either segmentation (finished as ``clauses`` finishes its own: a bare
+    conjunction is in no part, a piece shorter than ``min_tokens`` joins its neighbour)."""
+    n = len(toks)
+    covered = [False] * n
+    for x, y in list(a_spans) + list(b_spans):
+        for i in range(max(x, 0), min(y, n)):
+            covered[i] = True
+    cuts = sorted({c for x, y in list(a_spans) + list(b_spans) for c in (x, y)} | {0, n})
+    pieces: List[List[int]] = []
+    for x, y in zip(cuts, cuts[1:]):
+        idx = [i for i in range(x, y) if covered[i]]
+        if not idx:
+            continue
+        x, y = idx[0], idx[-1] + 1
+        if y - x == 1 and toks[x] in ("و", "ف"):
+            continue
+        pieces.append([x, y])
+    merged: List[List[int]] = []
+    for x, y in pieces:
+        if merged and (merged[-1][1] - merged[-1][0] < min_tokens or y - x < min_tokens) and merged[-1][1] == x:
+            merged[-1][1] = y
+        else:
+            merged.append([x, y])
+    out = []
+    for x, y in merged:
+        if toks[x] in ("و", "ف") and y - x > 2:
+            x += 1
+        out.append((x, y))
+    return out
+
+
 def _split_long(toks: Sequence[str], a: int, b: int, max_tokens: int) -> List[List[int]]:
     if b - a <= max_tokens:
         return [[a, b]]

@@ -20,6 +20,7 @@ KG_DB = os.environ.get("ICM_KG_DB", os.path.join(DATA_DIR, "kg.sqlite"))
 TERMDF_DB = os.environ.get("ICM_TERMDF_DB", os.path.join(DATA_DIR, "termdf.sqlite"))
 NOOR_REL_DB = os.environ.get("ICM_NOOR_REL_DB", os.path.join(DATA_DIR, "noor_relations.sqlite"))
 BOOKS_META = os.environ.get("ICM_BOOKS_META", os.path.join(DATA_DIR, "books_meta.json"))
+HADITHAI_DB = os.environ.get("ICM_HADITHAI_DB", os.path.join(DATA_DIR, "hadithai.sqlite"))   # hadith.ai v2 segments + narrator tags
 NARRATORS_DB = os.environ.get("ICM_NARRATORS_DB", os.path.join(HERE, "external", "narrators.sqlite"))
 HUB_BOOKS = os.environ.get("ICM_HUB_BOOKS", os.path.join(PROJECT, "hadith-hub", "books"))
 JOBS_DB = os.environ.get("ICM_JOBS_DB", os.path.join(DATA_DIR, "icm_jobs.sqlite"))
@@ -40,4 +41,4 @@ def preset_for(n_nodes: int) -> str:
     return "thorough" if n_nodes <= 60 else "standard" if n_nodes <= 150 else "quick"
 
 # bump when the corpus files change in a way that should invalidate cached searches
-DATA_VERSION = "2026-10-11"
+DATA_VERSION = "2026-10-14"      # v02 with the hadith.ai v2 corpus (Noor replaced, Dorar and sunnah.com added); hadithai.sqlite with narrator mentions

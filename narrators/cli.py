@@ -1,6 +1,6 @@
 """python3 -m narrators <stage> [--db PATH] [stage options]
 
-Stages: noor, rijal, wikishia, thaqalayn, link, facts, sunni, export, eval.
+Stages: noor, rijal, wikishia, thaqalayn, link, facts, sunni, dirayah, export, eval.
 """
 from __future__ import annotations
 
@@ -51,10 +51,17 @@ def main(argv=None):
     p = sub.add_parser("sunni", help="stage 3e: link to hadith-kg / hawramani / muslimscholars / AR-Sanad")
     p.add_argument("--min-slots", type=int, default=20)
 
+    p = sub.add_parser("dirayah", help="stage 3f: Dirayat al-Noor 3 export → external/dirayah.sqlite, linked to Noor")
+    p.add_argument("--export", help="the export directory of hadith-hub/dirayah3/export.py")
+    p.add_argument("--out", help="output database (default external/dirayah.sqlite)")
+
     sub.add_parser("eval", help="evaluation protocol (prints the report)")
 
     args = ap.parse_args(argv)
-    if args.stage == "sunni":
+    if args.stage == "dirayah":
+        from . import dirayah
+        dirayah.run(args.db, export=args.export or dirayah.EXPORT, out=args.out or dirayah.OUT)
+    elif args.stage == "sunni":
         from .link_sunni import run
         run(args.db, min_slots=args.min_slots)
     elif args.stage == "eval":

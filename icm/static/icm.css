@@ -169,3 +169,22 @@ details.fullt .fulltext{border:1px solid var(--line);border-radius:8px;padding:6
 .mlist{display:flex;flex-wrap:wrap;gap:4px;max-height:180px;overflow:auto;margin:4px 0}
 .mcand{text-align:start}.mchip{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:0 4px 0 10px;margin:2px}
 details.splitd{margin:8px 0}details.splitd>summary{cursor:pointer;color:var(--accent)}
+
+/* the parts (فرازبندی): the seed's editor (steps 1-2), the word picker and the part review (step 3) */
+.partsbox{border-top:1px dashed var(--line);margin-top:8px;padding-top:2px}
+.pedit{line-height:2.5;font-size:18px;margin:6px 0}
+.pedit .tok{font:inherit;color:var(--arabic);border:0;border-radius:4px;padding:0 3px;margin:0;cursor:pointer;background:hsl(var(--h) var(--hl-s) var(--hl-l))}
+.pedit .tok.out{background:none;color:var(--muted);text-decoration:line-through}
+.pedit .tok:hover{outline:2px solid var(--accent)}
+.pedit .cut{font:inherit;font-size:17px;border:0;background:none;padding:0 2px;margin:0;color:var(--line);cursor:pointer}
+.pedit .cut:hover{color:var(--accent)}.pedit .cut.on{color:var(--fg);font-weight:700}
+.pedit .pnum{margin-inline-end:3px;font-size:11px;vertical-align:super}
+.pedit.pick .tok.out{text-decoration:none;color:var(--arabic)}
+.pedit.pick .tok.oth{background:none;box-shadow:inset 0 -3px 0 hsl(var(--h) var(--k-s) var(--k-l))}
+.pedit.pick .tok.sel{background:hsl(var(--h) var(--k-s) var(--hd-l));font-weight:700}
+.pedit.pick .tok.anc{outline:2px solid var(--accent)}
+.pedit.pick{max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+table.parts td{vertical-align:middle}
+table.prow td.nm{cursor:pointer;max-width:220px}table.prow tr.on{background:var(--accent-soft)}
+.altab td.usr{box-shadow:inset 0 -3px 0 var(--accent)}
+.chip.user{background:var(--accent)}

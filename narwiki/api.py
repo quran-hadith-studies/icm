@@ -9,7 +9,11 @@ admin. Writes must carry the header ``X-NARWIKI: 1`` (a custom header cannot be 
 pre-flight, which keeps cookie-authenticated writes safe from CSRF).
 
 Every write applies at once and is recorded as an unreviewed revision (``store``); the queue page is the
-review. Hadith occurrences are read live from narrators.sqlite (``slot``) and kg.sqlite (``sanad_rawis``).
+review. Hadith occurrences are read live from narrators.sqlite (``slot``) and kg.sqlite (``sanad_rawis``);
+hadith.ai's narrator mentions from hadithai.sqlite (``mention``, ``icm/build/hadithai.py``). hadith.ai has no
+narrator identities, so its mentions never become persons or merges: a mention is shown under a Noor narrator
+only as a *suggestion* (the same name with the same neighbours is that narrator in every linked Noor isnad);
+the mentions Noor's own slots confirm are only counted, since they are the Noor occurrences already listed.
 """
 from __future__ import annotations
 
@@ -61,7 +65,7 @@ def _open(path: str) -> sqlite3.Connection:
 
 
 def _src(kind: str) -> sqlite3.Connection:
-    path = config.narrators_db() if kind == "noor" else config.kg_db()
+    path = config.narrators_db() if kind == "noor" else config.hadithai_db() if kind == "hadithai" else config.kg_db()
     c = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True, check_same_thread=False)
     c.row_factory = sqlite3.Row
     return c
@@ -104,12 +108,18 @@ def icm_projects(ext: List[str]) -> List[dict]:
 def hadith_counts(ext: List[str]) -> dict:
     noor = [int(x.split(":")[1]) for x in ext if x.startswith("noor:") and x.split(":")[1].isdigit()]
     kg = [int(x.split(":")[1]) for x in ext if x.startswith("kg:") and x.split(":")[1].isdigit()]
-    out = dict(noor=0, kg=0)
+    out = dict(noor=0, kg=0, hadithai=0, hadithai_confirmed=0)
     try:
         if noor:
             c = _src("noor")
             out["noor"] = c.execute("select count(*) from slot where ravi_id in (%s)" % ",".join("?" * len(noor)), noor).fetchone()[0]
             c.close()
+            if os.path.exists(config.hadithai_db()):
+                c = _src("hadithai")
+                q = ",".join("?" * len(noor))
+                out["hadithai"] = c.execute(f"select count(*) from mention where sugg_ravi in ({q})", noor).fetchone()[0]
+                out["hadithai_confirmed"] = c.execute(f"select count(*) from mention where ravi_id in ({q})", noor).fetchone()[0]
+                c.close()
         if kg:
             c = _src("kg")
             out["kg"] = c.execute("select count(*) from sanad_rawis where rawi_id in (%s)" % ",".join("?" * len(kg)), kg).fetchone()[0]
@@ -117,6 +127,19 @@ def hadith_counts(ext: List[str]) -> dict:
     except sqlite3.Error:
         pass
     return out
+
+
+def hai_stats() -> dict:
+    """hadithai.sqlite's mention counts (``meta``), or {} without the file."""
+    if not os.path.exists(config.hadithai_db()):
+        return {}
+    c = _src("hadithai")
+    try:
+        return {k: int(v) for k, v in c.execute("select k, v from meta where k like 'mentions%' or k='speakers'")}
+    except (sqlite3.Error, ValueError):
+        return {}
+    finally:
+        c.close()
 
 
 def person_full(c, pid: int) -> dict:
@@ -149,7 +172,46 @@ def person_full(c, pid: int) -> dict:
                 n_revisions=c.execute("select count(*) from revision where person_id=? or related_person=?", (p["id"], p["id"])).fetchone()[0])
 
 
+def hai_mentions(ids: List[int], offset: int, limit: int) -> dict:
+    """hadith.ai mentions suggested for these Noor narrators, each with its record's whole tagged chain."""
+    if not ids or not os.path.exists(config.hadithai_db()):
+        return dict(total=0, items=[])
+    q = ",".join("?" * len(ids))
+    c = _src("hadithai")
+    n = _src("noor")
+    names: Dict[int, Optional[str]] = {}
+
+    def name(rid):
+        if rid not in names:
+            r = n.execute("select name from ravi where ravi_id=?", (rid,)).fetchone()
+            names[rid] = r[0] if r else None
+        return names[rid]
+    try:
+        total = c.execute(f"select count(*) from mention where sugg_ravi in ({q})", ids).fetchone()[0]
+        rows = c.execute(f"select m.hid, m.i, m.sugg_ravi, m.sugg, m.sugg_n, b.title from mention m join hadith h on h.hid=m.hid "
+                         f"left join book b on b.id=h.book where m.sugg_ravi in ({q}) order by m.hid, m.i limit ? offset ?",
+                         (*ids, limit, offset)).fetchall()
+        items = []
+        for r in rows:
+            chain = c.execute("select i, name, term, ravi_id, sugg_ravi from mention where hid=? order by i", (r["hid"],)).fetchall()
+            items.append(dict(src="hadithai", hadith_id=r["hid"], book=r["title"], url=f"/h/i/{config.NOOR_OFFSET + r['hid']}",
+                              self=f"noor:{r['sugg_ravi']}", sugg=r["sugg"], sugg_n=r["sugg_n"],
+                              chain=[dict(term=x["term"], title=x["name"], me=x["i"] == r["i"],
+                                          id=f"noor:{x['ravi_id'] or x['sugg_ravi']}" if (x["ravi_id"] or x["sugg_ravi"]) else None,
+                                          sugg=bool(x["sugg_ravi"] and not x["ravi_id"]),
+                                          label=name(x["ravi_id"] or x["sugg_ravi"]) if (x["ravi_id"] or x["sugg_ravi"]) else None)
+                                     for x in chain]))
+        return dict(total=total, items=items)
+    except sqlite3.Error as e:
+        return dict(total=0, items=[], error=str(e)[:200])
+    finally:
+        c.close()
+        n.close()
+
+
 def hadiths(ext: List[str], src: str, offset: int, limit: int) -> dict:
+    if src == "hadithai":
+        return hai_mentions([int(x.split(":")[1]) for x in ext if x.startswith("noor:") and x.split(":")[1].isdigit()], offset, limit)
     ids = [int(x.split(":")[1]) for x in ext if x.startswith(src + ":") and x.split(":")[1].isdigit()]
     if not ids:
         return dict(total=0, items=[])
@@ -311,7 +373,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
         with _db() as c:
             s = store.stats(c)
             return {k: s[k] for k in ("persons", "ext", "persons_by_sources", "suggestions", "meta")} | dict(
-                unreviewed=c.execute("select count(*) from revision where review_status='unreviewed'").fetchone()[0])
+                unreviewed=c.execute("select count(*) from revision where review_status='unreviewed'").fetchone()[0],
+                hadithai=hai_stats())
 
     @r.get("/api/search")
     def search(q: str = "", kind: str = "", dated: str = "", sugg: str = "", limit: int = 50, offset: int = 0):
@@ -325,8 +388,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
 
     @r.get("/api/person/{pid}/hadiths")
     def person_hadiths(pid: int, src: str = "noor", offset: int = 0, limit: int = 30):
-        if src not in ("noor", "kg"):
-            raise HTTPException(400, "src must be noor or kg")
+        if src not in ("noor", "kg", "hadithai"):
+            raise HTTPException(400, "src must be noor, kg or hadithai")
         with _db() as c:
             p = store.get_person(c, pid)
             if p is None:
@@ -356,7 +419,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
             rid = data["person"]["person"]["id"]
             data["history"] = dict(person=store.summary(c, rid), revisions=store.history(c, rid))
             ext = data["person"]["person"]["ext"]
-        data["hadiths"] = {s: hadiths(ext, s, 0, 100) for s in ("noor", "kg")}
+        data["hadiths"] = {s: hadiths(ext, s, 0, 100) for s in ("noor", "kg", "hadithai")}
         proto = request.headers.get("x-forwarded-proto") or request.url.scheme
         host = request.headers.get("host") or request.url.netloc
         html = export_html(data, f"{proto}://{host}{prefix}")

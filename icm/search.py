@@ -18,18 +18,33 @@ from __future__ import annotations
 import hashlib
 import math
 import time
+from difflib import SequenceMatcher
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from . import corpus, relations
-from .similarity import align_clauses, classify
-from .text import clauses, grams, marks, norm, squeeze, strip_tags, tokens
+from . import corpus, hadithai, relations
+from .similarity import align_clauses, classify, match_key
+from .text import clauses, grams, marks, norm, squeeze, strip_tags, tokens, union_cuts
 
 PRESELECTED = ("witness", "extended", "abridged", "variant")
+
+
+def is_reference(rec: dict) -> Optional[str]:
+    """A row that quotes a hadith without transmitting it: a Dorar (al-Durar al-Saniyya) entry with no isnad is a later
+    scholar's citation or grading of a hadith of another collection («ضعيف الترمذي» quoting al-Tirmidhi), not an
+    independent witness. It stays a candidate, scored and selectable, but is not pre-selected."""
+    if rec.get("corpus") == "v02" and str(rec.get("book") or "").startswith("dorar-") and not (rec.get("sanad") or "").strip():
+        return "dorar"
+    return None
+
+
+def preselected(c: dict) -> bool:
+    return c["suggested"] in PRESELECTED and not c.get("reference")
 
 DEFAULTS = dict(
     corpora=["v02", "kg"],
     rounds=2,                  # 1 = seed only; each further round expands from found witnesses
     part_query=None,           # list of clause indexes to restrict the FTS queries to
+    clauses=None,              # the user's parts of the seed ([start, end) token spans); None = automatic
     fts_limit=3000,            # rows per FTS query
     pool_max=5000,             # candidates fetched for scoring per round
     prefilter=0.06,            # min share of seed 8-grams (or one clause >= 0.5) to be scored
@@ -41,13 +56,26 @@ DEFAULTS = dict(
 )
 
 
-def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = ()) -> dict:
+def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (), keep_ids: Sequence[str] = ()) -> dict:
+    """``keep_ids``: witnesses selected before the user re-cut the seed; they are scored whatever their score."""
     p = {**DEFAULTS, **(params or {})}
     t0 = time.time()
     rec = corpus.get(seed)
     if rec is None:
         raise KeyError(f"seed {seed} not found")
-    s_tok, s_spans = clauses(rec["matn"])
+    s_tok, auto_spans = clauses(rec["matn"])
+    auto_by, auto_owners = "rules", None
+    hai = hadithai.parts(rec["hid"], s_tok) if rec["corpus"] == "v02" else None
+    if hai:
+        # hadith.ai's segments are semantic but coarse in lists («الزائد… والمكذب… والتارك…» is one segment), and a
+        # part is the unit of presence: cut at the boundaries of both, each part keeping its segment's speaker
+        h_spans, h_owners = hai
+        auto_spans = union_cuts(s_tok, auto_spans, h_spans)
+        auto_owners = [next((o for (x, y), o in zip(h_spans, h_owners) if x <= a < y), None) for a, _ in auto_spans]
+        auto_by = "hadith.ai+rules"
+    s_spans = auto_spans
+    if p.get("clauses"):                          # the user's segmentation (step 2), checked by the API
+        s_spans = [(int(a), int(b)) for a, b in p["clauses"] if 0 <= int(a) < int(b) <= len(s_tok)] or auto_spans
     flags: List[dict] = []
     if len(s_tok) < 6:
         flags.append(dict(kind="seed_short", ref=seed, message="seed has fewer than 6 tokens; search is unreliable"))
@@ -71,6 +99,8 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = ())
                       p, rnd, new_pool, queries)
         for w in extra_ids:
             new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("user")
+        for w in keep_ids:
+            new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("kept")
         for w in list(new_pool):
             if w == seed or w in scored:
                 del new_pool[w]
@@ -96,6 +126,8 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = ())
     return dict(
         seed=seed_out, tokens=s_tok, clauses=[dict(i=i, span=list(sp), text=" ".join(s_tok[sp[0]:sp[1]]))
                                               for i, sp in enumerate(s_spans)],
+        auto_clauses=[list(sp) for sp in auto_spans], clauses_by="user" if s_spans is not auto_spans else "auto",
+        auto_by=auto_by, clause_owners=auto_owners if s_spans is auto_spans else None,
         params=p, candidates=cands, queries=queries, rounds=rounds_info, flags=flags,
         seconds=round(time.time() - t0, 1))
 
@@ -179,7 +211,7 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
         g = grams(" ".join(c_tok), p["gram_n"])
         share = len(seed_grams & g) / max(len(seed_grams), 1)
         cl_hit = any(cg and len(cg & g) / len(cg) >= 0.5 for cg in clause_grams)
-        user = "user" in pool[w]["signals"]
+        user = bool({"user", "kept"} & pool[w]["signals"])
         if share < p["prefilter"] and not cl_hit and not user:
             n_dropped += 1
             continue
@@ -200,7 +232,7 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
             author=rec["author"], death=rec["death"], tradition=rec["tradition"], vol=rec["vol"], page=rec["page"],
             no=rec.get("no"), suggested=cls, score=score, parts=res["parts"],
             signals=sorted(pool[w]["signals"]), round=pool[w]["round"], via=pool[w]["via"],
-            window=window, window_text=" ".join(c_tok[window[0]:window[1]]),
+            window=window, window_text=" ".join(c_tok[window[0]:window[1]]), reference=is_reference(rec),
             n_tokens=len(c_tok), matn=rec["matn"][:1500], matn_len=len(rec["matn"]),
             sanad=(rec["sanad"] or "")[:800],
             norm_hash=hashlib.sha1((" ".join(c_tok) + "|" + norm(rec["sanad"] or "")).encode()).hexdigest()[:16],
@@ -210,7 +242,7 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
 
 def _next_sources(scored: Dict[str, dict], p: dict, seed_norm: str):
     """Witnesses with the most divergent wording, used to expand the search."""
-    ws = [c for c in scored.values() if c["suggested"] in PRESELECTED]
+    ws = [c for c in scored.values() if preselected(c)]
     seen, out = set(), []
     for c in sorted(ws, key=lambda c: -(c["score"]["s"] + 3 * (1 - c["score"]["cov_seed"]))):
         if c["text_hash"] in seen:
@@ -250,25 +282,44 @@ def _title_set(t: Optional[str]) -> set:
     return set(norm(t or "").split())
 
 
+FOLD_SIM = 0.92        # token similarity above which two texts of one work in the two corpora are one witness
+
+
 def _fold_across_corpora(rows: List[dict]) -> List[dict]:
-    """The same book appears in v02 and in the KG: identical text, titles one inside the other
-    («الدعاء» / «الدعاء للطبراني»). They are one witness; the KG row is kept (it carries exact narrator ids)."""
-    by_text: Dict[str, List[dict]] = {}
+    """The same book appears in v02 and in the KG (since v02 took sunnah.com and Dorar from hadith.ai, often):
+    titles one inside the other («الدعاء» / «الدعاء للطبراني»), the same text or nearly (another edition's
+    diacritics and spacing). They are one witness; the KG row is kept (it carries exact narrator ids)."""
+    kg = [r for r in rows if r["corpus"] == "kg"]
+    if not kg:
+        return rows
+    titles = {}
     for r in rows:
-        by_text.setdefault(r["text_hash"], []).append(r)
+        titles.setdefault(frozenset(_title_set(r["title"])), []).append(r)
+    toks = {}
+
+    def tk(r):
+        if r["wid"] not in toks:
+            toks[r["wid"]] = [match_key(t) for t in tokens(r["matn"])]
+        return toks[r["wid"]]
+
     drop = set()
-    for group in by_text.values():
-        if len(group) < 2:
-            continue
-        group.sort(key=lambda r: (r["corpus"] != "kg", r["wid"]))
-        for i, a in enumerate(group):
-            if a["wid"] in drop:
+    keys = [k for k in titles if k]
+    for ka in keys:
+        for kb in keys:
+            if not (ka <= kb or kb <= ka):
                 continue
-            for b in group[i + 1:]:
-                if b["wid"] in drop or a["corpus"] == b["corpus"]:
+            for a in titles[ka]:
+                if a["corpus"] != "kg" or a["wid"] in drop:
                     continue
-                ta, tb = _title_set(a["title"]), _title_set(b["title"])
-                if ta and tb and (ta <= tb or tb <= ta):
+                for b in titles[kb]:
+                    if b["corpus"] == "kg" or b["wid"] in drop:
+                        continue
+                    if a["text_hash"] != b["text_hash"]:
+                        la, lb = a["n_tokens"], b["n_tokens"]
+                        if not la or not lb or not 0.85 <= la / lb <= 1.18:
+                            continue
+                        if SequenceMatcher(None, tk(a), tk(b), autojunk=False).ratio() < FOLD_SIM:
+                            continue
                     a["copies"] = a.get("copies", []) + [b["wid"]] + b.get("copies", [])
                     drop.add(b["wid"])
     return [r for r in rows if r["wid"] not in drop]

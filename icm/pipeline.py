@@ -4,7 +4,9 @@
 
 Stages are cached by the hash of their inputs (``project.stage_put``); a repeated call recomputes nothing.
 The wizard order is: search -> [selection] -> alignment + identities (candidates) -> [identities]
--> graph -> [phylogeny, confirmed for exactly this graph] -> analysis.
+-> graph -> [phylogeny, confirmed for exactly this graph] -> analysis. The ``parts`` decision (the user's
+segmentation: the seed's parts, extra parts, slots in witnesses) never blocks: it changes search and alignment
+when it is made, and its confirmations are read by the pages only.
 """
 from __future__ import annotations
 
@@ -54,19 +56,25 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         _set(pid, status="running")
         # --- search ----------------------------------------------------------------------------
         sdec = project.decision(pid, "search") or {}
+        pdec = project.decision(pid, "parts") or {}               # the user's segmentation (steps 2 and 3)
         sparams = dict(part_query=sdec.get("part_query"))
         extra = list(sdec.get("extra_ids", []))
-        k_search = h("search", p["seed"], sparams, sorted(extra), STAGE_VERSIONS["search"], config.DATA_VERSION)
+        keep: list = []
+        if pdec.get("seed"):                                      # only then, so automatic searches keep their keys
+            sparams["clauses"] = pdec["seed"]
+            keep = sorted(set(pdec.get("keep_ids") or []))
+        k_search = h("search", p["seed"], sparams, sorted(extra), *([keep] if keep else []), STAGE_VERSIONS["search"], config.DATA_VERSION)
         say("search", 0.0, "searching the corpora")
-        S = _get_or_run(pid, "search", k_search, lambda: search_mod.run(p["seed"], sparams, extra), hashes)
+        S = _get_or_run(pid, "search", k_search, lambda: search_mod.run(p["seed"], sparams, extra, keep), hashes)
         seldec = project.decision(pid, "selection")
         if not seldec:
             return _finish(pid, vers, hashes, "draft", "selection")
         selected = sorted(set(seldec.get("selected", [])) - {p["seed"]})
         # --- alignment + identity candidates --------------------------------------------------------
         say("align", 0.2, "aligning")
-        k_align = h("align", k_search, selected, STAGE_VERSIONS["align"])
-        A = _get_or_run(pid, "align", k_align, lambda: align_mod.run(S, selected), hashes)
+        parts_in = {k: pdec[k] for k in ("extras_dropped", "extras_added", "slots") if pdec.get(k)}
+        k_align = h("align", k_search, selected, STAGE_VERSIONS["align"], *([parts_in] if parts_in else []))
+        A = _get_or_run(pid, "align", k_align, lambda: align_mod.run(S, selected, parts_in), hashes)
         say("identify", 0.4, "finding the narrators")
         k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION)
         I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A), hashes)

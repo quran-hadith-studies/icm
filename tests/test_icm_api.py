@@ -69,6 +69,59 @@ def test_permissions_and_validation():
         shutil.rmtree(d)
 
 
+def test_parts_decision_recuts_the_seed_and_corrects_slots():
+    from icm import pipeline
+    from icm.text import tokens
+    a, d = app()
+    try:
+        c = TestClient(a)
+        pid = c.post("/icm/api/project", json={"seed": "v02:800316143"}, headers=H("alice")).json()["pid"]
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {}}, headers=H("alice")).status_code == 409   # nothing searched yet
+        pipeline.advance(pid)
+        S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert S["clauses_by"] == "auto" and S["auto_clauses"] == [x["span"] for x in S["clauses"]]
+        seed_w = c.get(f"/icm/api/project/{pid}/runs/current/words/v02:800316143").json()
+        assert seed_w["tokens"] == S["tokens"] == tokens(S["seed"]["matn"]) and len(seed_w["offsets"]) == len(S["tokens"])
+        sel = [x["wid"] for x in S["candidates"][:3]]
+        c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice"))
+        c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"part_query": [0], "extra_ids": []}}, headers=H("alice"))
+        n = len(S["tokens"])
+        for bad in ({"seed": [[0, n + 1]]}, {"seed": [[3, 2]]}, {"seed": [[0, 4], [3, 6]]}, {"seed": []},
+                    {"slots": {"bad": {"v02:1": "absent"}}}, {"slots": {"s:x": {"v02:1": "maybe"}}},
+                    {"extras_added": [{"wid": "v02:1", "span": [2, 2]}]}, {"confirmed": {"s:x": "v02:1"}}):
+            assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
+        # the same parts as the automatic ones are stored as "automatic"
+        auto = S["auto_clauses"]
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"seed": auto, "seed_confirmed": auto}}, headers=H("alice")).status_code == 200
+        assert project.decision(pid, "parts")["seed"] is None and project.decision(pid, "search")["part_query"] == [0]
+        # one part for the whole text: the search runs again with it, the selected witnesses stay
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"seed": [[0, n]], "seed_confirmed": [[0, n]]}}, headers=H("alice")).status_code == 200
+        got = project.decision(pid, "parts")
+        assert got["seed"] == [[0, n]] and got["keep_ids"] == sorted(set(sel) - {"v02:800316143"})
+        assert project.decision(pid, "search")["part_query"] is None                    # the old ticks are reset
+        pipeline.advance(pid)
+        S2 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert S2["clauses_by"] == "user" and [x["span"] for x in S2["clauses"]] == [[0, n]]
+        known = {x["wid"] for x in S2["candidates"]} | {w for x in S2["candidates"] for w in x.get("copies", [])}
+        assert set(sel) - {"v02:800316143"} <= known
+        A = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
+        key = A["clauses"][0]["key"]
+        w = next(x["wid"] for x in A["witnesses"] if x["wid"] != "v02:800316143")
+        ww = c.get(f"/icm/api/project/{pid}/runs/current/words/{w}").json()
+        cw = next(x for x in S2["candidates"] if x["wid"] == w)
+        assert ww["window"] == cw["window"] and ww["tokens"][cw["window"][0]:cw["window"][1]] == cw["window_text"].split()[:len(ww["tokens"]) - cw["window"][0]]
+        body = {"seed": [[0, n]], "seed_confirmed": [[0, n]], "slots": {key: {w: [0, 2]}}, "confirmed": {key: [w]}}
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": body}, headers=H("alice")).status_code == 200
+        assert project.decision(pid, "parts")["keep_ids"] == got["keep_ids"]           # unchanged seed: no new search
+        pipeline.advance(pid)
+        A2 = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
+        sg = A2["segments"][f"0|{w}"]
+        assert sg["user"] and sg["tokens"] == ww["tokens"][0:2], sg
+        assert c.get(f"/icm/api/project/{pid}/runs/current/words/v02:2").status_code == 404
+    finally:
+        shutil.rmtree(d)
+
+
 def test_search_and_hadith():
     a, d = app()
     try:

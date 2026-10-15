@@ -72,8 +72,8 @@ function busy(btn, fn) {
 const FIELD_FA = { name: 'نام', alias: 'نام دیگر / شهرت', kunya: 'کنیه', laqab: 'لقب', nisba: 'نسبت', mazhab: 'مذهب', grade: 'حکم رجالی',
   rank: 'مرتبه (ابن حجر)', tabaqa: 'طبقه', death_lo: 'درگذشت (از سال)', death_hi: 'درگذشت (تا سال)', birth: 'ولادت', places: 'شهرها', note: 'یادداشت' };
 const FIELDS = Object.keys(FIELD_FA);
-const KIND_FA = { noor: 'نور', kg: 'گراف دانش', wiki: 'ویکی' };
-const SUG_FA = { link_kg: 'پیوند پیشین نور↔گراف', name_chrono: 'نام + تاریخ + سند (نور↔گراف)', noor_dup: 'تکراری در نور', kg_dup: 'تکراری در گراف دانش' };
+const KIND_FA = { noor: 'نور', kg: 'گراف دانش', dirayah: 'درایة النور', wiki: 'ویکی' };
+const SUG_FA = { link_kg: 'پیوند پیشین نور↔گراف', name_chrono: 'نام + تاریخ + سند (نور↔گراف)', link_dirayah: 'سند مشترک (نور↔درایة النور)', noor_dup: 'تکراری در نور', kg_dup: 'تکراری در گراف دانش' };
 const REV_FA = { seed: 'ساخت از منبع', add: 'افزودن راوی', edit: 'ویرایش', merge: 'ادغام', split: 'جداسازی', revert: 'بازگردانی' };
 const REVIEW_FA = { unreviewed: 'بازبینی‌نشده', approved: 'تأییدشده', rejected: 'ردشده' };
 const SSTAT_FA = { proposed: 'پیشنهادی', accepted: 'پذیرفته (ادغام شد)', dismissed: 'رد شد' };
@@ -129,7 +129,7 @@ const HOME_HELP = () => help(
 async function home() {
   const qs = new URLSearchParams(location.search);
   const q = el('input', { type: 'search', placeholder: 'نام راوی، noor:… / kg:… یا شماره‌ی شخص', value: qs.get('q') || '', class: 'wide' });
-  const kind = el('select', {}, [['', 'همه‌ی پایگاه‌ها'], ['noor', 'در نور'], ['kg', 'در گراف دانش'], ['both', 'در هر دو (ادغام‌شده)'], ['noor_only', 'فقط نور'], ['kg_only', 'فقط گراف دانش'], ['wiki', 'فقط ویکی']].map(([v, t]) => el('option', { value: v }, t)));
+  const kind = el('select', {}, [['', 'همه‌ی پایگاه‌ها'], ['noor', 'در نور'], ['kg', 'در گراف دانش'], ['dirayah', 'در درایة النور'], ['both', 'در نور و گراف (ادغام‌شده)'], ['noor_only', 'فقط نور'], ['kg_only', 'فقط گراف دانش'], ['wiki', 'فقط ویکی']].map(([v, t]) => el('option', { value: v }, t)));
   kind.value = qs.get('kind') || '';
   const dated = el('select', {}, [['', 'با یا بی تاریخ'], ['1', 'دارای تاریخ وفات'], ['0', 'بی تاریخ وفات']].map(([v, t]) => el('option', { value: v }, t)));
   dated.value = qs.get('dated') || '';
@@ -262,28 +262,39 @@ function neighList(xs) {
   return el('ul', {}, xs.map(x => el('li', {}, x.person_id ? link('/p/' + x.person_id, x.name || '#' + x.person_id) : el('span', {}, x.name),
     ' ', el('span', { class: 'small muted' }, `${fa(x.n)} بار — ${x.ids.join('، ')}`))));
 }
+const SRC_TAB = { noor: 'نور', kg: 'گراف دانش', hadithai: 'پیشنهاد hadith.ai' };
+const HAI_FA = { ctx3: 'همان راوی پیش و پس از آن', ctx_prev: 'همان راوی پیش از آن', ctx_next: 'همان راوی پس از آن' };
 function hadithCard(p, counts) {
   const box = el('div');
   const srcs = ['noor', 'kg'].filter(s => p.ext.some(x => x.startsWith(s + ':')));
+  if (srcs.includes('noor') && counts.hadithai) srcs.push('hadithai');
   if (!srcs.length) return card('حدیث‌ها', el('p', { class: 'muted' }, 'این راوی شناسه‌ای در پایگاه‌های حدیثی ندارد.'));
   let src = srcs[0];
   const tabs = el('div', { class: 'tabs' });
+  const note = el('div');
   const show = async (s, offset) => {
     src = s;
-    fill(tabs, srcs.map(x => el('button', { class: x === src ? 'on' : '', onclick: () => show(x, 0) }, `${KIND_FA[x]} (${fa(counts[x] || 0)})`)));
+    fill(tabs, srcs.map(x => el('button', { class: x === src ? 'on' : '', onclick: () => show(x, 0) }, `${SRC_TAB[x]} (${fa(counts[x] || 0)})`)));
+    fill(note, s === 'hadithai' ? el('div', { class: 'small warn' },
+      'این‌ها پیوند نیستند، پیشنهادند: hadith.ai نام راویان را در متن برچسب می‌زند ولی شناسه‌ی شخص ندارد. ',
+      'هر مورد در کتابی است که نور سندش را پیوند نداده (بحار، وافی، مستدرک…)؛ همین نام با همان همسایه‌ها در همه‌ی سندهای پیوندخورده‌ی نور همین راوی بوده است. ',
+      'دقت سنجیده (کنار گذاشتن کتاب‌به‌کتاب): ۹۹٫۷٪ با هر دو همسایه، ۹۹٫۲٪ با یک همسایه.') : null);
     fill(box, el('p', { class: 'muted' }, 'خواندن…'));
     try {
       const r = await api(`/person/${p.id}/hadiths?src=${s}&offset=${offset}&limit=30`);
       fill(box, r.error ? errBox(r.error) : null, r.items.map(h => el('div', { class: 'hrow' },
-        el('div', { class: 'small' }, h.src === 'noor' ? el('a', { href: ORIGIN + h.url, target: '_blank', rel: 'noopener' }, 'حدیث ' + fa(h.hadith_id)) : el('span', {}, 'kg:' + fa(h.hadith_id)),
-          ' ', el('span', { class: 'muted' }, [h.book, h.no ? 'ش ' + fa(h.no) : '', h.page ? 'ص ' + fa(h.page) : '', h.sanad_idx ? 'سند ' + fa(h.sanad_idx + 1) : '', h.self].filter(Boolean).join(' · '))),
-        el('div', { class: 'chain' }, h.chain.map(x => [x.term ? el('span', { class: 'tm' }, x.term) : null, el('span', { class: 'nm' + (x.me ? ' me' : ''), title: x.id || '' }, x.title || '؟')])),
+        el('div', { class: 'small' }, h.src !== 'kg' ? el('a', { href: ORIGIN + h.url, target: '_blank', rel: 'noopener' }, 'حدیث ' + fa(h.hadith_id)) : el('span', {}, 'kg:' + fa(h.hadith_id)),
+          ' ', el('span', { class: 'muted' }, [h.book, h.no ? 'ش ' + fa(h.no) : '', h.page ? 'ص ' + fa(h.page) : '', h.sanad_idx ? 'سند ' + fa(h.sanad_idx + 1) : '', h.self].filter(Boolean).join(' · ')),
+          h.sugg ? el('span', { class: 'chip sg', title: 'پیشنهاد، نه پیوند' }, `پیشنهاد: ${HAI_FA[h.sugg] || h.sugg} در ${fa(h.sugg_n)} سند نور`) : null),
+        el('div', { class: 'chain' }, h.chain.map(x => [x.term ? el('span', { class: 'tm' }, x.term) : null,
+          el('span', { class: 'nm' + (x.me ? ' me' : '') + (x.sugg ? ' sg' : ''), title: x.id ? `${x.id}${x.label ? ' — ' + x.label : ''}${x.sugg ? ' (پیشنهاد)' : ''}` : '' }, x.title || '؟')])),
         h.sanad ? el('details', { class: 'small' }, el('summary', { class: 'muted' }, 'متن سند در کتاب'), el('div', { class: 'ar' }, h.sanad)) : null)),
         pager(r.total, offset, 30, o => show(src, o)));
     } catch (e) { fill(box, errBox(e)); }
   };
   show(src, 0);
-  return card('حدیث‌ها (جایگاه‌های این راوی در سندها)', el('div', { class: 'small muted' }, 'نام برجسته همین راوی است؛ ترتیب سند از گردآورنده به سوی معصوم/پیامبر.'), tabs, box);
+  return card('حدیث‌ها (جایگاه‌های این راوی در سندها)', el('div', { class: 'small muted' }, 'نام برجسته همین راوی است؛ ترتیب سند از گردآورنده به سوی معصوم/پیامبر.',
+    counts.hadithai_confirmed ? ` hadith.ai در ${fa(counts.hadithai_confirmed)} جا از همین سندهای نور همین نام را برچسب زده است (هم‌خوان با نور).` : ''), tabs, note, box);
 }
 
 /* ---------- suggestions ---------- */
@@ -298,7 +309,13 @@ function pbox(s, side) {
 function evidence(s) {
   const e = s.evidence || {};
   const rows = [];
-  if (s.kind === 'link_kg' || s.kind === 'name_chrono') {
+  if (s.kind === 'link_dirayah') {
+    rows.push(el('li', {}, e.n_aligned ? `در ${fa(e.n_aligned)} جای یکسان از سندهای مشترک، این راوی نور (${fa(e.noor_positions)} جا) و این راوی درایة النور (${fa(e.dirayah_positions)} جا) کنار هم آمده‌اند: ${fa(Math.round((e.share_noor || 0) * 100))}٪ از جاهای راوی نور و ${fa(Math.round((e.share_dirayah || 0) * 100))}٪ از جاهای راوی درایه.` : 'شناسه‌ی یکسان و نام یکسان، بی هیچ سند مشترکی برای سنجش.'));
+    rows.push(el('li', {}, 'نور: ', el('span', { class: 'ar' }, e.noor_name || ''), ' — درایة النور: ', el('span', { class: 'ar' }, e.dirayah_name || ''),
+      e.same_id ? ' (شناسه‌ی یکسان)' : ' (شناسه‌ی متفاوت)'));
+    if (e.name_conflict) rows.push(el('li', { class: 'warn' }, 'نام‌ها در نام یا نام پدر با هم نمی‌خوانند؛ برای همین قطعی شمرده نشد.'));
+    if (e.noor_other && e.noor_other.length) rows.push(el('li', { class: 'small muted' }, 'در جاهای دیگرِ این راوی نور، درایه این شناسه‌ها را آورده: ' + e.noor_other.map(x => `dirayah:${x[0]} (${fa(x[1])} جا)`).join('؛ ')));
+  } else if (s.kind === 'link_kg' || s.kind === 'name_chrono') {
     rows.push(el('li', {}, `اطمینان: ${CONF_FA[e.confidence] || e.confidence || '-'}؛ امتیاز کل ${fa(e.score)} = شباهت نام ${fa(e.name_score)}`,
       ` + زمان ${fa(e.chrono)} + بافت سند ${fa(Math.round(0.35 * Math.min(e.ctx || 0, 3) * 100) / 100)} (${fa(e.ctx || 0)} همسایه‌ی مشترک).`));
     if (e.noor) rows.push(el('li', {}, 'نور: ', el('span', { class: 'ar' }, e.noor.name || ''), ' ', [e.noor.mazhab, e.noor.grade, e.noor.death ? `وفات ${fa(e.noor.death.join('–'))}${e.noor.death_source ? ' (' + e.noor.death_source + ')' : ''}` : 'بی تاریخ وفات'].filter(Boolean).join(' · ')));
@@ -354,9 +371,10 @@ async function decide(s, decision, keep) {
 function toast(t) { const d = el('div', { class: 'ok', style: 'position:fixed;bottom:12px;inset-inline-start:12px;z-index:60' }, t); document.body.append(d); setTimeout(() => d.remove(), 3500); }
 
 const SUG_HELP = () => help(
-  P('این‌ها جفت‌هایی از راویان‌اند که برنامه گمان می‌کند یک نفر باشند. هیچ‌کدام خودکار ادغام نشده است؛ تصمیم با شماست. چهار گونه پیشنهاد هست:'),
+  P('این‌ها جفت‌هایی از راویان‌اند که برنامه گمان می‌کند یک نفر باشند. هیچ‌کدام خودکار ادغام نشده است؛ تصمیم با شماست. پنج گونه پیشنهاد هست:'),
   UL('«پیوند پیشین نور↔گراف» (link_kg): پیوندهای پایگاه راویان (narrators/link_sunni.py) با اطمینان بالا یا متوسط میان یک راوی نور و یک راوی گراف دانش، از روی نام، زمان و بافت سند.',
     '«نام + تاریخ + سند» (name_chrono): همان روش، دوباره روی همه‌ی راویان نور اجرا شده: شباهت نام (سهم واژه‌های نام نور که در نام و شهرت راوی گراف آمده، با جریمه برای وقتی نام نخست، نام پدر نامزد است)، زمان (اگر فاصله‌ی سال وفات تا ۳۰ سال باشد +۰٫۱۵، تا ۷۰ سال ۰، بیشتر −۰٫۴؛ برای نور، وفات از کتاب‌های رجال یا دوره‌ی امامی که از او روایت کرده) و بافت سند (برای هر استاد یا شاگرد نور که نامزد گرافیِ او در سندهای گراف کنار این نامزد آمده +۰٫۳۵، حداکثر سه). برای راویان امامی دست‌کم یک همسایه‌ی مشترک لازم است.',
+    '«سند مشترک (نور↔درایة النور)» (link_dirayah): درایة النور (نرم‌افزار رجال مرکز نور) همان کتاب‌ها را سندشناسی کرده است. هر سند درایه به حدیث نورِ خودش وصل شده و راویان دو سند جای‌به‌جای کنار هم گذاشته شده‌اند. جفتی که دست‌کم ۳ بار در یک جا آمده، ۹۵٪ جاهای هر دو طرف را دارد و نامشان (نام و نام پدر) ناسازگار نیست، قطعی است و از پیش در یک شخص است؛ این‌جا فقط جفت‌های ضعیف‌تر می‌آیند (شواهد کمتر، نام ناسازگار، یا شناسه و نام یکسان بی سند مشترک). شماره‌ی یکسان به تنهایی دلیل نیست: در دو پایگاه گاه یک شماره دو نفر است.',
     '«تکراری در نور» و «تکراری در گراف دانش»: دو راوی یک پایگاه با نام یکسان (یا همان واژه‌ها با همان نام و نام پدر) که سال وفاتشان کمتر از ۵ سال فاصله دارد یا هیچ‌کدام تاریخ ندارند؛ در گراف، جفت بی‌تاریخ باید دست‌کم یک استاد یا شاگرد مشترک داشته باشد. نام‌هایی که بیش از ۸ نفر دارند کنار گذاشته شده‌اند.'),
   P('«یکی‌اند» دو شخص را ادغام می‌کند: شخصی که نگه می‌دارید شماره و نام نمایشی‌اش می‌ماند، همه‌ی شناسه‌ها و مقدارهای دیگری (با منبعشان) به آن منتقل می‌شود، و شخص دیگر «ادغام‌شده» علامت می‌خورد (پیوندهای قدیمی به آن، به شخص نگه‌داشته می‌روند). ادغام یک نسخه در تاریخچه و یک مورد در صف بازبینی می‌سازد و با «بازگردانی» برمی‌گردد. «یکی نیستند» فقط پیشنهاد را می‌بندد (و با اجرای دوباره‌ی جستجوی شباهت، دیگر پیشنهاد نمی‌شود)؛ می‌توانید آن را دوباره باز کنید.'),
   P('ادغام در ویکی، تصمیم پروژه‌های ICM را عوض نمی‌کند: در مرحله‌ی ۴ هر پروژه فقط به صورت پیشنهاد دیده می‌شود.'));

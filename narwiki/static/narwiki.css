@@ -1,15 +1,15 @@
 @font-face{font-family:'BLotus';src:url('/q-static/fonts/B%20LOTUS%20S1%20REGULAR%20R1.TTF') format('truetype');font-display:swap}
 :root{
   --bg:#f5f3ef;--fg:#243040;--muted:#64748b;--line:#dfe3ea;--card:#fff;--accent:#3b5bdb;--accent-soft:#e8edff;
-  --good:#2b8a5a;--warn:#b7791f;--bad:#c0392b;--arabic:#1b2430;--noor:#2b6f8a;--kg:#7a4bc4;--user:#3b5bdb;
+  --good:#2b8a5a;--warn:#b7791f;--bad:#c0392b;--arabic:#1b2430;--noor:#2b6f8a;--kg:#7a4bc4;--dirayah:#8a5a1f;--user:#3b5bdb;
   --add-bg:#e3f6ea;--del-bg:#fbe5e2;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#15171c;--fg:#e6e8ee;--muted:#9aa3b5;--line:#2c313c;--card:#1d2029;--accent:#8c9bef;--accent-soft:#252b46;--arabic:#e8e6e1;
-  --noor:#6fb3cf;--kg:#b394ea;--user:#8c9bef;--add-bg:#1f3a2a;--del-bg:#43231f}}
+  --noor:#6fb3cf;--kg:#b394ea;--dirayah:#d9a35f;--user:#8c9bef;--add-bg:#1f3a2a;--del-bg:#43231f}}
 :root[data-theme="dark"]{
   --bg:#15171c;--fg:#e6e8ee;--muted:#9aa3b5;--line:#2c313c;--card:#1d2029;--accent:#8c9bef;--accent-soft:#252b46;--arabic:#e8e6e1;
-  --noor:#6fb3cf;--kg:#b394ea;--user:#8c9bef;--add-bg:#1f3a2a;--del-bg:#43231f}
+  --noor:#6fb3cf;--kg:#b394ea;--dirayah:#d9a35f;--user:#8c9bef;--add-bg:#1f3a2a;--del-bg:#43231f}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:'Sahel','BLotus','Vazirmatn',Tahoma,system-ui,sans-serif;font-size:14px;line-height:1.7}
 a{color:var(--accent)}
@@ -38,7 +38,7 @@ th{font-weight:600;color:var(--muted);font-size:12px}
 .tscroll{overflow-x:auto}
 .ar{font-family:'BLotus','Traditional Arabic',serif;font-size:17px;color:var(--arabic);line-height:1.9}
 .chip{display:inline-block;border-radius:99px;padding:0 9px;font-size:11.5px;color:#fff;background:var(--muted);white-space:nowrap;margin:1px 2px;vertical-align:middle}
-.chip.noor{background:var(--noor)}.chip.kg{background:var(--kg)}.chip.user,.chip.wiki{background:var(--user)}
+.chip.noor{background:var(--noor)}.chip.kg{background:var(--kg)}.chip.dirayah{background:var(--dirayah)}.chip.user,.chip.wiki{background:var(--user)}
 .chip.high,.chip.approved,.chip.accepted{background:var(--good)}.chip.medium,.chip.unreviewed,.chip.proposed{background:var(--warn)}
 .chip.low,.chip.rejected{background:var(--bad)}.chip.dismissed{background:var(--muted)}
 .chip.ghost{background:none;color:var(--muted);border:1px solid var(--line)}
@@ -92,3 +92,5 @@ th{font-weight:600;color:var(--muted);font-size:12px}
 .erow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0}
 label.ck{display:flex;gap:6px;align-items:baseline;padding:2px 0}
 pre.json{white-space:pre-wrap;font-size:11.5px;max-height:240px;overflow:auto;direction:ltr;text-align:left;background:var(--bg);padding:6px;border-radius:6px}
+.chip.sg{background:var(--warn)}
+.chain .nm.sg{border-bottom:1px dashed var(--warn)}

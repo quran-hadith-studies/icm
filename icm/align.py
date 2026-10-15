@@ -19,6 +19,11 @@ as the clause has unmatched tokens there, plus up to SLACK more when the witness
 word there ("سبعة لعنتهم لعنهم الله" for "ستة لعنهم الله"). Every unit records the grid
 columns it comes from (``cols``, None for a whole clause) so the page can point at them.
 
+All of this is a suggestion the user can correct (the ``parts`` decision, ``run(..., parts)``): drop an extra
+clause, add one cut from a witness's text, and set a clause's slot in a witness ([start, end) in the tokens of
+the text the search stage keeps, see ``text_tokens``) or say it is absent or unknown there. Corrections are
+keyed by the clause's ``key`` (``part_keys``: its kind and text), so a re-cut clause starts unreviewed.
+
 Rows of X use ``text_model.NA = -1``.
 """
 from __future__ import annotations
@@ -109,8 +114,28 @@ def cluster_tokens(toks: Sequence[Optional[str]]) -> List[List[str]]:
     return clusters
 
 
+def part_keys(defs: Sequence[dict]) -> List[str]:
+    """A clause's stable name across runs: its kind and normalised text (``#2`` for a repeated text)."""
+    seen: Counter = Counter()
+    out = []
+    for c in defs:
+        k = f"{'s' if c['kind'] == 'seed' else 'x'}:{c['text']}"
+        seen[k] += 1
+        out.append(k if seen[k] == 1 else f"{k}#{seen[k]}")
+    return out
+
+
+def text_tokens(w: dict) -> List[str]:
+    """The tokens user slots count in: the text the search stage keeps (the seed's whole matn, a candidate's first
+    1,500 characters). ``w["w0"]`` is where the witness's window (the tokens aligned) starts in them."""
+    if "full" not in w:
+        w["full"] = tokens(w["matn"])
+    return w["full"]
+
+
 # ---------------------------------------------------------------------------
-def run(search: dict, selected: Sequence[str]) -> dict:
+def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> dict:
+    parts = parts or {}
     seed = search["seed"]["wid"]
     s_tok = search["tokens"]
     clause_defs = [dict(i=c["i"], kind="seed", text=c["text"], tokens=s_tok[c["span"][0]:c["span"][1]]) for c in search["clauses"]]
@@ -121,7 +146,7 @@ def run(search: dict, selected: Sequence[str]) -> dict:
     wits: List[dict] = [dict(wid=seed, tokens=s_tok, matn=search["seed"]["matn"], title=search["seed"]["title"],
                              author=search["seed"]["author"], death=search["seed"]["death"],
                              tradition=search["seed"]["tradition"], work=search["seed"]["work"], cls="seed",
-                             copies=search["seed"].get("copies", []))]
+                             copies=search["seed"].get("copies", []), w0=0, full=s_tok)]
     flags: List[dict] = []
     for w in selected:
         if w == seed:
@@ -134,15 +159,37 @@ def run(search: dict, selected: Sequence[str]) -> dict:
             continue
         wits.append(dict(wid=c["wid"], tokens=c["window_text"].split(), matn=c["matn"], title=c["title"],
                          author=c["author"], death=c["death"], tradition=c["tradition"], work=c["work"],
-                         cls=c["suggested"], copies=c.get("copies", [])))
+                         cls=c["suggested"], copies=c.get("copies", []), w0=(c.get("window") or [0])[0]))
     for w in wits:
         w["marker"] = find_marker(tokens(w["matn"]))
 
     # --- extra clauses: unmatched runs shared by >= 2 witnesses --------------------------------
     extras = _discover_extras(clause_defs, wits)
-    for k, ex in enumerate(extras["clauses"]):
-        clause_defs.append(dict(i=len(clause_defs), kind="extra", text=" ".join(ex["tokens"]), tokens=ex["tokens"],
-                                support=ex["support"]))
+    wit_by = {w["wid"]: w for w in wits}
+    for w in wits:
+        for x in w.get("copies", []):
+            wit_by.setdefault(x, w)
+    slots = {k: dict(v) for k, v in (parts.get("slots") or {}).items()}
+    more = [dict(kind="extra", text=" ".join(ex["tokens"]), tokens=ex["tokens"], support=ex["support"]) for ex in extras["clauses"]]
+    for a in parts.get("extras_added") or []:             # a clause the user cut from a witness's text
+        w = wit_by.get(a["wid"])
+        toks = text_tokens(w)[a["span"][0]:a["span"][1]] if w else []
+        if not toks:
+            flags.append(dict(kind="part_unused", ref=a["wid"], message="a part added from a witness that is not selected (or an empty span)"))
+            continue
+        more.append(dict(kind="extra", text=" ".join(toks), tokens=toks, support=None, by="user",
+                         source=dict(wid=w["wid"], span=list(a["span"]))))
+    keys = part_keys(clause_defs + more)
+    for c, k in zip(clause_defs, keys):
+        c["key"] = k
+    dropped = set(parts.get("extras_dropped") or [])
+    for c, k in zip(more, keys[len(clause_defs):]):
+        if k in dropped and c.get("by") != "user":
+            continue
+        c["key"], c["i"] = k, len(clause_defs)
+        clause_defs.append(c)
+        if c.get("by") == "user":                         # its own witness has it where the user cut it
+            slots.setdefault(k, {}).setdefault(c["source"]["wid"], c["source"]["span"])
 
     # --- per clause: segment of every witness, grid, presence ------------------------------------
     segs: Dict[Tuple[int, str], dict] = {}
@@ -194,6 +241,28 @@ def run(search: dict, selected: Sequence[str]) -> dict:
                 state=state, cov=round(cov, 3), span=span, tokens=seg_toks,
                 aligned=r["aligned_b"] if r["m"] else [None] * len(c["tokens"]))
 
+    # --- the user's slots: where a clause is in a witness, or that it is absent / unknown there -----------------
+    known_keys = {c["key"]: c for c in clause_defs}
+    for k, by_wid in slots.items():
+        c = known_keys.get(k)
+        for wid, v in by_wid.items():
+            w = wit_by.get(wid)
+            if c is None or w is None or (w["wid"] == seed and c["kind"] == "seed"):
+                flags.append(dict(kind="part_unused", ref=f"{k}|{wid}", message="a slot for a part or witness not in this alignment"))
+                continue
+            if v in ("absent", "unknown"):
+                segs[(c["i"], w["wid"])] = dict(state="absent" if v == "absent" else "unclear", cov=0.0, span=None, tokens=[],
+                                                aligned=[None] * len(c["tokens"]), user=True)
+                continue
+            toks = text_tokens(w)[v[0]:v[1]]
+            if not toks:
+                flags.append(dict(kind="part_unused", ref=f"{k}|{wid}", message="a slot outside the witness's text"))
+                continue
+            r = align_pair(c["tokens"], toks)
+            segs[(c["i"], w["wid"])] = dict(state="present", cov=round(sum(r["match_a"]) / max(len(c["tokens"]), 1), 3),
+                                            span=[v[0] - w["w0"], v[1] - w["w0"]], tokens=list(toks),
+                                            aligned=r["aligned_b"], user=True)
+
     units: List[dict] = []
     grids: List[dict] = []
     dropped_orth = 0
@@ -203,8 +272,8 @@ def run(search: dict, selected: Sequence[str]) -> dict:
         for w in wits:
             sg = segs[(ci, w["wid"])]
             v = 1 if sg["state"] == "present" else 0 if sg["state"] == "absent" else NA
-            if v == 0 and w["marker"] is not None:
-                v = NA                              # abbreviated: not showing a clause is not evidence
+            if v == 0 and w["marker"] is not None and not sg.get("user"):
+                v = NA                              # abbreviated: not showing a clause is not evidence (unless the user says it lacks it)
             pres[w["wid"]] = v
         # presence unit of the clause
         known = [v for v in pres.values() if v != NA]
@@ -239,14 +308,14 @@ def run(search: dict, selected: Sequence[str]) -> dict:
     wids = [w["wid"] for w in wits]
     X = {w: [u["states"].get(w, NA) for u in informative] for w in wids}
     return dict(
-        seed=seed, witnesses=[{k: v for k, v in w.items() if k not in ("tokens", "matn")} | dict(n_tokens=len(w["tokens"]))
+        seed=seed, witnesses=[{k: v for k, v in w.items() if k not in ("tokens", "matn", "full")} | dict(n_tokens=len(w["tokens"]))
                               for w in wits],
         clauses=[{k: v for k, v in c.items() if k != "tokens"} for c in clause_defs],
         segments={f"{ci}|{w}": {k: v for k, v in sg.items() if k != "aligned"} for (ci, w), sg in segs.items()},
         grids=grids, units=[{k: v for k, v in u.items() if k not in ("minor", "n_known", "second")} for u in informative],
         X=X, private_variants=[dict(name=u["name"], kind=u["kind"], states=u["states"]) for u in private],
         private_texts=extras["private"], dropped_orthographic=dropped_orth,
-        n_units=len(informative), flags=flags)
+        n_units=len(informative), flags=flags, parts_in=parts)
 
 
 # ---------------------------------------------------------------------------

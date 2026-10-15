@@ -242,6 +242,16 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(404, "stage not available in this run")
         return finite(out)
 
+    @r.get("/api/project/{pid}/runs/{run}/words/{wid}")
+    def run_words(pid: str, run: str, wid: str):
+        """The tokens a part's slot counts in (``align.text_tokens``), with their character ranges in ``matn`` and the
+        witness's aligned window, for the segmentation editors of steps 2 and 3."""
+        _project(pid)
+        out = serve.words(pid, run, wid)
+        if out is None:
+            raise HTTPException(404, "no such text in this run")
+        return out
+
     @r.get("/api/narrator/{nid}")
     def narrator(nid: str):
         out = narrator_info.card(nid)
@@ -301,6 +311,19 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(404)
         body = await request.json()
         payload = _validate(step, body.get("payload") or {}, pid, p)
+        if step == "parts":
+            prev = project.decision(pid, "parts") or {}
+            if payload["seed"] != prev.get("seed"):
+                # a re-cut seed searches again: the witnesses selected now stay candidates, and the
+                # «در جستجو» ticks (numbers of the old parts) no longer apply
+                sel = project.decision(pid, "selection") or {}
+                payload["keep_ids"] = sorted(set(sel.get("selected", [])) - {p["seed"]})
+                sdec = project.decision(pid, "search") or {}
+                if sdec.get("part_query") is not None:
+                    project.add_decision(pid, "search", dict(part_query=None, extra_ids=sdec.get("extra_ids", [])),
+                                         u["username"], "the seed's parts changed")
+            else:
+                payload["keep_ids"] = prev.get("keep_ids", [])
         n = project.add_decision(pid, step, payload, u["username"], str(body.get("note", ""))[:500])
         if step == "phylogeny" and payload.get("confirmed"):
             with project.lock(pid):                     # the next tab at once; the run that follows sets its own step
@@ -410,6 +433,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             if splits:
                 out["splits"] = splits
             return out
+        if step == "parts":
+            return _validate_parts(pl, pid)
         if step == "phylogeny":
             dates = pl.get("dates", {})
             edits = pl.get("chain_edits", {})
@@ -430,6 +455,42 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 out["confirmed"] = pl["confirmed"]
             return out
         raise HTTPException(400)
+
+    def _validate_parts(pl: dict, pid: str) -> dict:
+        S = project.run_stage(pid, "current", "search")
+        if S is None:
+            raise HTTPException(409, "the search has not run yet")
+        n = len(S["tokens"])
+        auto = S.get("auto_clauses") or [c["span"] for c in S["clauses"]]
+
+        def spans(x, top):
+            ok = isinstance(x, list) and 0 < len(x) <= 300 and all(
+                isinstance(v, list) and len(v) == 2 and all(isinstance(t, int) and not isinstance(t, bool) for t in v) and 0 <= v[0] < v[1] <= top
+                for v in x)
+            return ok and all(a[1] <= b[0] for a, b in zip(x, x[1:]))
+
+        seed, conf = pl.get("seed"), pl.get("seed_confirmed")
+        for x in (seed, conf):
+            if x is not None and not spans(x, n):
+                raise HTTPException(400, f"the seed's parts must be ordered, non-overlapping [start, end) token spans within {n} tokens")
+        added, dropped = pl.get("extras_added", []) or [], pl.get("extras_dropped", []) or []
+        if not (isinstance(added, list) and len(added) <= 50 and all(
+                isinstance(a, dict) and isinstance(a.get("wid"), str) and WID_RE.match(a["wid"]) and spans([a.get("span")], 5000) for a in added)):
+            raise HTTPException(400, "extras_added must be {wid, span: [start, end)}")
+        key_ok = lambda k: isinstance(k, str) and 2 < len(k) <= 600 and k[:2] in ("s:", "x:")
+        if not (isinstance(dropped, list) and len(dropped) <= 300 and all(key_ok(k) for k in dropped)):
+            raise HTTPException(400, "extras_dropped must be part keys")
+        slots, confirmed = pl.get("slots", {}) or {}, pl.get("confirmed", {}) or {}
+        if not (isinstance(slots, dict) and len(slots) <= 300 and sum(len(v) for v in slots.values() if isinstance(v, dict)) <= 6000 and all(
+                key_ok(k) and isinstance(v, dict) and all(isinstance(w, str) and WID_RE.match(w) and (x in ("absent", "unknown") or spans([x], 5000))
+                                                          for w, x in v.items()) for k, v in slots.items())):
+            raise HTTPException(400, "slots must map a part key to {wid: [start, end) | absent | unknown}")
+        if not (isinstance(confirmed, dict) and len(confirmed) <= 300 and all(
+                key_ok(k) and isinstance(v, list) and len(v) <= 2000 and all(isinstance(w, str) and WID_RE.match(w) for w in v) for k, v in confirmed.items())):
+            raise HTTPException(400, "confirmed must map a part key to the witnesses it was checked in")
+        return dict(seed=None if seed == auto else seed, seed_confirmed=conf,
+                    extras_added=[dict(wid=a["wid"], span=a["span"]) for a in added], extras_dropped=sorted(set(dropped)),
+                    slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
 
     return r
 

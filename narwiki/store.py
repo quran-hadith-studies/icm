@@ -31,7 +31,7 @@ from . import config
 FIELDS = ["name", "alias", "kunya", "laqab", "nisba", "mazhab", "grade", "rank", "tabaqa",
           "death_lo", "death_hi", "birth", "places", "note"]
 NAME_FIELDS = ("name", "alias", "kunya", "laqab", "nisba")
-SOURCE_ORDER = {"user": 0, "noor": 1, "kg": 2}          # which source's value is shown first
+SOURCE_ORDER = {"user": 0, "noor": 1, "kg": 2, "dirayah": 3}          # which source's value is shown first
 
 SCHEMA = """
 create table if not exists person(
@@ -272,7 +272,7 @@ def summary(c: sqlite3.Connection, pid: int) -> dict:
 def search(c: sqlite3.Connection, q: str = "", kind: str = "", dated: str = "", sugg: str = "",
            limit: int = 50, offset: int = 0) -> dict:
     """Active persons matching ``q`` (names, ``noor:12`` / ``kg:5`` / ``wiki:…`` ids or a person number),
-    filtered by which databases they are in (``kind``: noor | kg | both | noor_only | kg_only | wiki), whether
+    filtered by which databases they are in (``kind``: noor | kg | dirayah | both | noor_only | kg_only | wiki), whether
     a death date is known (``dated``: 1 | 0) and whether a merge suggestion waits (``sugg``: 1)."""
     q = (q or "").strip()
     where, args, join, order = ["p.status='active'"], [], "", "p.n_narr desc, p.id"
@@ -295,7 +295,7 @@ def search(c: sqlite3.Connection, q: str = "", kind: str = "", dated: str = "", 
     has = lambda k: f"exists (select 1 from person_ext x where x.person_id=p.id and x.kind='{k}')"
     kind_sql = {"noor": has("noor"), "kg": has("kg"), "both": f"{has('noor')} and {has('kg')}",
                 "noor_only": f"{has('noor')} and not {has('kg')}", "kg_only": f"{has('kg')} and not {has('noor')}",
-                "wiki": f"not {has('noor')} and not {has('kg')}"}
+                "dirayah": has("dirayah"), "wiki": f"not {has('noor')} and not {has('kg')} and not {has('dirayah')}"}
     if kind in kind_sql:
         where.append(kind_sql[kind])
     dsql = "exists (select 1 from person_field d where d.person_id=p.id and d.field in ('death_lo','death_hi') and d.status='current')"
@@ -887,7 +887,7 @@ def stats(c) -> dict:
         ext={r[0]: r[1] for r in q("select kind, count(*) from person_ext group by kind")},
         persons_by_sources={r[0]: r[1] for r in q(
             "select k, count(*) from (select group_concat(kind, '+') as k from (select distinct x.person_id, x.kind from person_ext x "
-            "join person p on p.id=x.person_id and p.status='active' where x.kind in ('noor','kg') order by x.person_id, x.kind) group by person_id) group by k")},
+            "join person p on p.id=x.person_id and p.status='active' where x.kind in ('noor','kg','dirayah') order by x.person_id, x.kind) group by person_id) group by k")},
         fields=q("select count(*) from person_field")[0][0],
         revisions={f"{r[0]}|{r[1]}": r[2] for r in q("select kind, review_status, count(*) from revision group by kind, review_status")},
         suggestions={f"{r[0]}|{r[1]}": r[2] for r in q("select kind, status, count(*) from merge_suggestion group by kind, status")},

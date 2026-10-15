@@ -481,10 +481,12 @@ python3 -m narrators thaqalayn   # ThaqalaynData narrators (cross-check) + load
 python3 -m narrators link        # (a) Infallibles (b) cited pages (c) alphabetical books (d) names
 python3 -m narrators facts       # death years, Imam periods, cities (+ al-Ṯurayyā coordinates)
 python3 -m narrators sunni       # hadith-kg / hawramani / muslimscholars / AR-Sanad
+python3 -m narrators dirayah     # Dirayat al-Noor 3 export → external/dirayah.sqlite, linked to Noor (~2.5 min)
 python3 -m narrators eval        # the evaluation protocol; samples → external/eval_samples.json
 python3 -m narrators export --hadith-ids 106382,316143 --out meta.json --links links.json
 python3 -m narrators export --dump external/narrators.json      # full dump (MCP contract)
 python3 tests/test_narrators.py
+python3 -m pytest tests/test_narrators_dirayah.py -q
 ```
 
 How a narrator is linked, in order of reliability: the fourteen Infallibles by id
@@ -507,6 +509,48 @@ documented teachers = Noor teacher → student pairs seen in ≥ 2 isnāds) and 
 `to_family`-compatible links file, so the model runs unchanged on a Noor family. Tabaqa is
 deliberately not exported as `layer`: `compatible()` rejects `u.layer ≥ v.layer`, which
 would forbid two companions of one Imam from transmitting to each other.
+
+### Dirayat al-Noor 3 (`narrators/dirayah.py`, 2026-10-14)
+
+CRCIS's rijal program (درایة النور ۳), extracted by its licence holder from the installation media
+(`hadith-hub/dirayah3/README.md`: the program's Elasticsearch node, exported to JSONL). `python3 -m narrators
+dirayah` writes `external/dirayah.sqlite` (496 MB) with Dirayah's data as given — 7,887 narrators (grade
+«ثقة/ضعیف…», school, class = the Imams they are companions of, the eight rijal books' evaluations, subjects),
+37,651 name forms, 61,338 biography locations in the rijal books, 183,296 rebuilt isnads (al-Kafi 17,611,
+al-Tahdhib 71,031, al-Istibsar 24,263, al-Faqih 7,263, Wasa'il 54,383, al-Saduq's works) with their grading
+(صحیح 84,941, موثق 23,058, ضعیف مهمل 50,222 …), type, the written isnad, its full reading, the author's route to
+the book and the matn, and their 3,058,548 entities — and links it to Noor:
+
+* **Records.** An isnad is tied to its Noor hadith (Jami' al-Ahadith HadithId, which is also the hadith.ai v2
+  Noor id) on the same book, volume and page: by matn (161,699), or for a short matn («مثله», Wasa'il's further
+  routes) by the names Noor wrote in the record's isnads (13,776); 175,475 of 183,296 (95.7 %), on 80,957
+  hadith.ai v2 Noor records. The rest are ambiguous (3,395), dissimilar (3,287) or on a page v02 lacks (1,139).
+  Ids never decide a record link; the Noor isnad of the record an isnad is aligned with is also chosen by the
+  written names.
+* **Persons.** The two databases share an id space, but not always the person: Noor 4305 «عبد الله بن جبلة» is
+  Dirayah 3462 (Dirayah's 4305 is «عمر بن جبلة»), Noor 25744 «علي بن الحسين بن بابويه» is Dirayah 4005, and some
+  namesakes sit under one id in one database and another in the other. So a Noor and a Dirayah id are one person
+  only from the shared records: aligned at the same position of the same isnad >= 3 times, each >= 95 % of the
+  other's aligned positions, and names that do not disagree on first name or father (`person_link.tier =
+  'certain'`): **2,981 one-to-one pairs** (53 of them under different ids), 979,833 aligned positions, covering
+  **97.5 % of Noor's linked isnad slots** and 370,464 hadith.ai v2 mentions; 1,134 of these Noor narrators gain a
+  Dirayah evaluation. Weaker evidence (2,032 pairs, 4,267 positions; a name disagreement such as «إبراهيم بن
+  إسحاق» / «إبراهيم بن زياد» at the same 32 places; «عمر» / «عمرو») and the same id with the same name but no
+  shared record (449) are `'suggested'`; 2,479 Dirayah narrators (rijal entries never in an isnad) are
+  linked to nothing. Only the written chain is aligned (the route to the book, `is_torog`, is not in Noor's
+  isnad), and parallel narrators «X و Y» (`is_by_atf`) pair only by equal id.
+* **Verified independently** (`dirayah.verify`, stored in `meta.verification`). Jami' al-Ahadith's narrator
+  records — the Noor side, from its SanadInfo (`narrators.sqlite ravi`) — carry CRCIS's own evaluation, the one
+  Dirayah computes (school, grade, the Imams of the narrator's class), and Noor cites the rijal pages that grade a
+  narrator (`citation`) where Dirayah locates his entries (`tarjama`). Neither was used to link. Of the 2,981
+  certain pairs, 1,516 can be compared on at least one of these and **none contradicts**: school 1,138/1,138,
+  grade (first word: Noor «ضعيف» = Dirayah «ضعيف مصرح») 1,115/1,115, class 1,100/1,100, rijal page 923 of 924 (the
+  other has no entry in a shared book). The 53 links between different ids agree 26 of 26 checkable, while the
+  same-numbered Dirayah id agrees on the rijal page in 2 of 12 (Noor 4305's evaluation «غیر امامی، ثقة، الكاظم»
+  is Dirayah 3462's; Dirayah 4305 «عمر بن جبلة» has none). Random pairs contradict in 62 % of the checkable
+  cases, so the checks do catch a wrong person. The 1,465 certain pairs no check reaches share the id and the
+  normalised name (1,406) or a spelling of it (59). Suggested pairs: 13 contradictions in 524 checkable.
+* **Not read:** `Rijal/Dirayah.db`, an encrypted SQLite file (`hadith-hub/dirayah3/README.md`).
 
 ## The ICM wizard (`icm/`)
 
@@ -645,6 +689,64 @@ What every step also offers (added 2026-10-13):
   per variant unit the most probable ancestral state, elsewhere the witnesses' common text, from the step-3 grids.
   Shown for the best source on the «نتیجه» tab and for any narrator on its own tab, words coloured by confidence.
   The unnamed root's vector comes from `results.ancestral_matn_at_map_source` (the bundle keeps only narrators').
+* **Segmentation (فرازبندی), corrected and confirmed by the user.** The automatic parts are suggestions. Steps 1 and 2 have
+  «ویرایش فرازبندی»: the seed as words, a word click takes it out of (or back into) the parts, a click between two words
+  cuts or joins; «تأیید همین فرازبندی» confirms the automatic cut. A new cut searches again (`search.run(params.clauses)`,
+  the witnesses selected at that moment are passed as `keep_ids` and stay candidates; the «در جستجو» ticks are reset by a
+  new `search` decision). Step 3 has «فرازبندی بخش‌ها در شاهدها»: per part, every witness's slot, which the user can move
+  (first and last word of the witness's stored text), mark «ندارد» (absent, even in an abridged text) or «نامعلوم»; extra
+  parts can be dropped, and a new one cut from a witness's text; each part is confirmed with the witnesses it was checked
+  in («تأییدشده؛ n شاهد تازه» after more are selected). Everything is one append-only decision, `parts`: `seed` (token
+  spans; null = automatic), `seed_confirmed`, `keep_ids`, `extras_dropped`, `extras_added` ({wid, span}), `slots`
+  (part key → wid → [a, b) | absent | unknown) and `confirmed` (part key → wids). Part keys are kind + normalised text
+  (`align.part_keys`), so a re-cut part starts unreviewed. Slot coordinates are tokens of the text the search stage keeps
+  (`align.text_tokens`; `GET /runs/<run>/words/<wid>` gives them with character offsets and the aligned window).
+  The decision never blocks the pipeline and enters a stage key only when it says something (automatic projects keep
+  their hashes and run ids); confirmations change no computation, and step 5 reminds of unconfirmed parts.
+* **hadith.ai v2 data (2026-10-13).** v02 now carries the hadith.ai v2 corpus (Noor books replaced, Dorar and
+  sunnah.com added; `hadith-hub/README.md`, "hadith.ai v2"), and `external/icm/hadithai.sqlite`
+  (`python3 -m icm build hadithai`, from the hub books; `icm/hadithai.py`) gives the wizard, per hadith, hadith.ai's
+  segmentation and narrator tags. A Jami' al-Ahadith hadith (v02 id 800M + N) uses the hadith.ai record of Noor id N.
+  * *Parts (steps 1-3).* When the seed has hadith.ai segments, the automatic parts are cut at the boundaries of
+    both hadith.ai's segments and the rule-based cut (`text.union_cuts`; `search` output `auto_by: "hadith.ai+rules"`,
+    each part's speaker from its segment in `clause_owners`); else the rule-based cut alone. hadith.ai's segments are
+    semantic but coarse in lists (the sitta seed's «الزائد… والمكذب… والتارك… والمستحل…» is one segment), and a part is
+    the unit of presence and of the order-free search: alone they dropped the sitta benchmark to 9 of 28 pre-selected;
+    the union keeps 28 of 28 and adds hadith.ai's cuts the rules miss («…وكل نبي مجاب» | «الزائد في كتاب الله»).
+    Segments are not cut by character offset: their tokens are aligned with the wizard's tokens of the v02 text and the
+    boundaries carried over (both texts must agree on >= 85% of their tokens). The parts remain a suggestion the user
+    corrects and confirms.
+  * *Chains (step 4).* The order of chain sources is Noor's linked slots, the KG's chains, then **hadith.ai's
+    narrator tags** (`source: "hadithai"`: the opening isnad's Narrator/Exporter tags, or for sunnah.com the isnad
+    segment's owner list, each name classified by the isnad grammar: relatives, anonymous narrators, honorifics,
+    the Prophet as speaker, an Imam ending the chain as speaker), then the rule-based parser. Measured on 5,000 random
+    Noor hadiths against Noor's linked isnad (`evaluate.chains`): hadith.ai tags recall 0.702, precision 0.876, F1
+    0.779, no chain 0%; the parser 0.622, 0.867, 0.724, 16.2%. (Noor's linked isnad can hold steps the text does not
+    write, which lowers both recalls.) The names are still identified on step 4; hadith.ai gives no narrator ids.
+  * *Copies across corpora.* sunnah.com books are now in v02 and their works in the KG: a v02 row and a KG row of one
+    work (titles one inside the other) with near-identical texts (token similarity >= 0.92, lengths within 15%) are
+    one witness (`search._fold_across_corpora`); the KG row is kept for its narrator ids.
+  * *Narrator mentions (2026-10-14).* hadith.ai has no narrator identities (tags are character spans; the
+    `/registry/owners` catalogue is a list of 369,608 owner strings with a category), so `hadithai.sqlite` keeps every
+    tagged name as a **mention** (`mention`, 1,844,393 rows: Noor 1,107,393, sunnah.com 686,966, Dorar 50,034) and
+    every segment speaker (`speaker`, 1,915,829 rows), and ties a mention to a person only where that is certain:
+    `link = 'noor_slot'` when the same Noor record has Noor's linked isnad and the mention has the same normalised name
+    as a slot in the same order (408,335 mentions, 384,757 with a RaviId; such an element of a `hadithai` chain is
+    *exact*). Everything else stays unlinked. For Noor records without a linked isnad (Bihar, Wafi, Mustadrak, the
+    tafsirs) a mention may carry a **suggestion** (`sugg_ravi`): every certain mention with the same name and neighbours
+    is one Noor narrator (`ctx3` both neighbours, >= 2 such mentions; `ctx_prev`/`ctx_next` one neighbour, >= 3); a name
+    alone, and a relative word opening the chain («عن أبيه»: whose father depends on the author), suggest nothing.
+    282,347 suggestions. Leave-book-out precision (`evaluate.mentions`, folds by book title): ctx3 0.997, ctx_prev
+    0.992, ctx_next 0.992, all 0.996, 74% of certain mentions would get one. Step 4 puts the suggested narrator first
+    with its reason («… در N سند پیوندخورده‌ی نور همیشه همین راوی است»), tier high for ctx3 and medium for one
+    neighbour unless the name evidence says more; it is never exact. Sunni mentions (sunnah.com, Dorar) are kept
+    without links or suggestions: no source with identities shares their records, and the Shia chains the suggestions
+    learn from say nothing certain about them. hadith.ai's speaker labels (`owner_canonical`) are not mapped to persons:
+    outside Noor they are often wrong («محمد الباقر بن علي بن الحسين» labelled امام سجاد in 321 Dorar segments, «علي بن
+    الحسين بن علي» امام حسین in 166, «الحسن بن علي الحلواني» امام حسن). On the sitta project the verdict is unchanged
+    (unnamed origin, log BF 82.6 over ʿĀʾisha; 240 narrators, two names now exact from the same record's Noor slots).
+    `hadithai.sqlite` is 791 MB.
+  * `STAGE_VERSIONS` search 2, identify 7, `DATA_VERSION` 2026-10-14: a project's next run recomputes from search on.
 * **Narrator wiki.** When `narwiki`'s database is present, `/api/narrators` and the narrator card carry the wiki person,
   and step 4 offers «یک شخص با دو شناسه» suggestions for ids the wiki holds as one person (computed when the stage is
   served, so later wiki edits show up; never applied without the user). `project.refresh_indexes` writes
@@ -676,7 +778,7 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 | Live site | `https://ebadollah.ir/icm`, FastAPI app of the ebadollah workspace, uvicorn on `127.0.0.1:8078` behind nginx + Cloudflare |
 | Server | `ubuntu@132.145.99.75` (hostname `rezaei`, 2 cores, 951 MB RAM, Python 3.14 venv `~/.venv-ebad`) |
 | Server code | `~/ebadollah/icm` (git clone of this repo; update with `git -C ~/ebadollah/icm pull --ff-only`, then `sudo systemctl restart icm-worker ebadollah-web`) |
-| Server data | `~/ebadollah/data/icm/` (`narrators.sqlite`, `kg.sqlite`, `noor_relations.sqlite`, `termdf.sqlite`, `books_meta.json`, `icm_jobs.sqlite`, and `cache/` = the results, a plain directory) |
+| Server data | `~/ebadollah/data/icm/` (`narrators.sqlite`, `kg.sqlite`, `noor_relations.sqlite`, `termdf.sqlite`, `books_meta.json`, `hadithai.sqlite`, `icm_jobs.sqlite`, and `cache/` = the results, a plain directory) |
 | Corpus the server reads | `~/ebadollah/data/v02/hadith.sqlite` (the /h database, 4.3 GB) and `~/ebadollah/web/quran/data/hadith/v02/consensus.sqlite` |
 | Site-side glue (outside this repo) | `deploy/` here holds reference copies, see `deploy/README.md` |
 | Secrets | helper token: `~/.icm_helper_token` on the laptop and `EBAD_ICM_HELPER_TOKEN` in the server's `config.env`. Never put either in git |
@@ -693,6 +795,7 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 | `search.py` | step 2: candidate generation (per-clause FTS + relation signals) and scoring |
 | `align.py` | step 3: per-clause grids, extra-clause discovery, variant units (`X` rows) |
 | `sanad_parse.py` | rule-based isnād grammar; data in `icm/data/*.json` |
+| `hadithai.py` | hadith.ai v2 segments and narrator tags of a v02 hadith (`hadithai.sqlite`): seed parts, chains |
 | `identity.py` | step 4: chains per corpus, name to person candidates, name cards, `resolve()` of the user's choices |
 | `narrator_info.py` | narrator cards (facts with evidence, rijāl entries, teachers/students, KG judgements) |
 | `graph.py` | step 5: the model's `Family`, dates, cities, teachers, chronology flags |
@@ -706,7 +809,7 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 | `cache.py`, `cli.py`, `evaluate.py`, `viewer.py`, `devserver.py` | git sync, commands, search evaluation, results page, local dev server |
 | `suggest.py` | step 4 suggestions from the databases (titles, glued words, non-names, relatives, same person, no isnad) |
 | `static/` | `icm.html/css/js` (the wizard, vanilla JS, Persian RTL), `tree.js/css` (the transmission tree of steps 5 and 6), `results.js/css` (step 6 and the standalone page), `model_worker.js`, `model.zip`, `viewer.css/js` (the standalone page's frame) |
-| `build/` | laptop-only builders: `kg_extract`, `noor_relations`, `termdf`, `books_meta`, `model_zip` |
+| `build/` | laptop-only builders: `kg_extract`, `noor_relations`, `termdf`, `books_meta`, `hadithai`, `model_zip` |
 
 ### Data flow and files
 
@@ -715,7 +818,8 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 previous stage plus the decisions it depends on. In the cache:
 
 * `projects/<pid>/decisions/<step>/<nnnn>.json`: append-only, the complete state each time (`search`, `selection`,
-  `identities`, `phylogeny`). Never edit or delete.
+  `identities`, `phylogeny`, `parts`). Never edit or delete. A run id is the versions of these steps (`parts` only once
+  the project has a `parts` decision) and a hash of its stage keys.
 * `projects/<pid>/stages/<stage>/<hash>.json`: the output, named by the hash of its inputs (`pipeline.py`:
   `h(stage, upstream hashes, decisions, STAGE_VERSIONS[stage], DATA_VERSION)`). Never overwritten.
 * `projects/<pid>/runs/<run>/manifest.json`: which stage files a combination of decision versions used.
@@ -742,7 +846,7 @@ previous stage plus the decisions it depends on. In the cache:
 ### Run and test locally
 
 ```
-python3 -m icm build all                      # data files into external/icm/ (kg first; takes a few minutes)
+python3 -m icm build all                      # data files into external/icm/ (kg first; takes a few minutes; hadithai needs the hub books)
 python3 -m icm build model                    # icm/static/model.zip
 ICM_CACHE_DIR=/tmp/c ICM_JOBS_DB=/tmp/c/jobs.sqlite ICM_GIT=0 ICM_DEV_USER=alice uvicorn icm.devserver:app --port 8099
 ICM_CACHE_DIR=/tmp/c ICM_JOBS_DB=/tmp/c/jobs.sqlite ICM_GIT=0 python3 -m icm worker
@@ -769,6 +873,8 @@ token), make `~/ebadollah/data/icm/cache` a clone of `icm-cache`, and remove `IC
 * `identities` decisions are keyed by the normalised name of a card, so one choice applies to every chain with that name;
   «فقط همین جا» in the editor stores a per-occurrence override instead.
 * `merges`, `splits`, `drops` (step 4) and `dates` are decided in the UI; `chain_edits` (step 5) has no UI.
+* Segmentation corrections fix where a part is; the words inside a part are still aligned automatically (no per-column
+  edits). A slot can only point into the stored 1,500 characters of a witness's text.
 * The marginal maximum path of older runs stitches per-narrator posteriors and may follow a chain no sampled tree
   contains; rerunning the analysis gives the particle estimate.
 * Results computed in a browser or by the helper are checked for consistency but not recomputed by the server.
@@ -811,8 +917,9 @@ right to left, built like the ICM wizard (FastAPI router + one static page, no b
 
 **Model.** A *person* (`person`, numbered in the wiki) carries any number of external ids, stored generically as
 `(kind, ext_id)` rows (`person_ext`): `noor` = Noor RaviId (`narrators.sqlite` `ravi`), `kg` = Hadith Knowledge Graph
-rawi (`kg.sqlite` `rawis`), `wiki` = persons created in the wiki (also the stable "anchor" of split-off persons). A
-further database (e.g. a real Rezwan narrator export) is just another kind. Every value is a `person_field` row
+rawi (`kg.sqlite` `rawis`), `dirayah` = Dirayat al-Noor 3 narrator (`external/dirayah.sqlite`), `wiki` = persons
+created in the wiki (also the stable "anchor" of split-off persons). A further database (e.g. a real Rezwan narrator
+export) is just another kind. Ids of different kinds share a person only when certain or accepted by a user. Every value is a `person_field` row
 (name, alias, kunya, laqab, nisba, mazhab, grade, rank, tabaqa, death_lo/hi, birth, places, note) with its provenance:
 `source` (`noor`, `noor/<rijal book of the fact>`, `kg`, `user`), the external id it came from, and the revision that
 wrote it. Values are never deleted, only retired.
@@ -829,11 +936,19 @@ person `merged` (`merged_into`; its ids and values move, old links follow); acce
 ```
 python3 -m narwiki seed            # NARWIKI_DB (default ../narwiki-data/wiki.sqlite, outside the repo); --force rebuilds
 python3 -m narwiki similar         # merge suggestions; re-run any time (replaces only still-proposed ones of its kinds)
+python3 -m narwiki dirayah         # add Dirayat al-Noor 3: certain links joined, the rest link_dirayah suggestions
 python3 -m narwiki stats
 python3 -m narwiki export-revisions -o revs.json      # the edits made after seeding (+ decided suggestions)
 python3 -m narwiki import-revisions revs.json         # replay them onto a re-seeded database (persons found by ext id)
 python3 -m narwiki serve --port 8098                  # = uvicorn narwiki.devserver:app (NARWIKI_DEV_USER=alice for a name)
 ```
+
+`dirayah` (after `python3 -m narrators dirayah`) puts each Dirayah narrator with a certain link (`person_link.tier`,
+shared isnad places, verified against CRCIS's evaluation; "Dirayat al-Noor 3" above) on its Noor narrator's person —
+2,981, 53 of them under another id (`noor:4305` + `dirayah:3462`) — with Dirayah's values (school, grade, class,
+summaries, the eight books' evaluations, biography pages; `source = 'dirayah'`); the other 4,909 are persons of their
+own, and the 2,479 weaker pairs `link_dirayah` suggestions with their evidence. Re-running adds only new ids.
+Result 2026-10-15: 62,848 persons (dirayah+noor 2,981, noor 5,139, dirayah 4,909, kg 49,819), 90.8 MB.
 
 `seed` makes one person per Noor narrator (8,120) and per non-stub KG narrator (49,819) with their fields (Noor death
 dates and cities from `narrators.facts.resolve`, without the Imam-period estimate), one approved `seed` revision each,
@@ -852,11 +967,15 @@ changes. The person page shows the values with provenance, the `icm.narrator_inf
 columns, linked rijal entries, teachers and students mapped to wiki persons, suggestions with evidence, ICM projects
 (`<ICM_CACHE_DIR>/narrator_index.json`, written by ICM: `{"noor:12": [{"pid", "title", "status"}]}`) and the hadith
 occurrences read live (paged) from `narrators.sqlite slot` (links to `/h/i/<800000000 + id>`) and `kg.sqlite
-sanad_rawis`; they are not copied into the wiki database. `/api/person/<id>/export.html` downloads a self-contained page
-(inline CSS, JS and data; the first 100 occurrences per source).
+sanad_rawis`; they are not copied into the wiki database. A third list, «پیشنهاد hadith.ai», shows the hadith.ai
+mentions suggested for the person's Noor ids (`hadithai.sqlite` `mention.sugg_ravi`, see "Narrator mentions" above),
+each with its record's tagged chain, marked as suggestions; the mentions Noor's own slots confirm are only counted
+(they are the Noor occurrences already listed). hadith.ai creates no persons and no merges: it has no identities.
+`/api/person/<id>/export.html` downloads a self-contained page (inline CSS, JS and data; the first 100 occurrences per
+source).
 
 **API** (`narwiki/api.py`, `make_router(get_user, prefix="/narrator")`): reads `/api/me`, `/api/stats`,
-`/api/search?q=&kind=noor|kg|both|noor_only|kg_only|wiki&dated=1|0&sugg=1`, `/api/person/<id>` (+ `/hadiths?src=noor|kg`,
+`/api/search?q=&kind=noor|kg|both|noor_only|kg_only|wiki&dated=1|0&sugg=1`, `/api/person/<id>` (+ `/hadiths?src=noor|kg|hadithai`,
 `/history`, `/projects`, `/export.html`), `/api/by-ext/<kind>/<id>`, `/api/merge/preview?a=&b=`, `/api/queue`,
 `/api/revision/<id>`, `/api/suggestions`; writes (header `X-NARWIKI: 1`) `POST /api/person`, `/api/person/<id>`,
 `/api/merge`, `/api/person/<id>/split`, `/api/revision/<id>/revert`, `/api/revision/<id>/review`,

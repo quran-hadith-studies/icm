@@ -9,7 +9,7 @@
   sync [--server U@H:PATH]       commit and push the cache; with --server, first copy the server's cache here
   helper [--server URL] [--token-file F]   compute waiting projects on this machine (see icm/helper.py)
   eval                           recall of the search against the diagram witnesses and the consensus sets
-  build kg|noor|termdf|books     (re)build the laptop-side data files
+  build kg|noor|termdf|books|hadithai   (re)build the laptop-side data files
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _auto(pid: str, user: str) -> dict:
     while True:
         if p["step"] == "selection":
             S = project.run_stage(pid, "current", "search")
-            sel = [S["seed"]["wid"]] + [c["wid"] for c in S["candidates"] if c["suggested"] in search.PRESELECTED]
+            sel = [S["seed"]["wid"]] + [c["wid"] for c in S["candidates"] if search.preselected(c)]
             project.add_decision(pid, "selection", dict(selected=sel), user, "auto")
         elif p["step"] == "identities":
             project.add_decision(pid, "identities", dict(choices={}), user, "auto")
@@ -48,7 +48,7 @@ def main(argv=None) -> int:
     sy = sub.add_parser("sync"); sy.add_argument("--server", help="user@host:path of the server's cache directory; copied here first")
     sub.add_parser("eval")
     hp = sub.add_parser("helper", add_help=False)   # own parser in icm.helper
-    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "model", "all"])
+    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "model", "all"])
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "helper":                 # the helper has its own options; fix the hash seed first
         if os.environ.get("PYTHONHASHSEED") != "0":
@@ -83,11 +83,11 @@ def main(argv=None) -> int:
         print(json.dumps(evaluate.sitta(), ensure_ascii=False, indent=1))
         print(json.dumps(evaluate.consensus_oracle(), indent=1))
     elif a.cmd == "build":
-        from .build import books_meta, kg_extract, model_zip, noor_relations, termdf
+        from .build import books_meta, hadithai, kg_extract, model_zip, noor_relations, termdf
         if a.what == "model":
             print(model_zip.build())
             return 0
-        for name, mod in (("books", books_meta), ("noor", noor_relations), ("kg", kg_extract), ("termdf", termdf)):
+        for name, mod in (("books", books_meta), ("noor", noor_relations), ("kg", kg_extract), ("termdf", termdf), ("hadithai", hadithai)):
             if a.what in (name, "all"):
                 mod.run()
     return 0

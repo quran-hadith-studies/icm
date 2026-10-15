@@ -25,7 +25,7 @@ from hadith_phylogeny.report import finite
 
 from . import config
 
-STEPS = ("search", "selection", "identities", "phylogeny")      # steps with decisions
+STEPS = ("search", "selection", "identities", "phylogeny", "parts")      # steps with decisions ("parts" last: run ids keep their first four numbers)
 WIZARD = ("seed", "search", "selection", "alignment", "identities", "phylogeny", "analysis", "done")
 
 
@@ -155,7 +155,10 @@ def stage_put(pid: str, stage: str, hash_: str, obj: dict) -> None:
 
 
 def run_id(vers: Dict[str, int], stage_hashes: Dict[str, str]) -> str:
-    return ".".join(f"{vers[s]:04d}" for s in STEPS) + "-" + h(sorted(stage_hashes.items()))[:6]
+    nums = [vers.get(s, 0) for s in STEPS]
+    if not nums[-1]:                                    # no "parts" decision: the run id of before that step existed
+        nums = nums[:-1]
+    return ".".join(f"{n:04d}" for n in nums) + "-" + h(sorted(stage_hashes.items()))[:6]
 
 
 def write_run(pid: str, vers: Dict[str, int], stage_hashes: Dict[str, str], extra: Optional[dict] = None) -> str:
