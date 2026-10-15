@@ -36,7 +36,7 @@ def _one(i: int):
     return i, light, client.graphs(i)
 
 
-def compute(job: dict, workers: int, say=print) -> dict:
+def compute(job: dict, workers: int, say=print, progress=None) -> dict:
     payload = json.dumps(dict(graph=job["graph"], texts=job["texts"], preset=job["preset"], seed=job["seed"]))
     t0 = time.time()
     info = json.loads(client.init(payload))                    # in this process: needed for finish()
@@ -49,6 +49,8 @@ def compute(job: dict, workers: int, say=print) -> dict:
             light[i] = json.loads(lj)
             graphs[i] = gj
             say(f"  {k}/{n} {info['sources'][i][:40]}  log Z {light[i]['log_Z']}")
+            if progress:
+                progress(k, n, info["sources"][i][:40])
     best = max(range(n), key=lambda i: -1e300 if light[i]["log_Z"] is None else light[i]["log_Z"])
     secs = time.time() - t0
     prov = dict(kind="helper", workers=workers, seconds=round(secs), platform=platform.platform()[:60])

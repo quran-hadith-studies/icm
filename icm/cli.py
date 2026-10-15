@@ -7,6 +7,7 @@
   replay PID                     advance an existing project once
   status [PID]                   list projects or show one
   sync [--server U@H:PATH]       commit and push the cache; with --server, first copy the server's cache here
+  app [install|uninstall|open LINK|FILE]   desktop app: runs a project the website hands over (see icm/app.py)
   helper [--server URL] [--token-file F]   compute waiting projects on this machine (see icm/helper.py)
   eval                           recall of the search against the diagram witnesses and the consensus sets
   build kg|noor|termdf|books|hadithai   (re)build the laptop-side data files
@@ -37,6 +38,15 @@ def _auto(pid: str, user: str) -> dict:
         p = pipeline.advance(pid)
 
 
+def _reexec_with_hashseed(argv: list) -> None:
+    """Restart as ``python -m icm ARGV`` with PYTHONHASHSEED=0 (the SMC output depends on set order)."""
+    os.environ["PYTHONHASHSEED"] = "0"
+    if os.name == "nt":                          # execv does not replace the process on Windows: run it and pass the code on
+        import subprocess
+        raise SystemExit(subprocess.call([sys.executable, "-m", "icm", *argv]))
+    os.execv(sys.executable, [sys.executable, "-m", "icm", *argv])
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="icm")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -47,13 +57,18 @@ def main(argv=None) -> int:
     st = sub.add_parser("status"); st.add_argument("pid", nargs="?")
     sy = sub.add_parser("sync"); sy.add_argument("--server", help="user@host:path of the server's cache directory; copied here first")
     sub.add_parser("eval")
+    sub.add_parser("app", add_help=False)           # own parser in icm.app
     hp = sub.add_parser("helper", add_help=False)   # own parser in icm.helper
     b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "model", "all"])
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "app":
+        if argv[1:2] not in (["install"], ["uninstall"]) and os.environ.get("PYTHONHASHSEED") != "0":
+            _reexec_with_hashseed(argv)
+        from .app import main as amain
+        return amain(argv[1:])
     if argv and argv[0] == "helper":                 # the helper has its own options; fix the hash seed first
         if os.environ.get("PYTHONHASHSEED") != "0":
-            os.environ["PYTHONHASHSEED"] = "0"
-            os.execv(sys.executable, [sys.executable, "-m", "icm", *argv])
+            _reexec_with_hashseed(argv)
         from .helper import main as hmain
         return hmain(argv[1:])
     a = ap.parse_args(argv)

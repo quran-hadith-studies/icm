@@ -82,6 +82,26 @@ def test_helper_claim_and_token():
         shutil.rmtree(d)
 
 
+def test_desktop_job_token():
+    c, pid, d = setup()
+    try:
+        assert c.post(f"/icm/api/project/{pid}/desktop-token", headers=H("bob")).status_code == 403      # owner or admin only
+        t = c.post(f"/icm/api/project/{pid}/desktop-token", headers=H("alice")).json()
+        assert t["key"] == "k1" and len(t["token"]) >= 20
+        assert t["token"] not in json.dumps(project.load(pid))                                          # only the hash is stored (public cache)
+        J = lambda tok: {"X-ICM-Job": tok}
+        assert c.get(f"/icm/api/project/{pid}/compute-input", headers=J("x" * 32)).status_code == 401
+        r = c.get(f"/icm/api/project/{pid}/compute-input", headers=J(t["token"]))
+        assert r.status_code == 200 and r.json()["model"]
+        res = real_result()
+        assert c.post(f"/icm/api/project/{pid}/compute-result", json=res, headers=J("x" * 32)).status_code in (401, 403)
+        ok = c.post(f"/icm/api/project/{pid}/compute-result", json=res, headers=J(t["token"]))
+        assert ok.status_code == 200, ok.text
+        assert project.stage_get(pid, "infer", "k1")["results"]["provenance"]["kind"] == "desktop"
+    finally:
+        shutil.rmtree(d)
+
+
 def test_short_token_is_refused():
     c, pid, d = setup()
     try:

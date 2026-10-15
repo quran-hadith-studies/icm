@@ -10,10 +10,12 @@ While ``config.OPEN`` is set, every visitor counts as an admin (anonymous ones a
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import math
 import os
 import re
+import secrets
 import time
 from typing import Callable, Optional
 
@@ -69,6 +71,13 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         got = request.headers.get("x-icm-helper", "")
         return bool(tok) and len(tok) >= 20 and hmac.compare_digest(tok.encode(), got.encode())
 
+    def job_ok(request: Request, p: dict) -> bool:
+        """The desktop app's one-job token (issued by /desktop-token, valid while the project waits for this key)."""
+        aw = p.get("awaiting") or {}
+        want, got = aw.get("desktop_hash") or "", request.headers.get("x-icm-job", "")
+        return (p.get("status") == "awaiting" and len(want) == 64 and len(got) >= 20
+                and hmac.compare_digest(want.encode(), hashlib.sha256(got.encode()).hexdigest().encode()))
+
     def _compute_input(pid: str, p: dict) -> dict:
         aw = p.get("awaiting")
         if p.get("status") != "awaiting" or not aw:
@@ -81,7 +90,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         texts = {S["seed"]["wid"]: S["seed"]["matn"]}
         texts.update({c["wid"]: c["matn"] for c in S["candidates"]})
         used = {a["wid"] for a in G["attestations"]}
-        return dict(pid=pid, key=aw["key"], graph_hash=aw["graph_hash"], preset=aw["preset"], seed=0,
+        from .build import model_zip
+        return dict(pid=pid, key=aw["key"], graph_hash=aw["graph_hash"], preset=aw["preset"], seed=0, model=model_zip.digest(),
                     graph=finite(G), texts={w: t for w, t in texts.items() if w in used})
 
     def _accept_result(pid: str, p: dict, body: dict, provenance: dict) -> dict:
@@ -358,11 +368,25 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.get("/api/project/{pid}/compute-input")
     def compute_input(request: Request, pid: str):
         p = _project(pid)
-        if not helper_ok(request):
+        if not helper_ok(request) and not job_ok(request, p):
             u = get_user(request)
             if not u or (p["owner"] != u["username"] and not u.get("is_admin")):
-                raise HTTPException(401, "owner, admin or helper token required")
+                raise HTTPException(401, "owner, admin, helper or job token required")
         return _compute_input(pid, p)
+
+    @r.post("/api/project/{pid}/desktop-token")
+    def desktop_token(request: Request, pid: str):
+        """The page asks to hand this project's computation to the desktop app: a fresh token the app presents
+        for this one job (it fetches the input and uploads the result without the user's login)."""
+        u, p = own_project(request, pid)
+        if p.get("status") != "awaiting" or not p.get("awaiting"):
+            raise HTTPException(409, "this project is not waiting for a computation")
+        tok = secrets.token_urlsafe(24)
+        with project.lock(pid):                             # the project file is public (icm-cache): keep only the hash
+            q = project.load(pid)
+            q["awaiting"]["desktop_hash"] = hashlib.sha256(tok.encode()).hexdigest()
+            project.save(q)
+        return dict(pid=pid, token=tok, key=q["awaiting"]["key"])
 
     @r.post("/api/project/{pid}/compute-result")
     async def compute_result(request: Request, pid: str):
@@ -370,6 +394,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         body = await request.json()
         if helper_ok(request):
             prov = dict(kind="helper", **{k: body.get("provenance", {}).get(k) for k in ("workers", "seconds", "platform")})
+        elif job_ok(request, p):
+            prov = dict(kind="desktop", **{k: body.get("provenance", {}).get(k) for k in ("workers", "seconds", "platform", "app")})
         else:
             u, p = own_project(request, pid)
             prov = dict(kind="browser", user=u["username"], **{k: body.get("provenance", {}).get(k) for k in ("workers", "seconds", "agent")})

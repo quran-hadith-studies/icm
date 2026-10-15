@@ -649,11 +649,27 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
      `icm/{infer,client}.py`) runs in Pyodide Web Workers, one interpreter per core, one candidate source at a time
      per worker (`icm/static/model_worker.js`). The `quick` preset took 95 s with 6 workers in Chrome;
    * **on a helper machine** (`python3 -m icm helper`, outbound polling with a secret token, one process per core);
+   * **in the desktop app** (`python3 -m icm app`, see below): the user's own computer, native speed;
    * **on the server**: the same run took 54 minutes on the 2-core box, so it is the last resort.
    A result computed away from the server is uploaded with its provenance and checked for consistency with the
    confirmed graph (normalised posterior, same preset, seed and narrator count), but it is **not re-computed**
    by the server: it is trusted as far as the logged-in user (or the helper token) is. The viewer says where a
    result was computed. `python3 -m icm build model` regenerates the zip; a test fails when it is stale.
+
+**Desktop app (`icm/app.py`; user guide: `APP.md`).** For people who prefer their own computer to the browser tab. One-time setup:
+`git clone https://github.com/quran-hadith-studies/icm && cd icm && ./install-app.sh` (macOS/Linux; `install-app.bat` on
+Windows: double-click it; the registry entry runs `~/.icm_app/launch.pyw`, which starts the app without a console window, in the checkout, with `PYTHONHASHSEED=0`). It makes a private Python environment (`~/.icm_app/venv`: numpy and pywebview) and registers the `icm://` link and the
+`.icmjob` file type with the system (macOS: `~/Applications/ICM.app`; Linux: a `.desktop` entry; Windows: the registry,
+current user). Afterwards, on the awaiting page, **«اجرا با برنامه‌ی رومیزی»** asks the server for a one-job token
+(`POST /api/project/<pid>/desktop-token`; only its SHA-256 is stored, because the project file is public in icm-cache) and
+opens `icm://run?server=…&pid=…&token=…`. The app fetches the input with the token (`X-ICM-Job`), shows **شروع محاسبه**,
+computes (same `client.py` code, one process per core), saves `~/.icm_app/results/<pid>.icmresult`, shows **فرستادن نتیجه**
+and posts it with the same token; the awaiting page notices and moves on. Fallbacks when the link does not open: **دریافت
+فایل کار** (an `.icmjob` file containing the input, opened by double-click or `python3 -m icm app open FILE`) and
+**بارگذاری فایل نتیجه** (the saved result file, uploaded on the page by the logged-in owner). The page opens in a **native window** (pywebview: WebView2 on Windows, WKWebView on macOS, GTK/Qt on Linux; closing it quits the app). Without pywebview or a usable toolkit it falls back to an Edge/Chrome/Brave `--app` window (private profile in `~/.icm_app/profile`), then to a normal tab. The app serves its page on
+127.0.0.1 only, behind a per-session secret and a Host check, and refuses servers other than `https://ebadollah.ir`
+The app quits by itself (browser-window fallback only) after 5 minutes with no window open and nothing running (no console to close on Windows). Windows is untested on real hardware. (more in `~/.icm_app/config.json` → `"servers"`). It warns when its model code differs from the server's (`model` digest
+in the input). The token is valid only while the project waits for that run's key. Provenance kind: `desktop`.
 
 Every step has its own address: `/icm/p/<pid>/<step>` (`seed`, `selection`, `alignment`, `identities`, `phylogeny`,
 `analysis`) and `/icm/p/<pid>/r/<run>/<step>` for an earlier run; `/icm/p/<pid>` opens the step that waits for the user.
@@ -815,6 +831,7 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 | `infer.py` | step 6: `Ctx` (shared context), per-source `source_evidence`, `assemble` (posterior, summaries, viewer bundle), `run` (whole run, server path) |
 | `client.py` | the entry points Pyodide and the helper call (`init`, `source`, `graphs`, `finish`) |
 | `helper.py` | `python3 -m icm helper` (laptop, outbound polling) |
+| `app.py` | `python3 -m icm app`: the desktop app (local page, `icm://` link and `.icmjob` handler, installer for macOS/Linux/Windows) |
 | `project.py` | storage: projects, append-only decisions, content-addressed stage files, runs, indexes |
 | `pipeline.py` | `advance(pid)`: runs stages until a user decision is needed; the `awaiting` state |
 | `jobs.py`, `worker.py` | SQLite queue; one worker process (sets `PYTHONHASHSEED=0`) |

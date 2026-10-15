@@ -1099,13 +1099,48 @@ async function awaitingPanel(main, c) {
     catch (e) { running = false; btn.disabled = false; msg.textContent = 'خطا: ' + e.message; }
   };
   const btn = el('button', { class: 'primary', disabled: !c.can, onclick: start }, 'شروع محاسبه در مرورگر من');
+  /* the desktop app: icm://run?... opens the installed app (registered by `python3 -m icm app install`), which fetches the input, asks to run, then asks to upload */
+  const desk = el('div', { class: 'small muted' });
+  const jobToken = async () => post(`/project/${c.pid}/desktop-token`, {});
+  const deskStart = async () => {
+    desk.textContent = '';
+    try {
+      const t = await jobToken();
+      const link = `icm://run?server=${encodeURIComponent(location.origin + BASE)}&pid=${encodeURIComponent(c.pid)}&token=${encodeURIComponent(t.token)}`;
+      let left = false; const onHide = () => { if (document.hidden) left = true; };
+      document.addEventListener('visibilitychange', onHide); window.addEventListener('blur', () => { left = true; }, { once: true });
+      location.href = link;
+      setTimeout(() => { document.removeEventListener('visibilitychange', onHide);
+        desk.replaceChildren(left ? 'برنامه باز شد؛ در آن «شروع محاسبه» را بزنید و پس از پایان، «فرستادن نتیجه» را. این صفحه خودش به‌روز می‌شود.'
+          : 'برنامه باز نشد. اگر آن را نصب نکرده‌اید، راهنمای نصب (چند دقیقه، یک بار): github.com/quran-hadith-studies/icm/blob/main/APP.md — یا پایین، «دریافت فایل کار» را بزنید.'); }, 2500);
+    } catch (e) { desk.textContent = 'خطا: ' + e.message; }
+  };
+  const jobFile = async () => {
+    try {
+      const [t, inp] = await Promise.all([jobToken(), api(`/project/${c.pid}/compute-input`)]);
+      const blob = new Blob([JSON.stringify({ server: location.origin + BASE, pid: c.pid, token: t.token, input: inp })], { type: 'application/json' });
+      const a = el('a', { href: URL.createObjectURL(blob), download: c.pid + '.icmjob' }); document.body.append(a); a.click(); a.remove();
+      desk.textContent = 'فایل کار را با برنامه باز کنید (دوبار کلیک)، یا: python3 -m icm app open ' + c.pid + '.icmjob';
+    } catch (e) { desk.textContent = 'خطا: ' + e.message; }
+  };
+  const upFile = el('input', { type: 'file', accept: '.json,.icmresult', hidden: true, onchange: async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    try { const res = JSON.parse(await f.text()); await post(`/project/${c.pid}/compute-result`, { key: res.key, results: res.results, viz: res.viz, provenance: res.provenance || {} }); desk.textContent = 'نتیجه ثبت شد.'; setTimeout(() => reload(c.pid), 1500); }
+    catch (e) { desk.textContent = 'بارگذاری نشد: ' + e.message; }
+  } });
+  const deskBox = c.can ? el('div', { class: 'toolbar' }, el('button', { onclick: deskStart }, 'اجرا با برنامه‌ی رومیزی'), el('button', { onclick: jobFile }, 'دریافت فایل کار'),
+    el('button', { onclick: () => upFile.click() }, 'بارگذاری فایل نتیجه'), upFile) : null;
+  if (c.can) {                                    /* the app (or a helper) may finish while this page is open */
+    const watch = async () => { const q = await api('/project/' + c.pid).catch(() => null); if (q && q.project.status !== 'awaiting') { cache.clear(); render(); return; } timer = setTimeout(watch, 4000); };
+    timer = setTimeout(watch, 4000);
+  }
   main.replaceChildren(card('محاسبه‌ی مدل', el('p', {}, aw.compute === 'helper' ? 'این پروژه منتظر رایانه‌ی کمکی مدیر است. اگر نمی‌خواهید صبر کنید، می‌توانید همین‌جا در مرورگر خودتان اجرا کنید.' : 'تحلیل در مرورگر شما اجرا می‌شود و نتیجه به سرور فرستاده می‌شود. صفحه را نبندید.'),
     el('p', { class: 'small muted' }, `دقت: ${aw.preset}. نامزدهای منبع جداگانه و موازی محاسبه می‌شوند؛ بار اول حدود ۱۵ مگابایت (مفسر پایتون و numpy) بارگیری می‌شود.`),
     el('div', { class: 'toolbar' }, btn, c.can ? el('button', { onclick: async () => {
       if (!confirm('محاسبه روی سرور نزدیک یک ساعت طول می‌کشد. ادامه؟')) return;
       const d = await api(`/project/${c.pid}/decision/phylogeny`);
       await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: d.dates || {}, preset: d.preset || null, compute: 'server' } }); reload(c.pid);
-    } }, 'اجرا روی سرور (کند)') : null), bar, msg));
+    } }, 'اجرا روی سرور (کند)') : null), deskBox, desk, bar, msg));
   if (c.can && sessionStorage.getItem('icm_auto') === c.pid) { sessionStorage.removeItem('icm_auto'); start(); }
 }
 
