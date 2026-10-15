@@ -17,6 +17,8 @@ the mentions Noor's own slots confirm are only counted, since they are the Noor 
 """
 from __future__ import annotations
 
+import fcntl
+import glob
 import json
 import os
 import re
@@ -28,8 +30,9 @@ from typing import Callable, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
 
-from . import config, store
+from . import config, store, version
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 ASSETS = ("narwiki.js", "narwiki.css", "narwiki.html")
@@ -140,6 +143,116 @@ def hai_stats() -> dict:
         return {}
     finally:
         c.close()
+
+
+# ---------------------------------------------------------------------------
+# narrator-database versions: manual decisions per version
+# ---------------------------------------------------------------------------
+def _vdir() -> str:
+    return config.VERSIONS_DIR
+
+
+def _vview(name: str) -> Optional["version.View"]:
+    """The built file of ``name`` loaded read-only; None for ``raw`` or a version not built yet."""
+    if name == "raw":
+        return None
+    path = version.version_path(_vdir(), name)
+    if not os.path.exists(path):
+        return None
+    try:
+        return version.View(path)
+    except sqlite3.Error:
+        return None
+
+
+def _vcheck(name: str, editable: bool = False) -> None:
+    if not version.NAME_RE.fullmatch(name):
+        raise HTTPException(404, "unknown version")
+    known = name == "raw" or version.policy_exists(name) or os.path.exists(version.version_path(_vdir(), name))
+    if not known:
+        raise HTTPException(404, "unknown version")
+    if editable:
+        if name == "raw":
+            raise HTTPException(400, "the raw version merges nothing and has no decisions")
+        if not version.policy_exists(name):
+            raise HTTPException(400, "this version has no policy file here, so it cannot be rebuilt")
+
+
+def versions_list(c) -> List[dict]:
+    built = {m["name"]: m for m in version.list_versions(_vdir())}
+    pols = {os.path.basename(f)[:-5] for f in glob.glob(os.path.join(version.POLICY_DIR, "*.json"))} - {"raw"}
+    out = [dict(name="raw", label_fa=version.load_policy("raw")["label_fa"], description_fa=version.load_policy("raw")["description_fa"],
+                built=None, wiki_state="", n_groups=None, counts=None, editable=False, n_decisions=0)]
+    for n in sorted(set(built) | pols):
+        m = built.get(n, {})
+        pol = {}
+        try:
+            pol = version.load_policy(n) if n in pols else json.loads(m.get("policy_json") or "{}")
+        except (ValueError, OSError):
+            pass
+        try:
+            counts = json.loads(m["counts_json"]) if m.get("counts_json") else None
+        except ValueError:
+            counts = None
+        out.append(dict(name=n, label_fa=m.get("label_fa") or pol.get("label_fa"), description_fa=m.get("description_fa") or pol.get("description_fa"),
+                        built=m.get("built"), wiki_state=m.get("wiki_state"), n_groups=int(m["n_groups"]) if m.get("n_groups") else None,
+                        counts=counts, editable=n in pols and n != "raw", n_decisions=len(store.version_decisions(c, n))))
+    return out
+
+
+def group_payload(c, name: str, view, ext: str) -> dict:
+    """Members of the id's group in the version (from the built file) and the id's current manual decisions."""
+    decs = store.version_decisions(c, name)
+    mine = [d for d in decs if ext in (d["a"], d["b"])]
+    if view is None:
+        k, _, e = ext.partition(":")
+        if store.by_ext(c, k, e) is None:
+            raise HTTPException(404, "unknown id")
+        return dict(id=ext, version=name, person_id=None, canon=ext, name=None, members=[dict(id=ext, kind=k, rule="seed", score=None)],
+                    edges=[], decisions=mine)
+    g = view.group(ext)
+    if g is None:
+        raise HTTPException(404, "id not in this version")
+    ids = {m["id"] for m in g["members"]}
+    return dict(id=ext, version=name, **g, decisions=mine, group_decisions=[d for d in decs if d["a"] in ids or d["b"] in ids])
+
+
+def version_suggestions(c, name: str, kind: str, status: str, limit: int, offset: int) -> dict:
+    view = _vview(name)
+    decs = {(d["a"], d["b"]): d for d in store.version_decisions(c, name)}
+    where, args = "", []
+    if kind:
+        where, args = "where kind=?", [kind]
+    rows = c.execute(f"select * from merge_suggestion {where} order by score desc, id", args).fetchall()
+    counts = {"proposed": 0, "merged": 0, "rejected": 0}
+    keep = []
+    for r in rows:
+        ev = json.loads(r["evidence_json"]) if r["evidence_json"] else {}
+        ea, eb = version.suggestion_ids(r["kind"], ev)
+        if not ea:
+            ra = store.resolve_id(c, r["a"])
+            ea = next((f"{k}:{e}" for k, e in store.ext_of(c, ra) if k in version.SOURCE_KINDS), None) if ra else None
+        if not eb:
+            rb = store.resolve_id(c, r["b"])
+            eb = next((f"{k}:{e}" for k, e in store.ext_of(c, rb) if k in version.SOURCE_KINDS and f"{k}:{e}" != ea), None) if rb else None
+        d = decs.get(store.pair_key(ea, eb)) if ea and eb else None
+        if r["status"] == "dismissed" and d is None:
+            continue                                              # a dismissed suggestion is not offered again
+        if ea and eb and view is not None:
+            ps = view.pair_state(ea, eb, d)
+        else:
+            ps = dict(state="rejected" if d and d["decision"] == "reject" else "proposed", rule=None, conflict=None)
+        counts[ps["state"]] += 1
+        if status in ("all", ps["state"]):
+            keep.append((r, ea, eb, d, ps))
+    page = keep[offset:offset + limit]
+    items = []
+    for r, ea, eb, d, ps in page:
+        x = store._sug_dict(c, r)
+        x.update(a_ext=ea, b_ext=eb, version_state=ps["state"], version_rule=ps["rule"], conflict_reason=ps["conflict"],
+                 decision=d)
+        items.append(x)
+    return dict(version=name, total=len(keep), items=items, counts=counts)
 
 
 def person_full(c, pid: int) -> dict:
@@ -309,6 +422,9 @@ def export_html(data: dict, base: str) -> str:
 # ---------------------------------------------------------------------------
 # router
 # ---------------------------------------------------------------------------
+version_mod = version
+
+
 def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/narrator") -> APIRouter:
     r = APIRouter(prefix=prefix)
     if config.OPEN:
@@ -382,9 +498,23 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
             return store.search(c, q[:200], kind, dated, sugg, max(1, min(limit, 200)), max(0, offset))
 
     @r.get("/api/person/{pid}")
-    def person(pid: int):
+    def person(pid: int, version: str = ""):
         with _db() as c:
-            return person_full(c, pid)
+            out = person_full(c, pid)
+            if version:
+                _vcheck(version)
+                view = _vview(version)
+                seen, groups = set(), []
+                for x in out["person"]["ext"]:
+                    if x.split(":")[0] not in version_mod.SOURCE_KINDS:
+                        continue
+                    g = group_payload(c, version, view, x)
+                    key = g["person_id"] if g["person_id"] is not None else x
+                    if key not in seen:
+                        seen.add(key)
+                        groups.append(g)
+                out["version_group"] = groups
+            return out
 
     @r.get("/api/person/{pid}/hadiths")
     def person_hadiths(pid: int, src: str = "noor", offset: int = 0, limit: int = 30):
@@ -461,6 +591,27 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
             raise HTTPException(400, "bad status")
         with _db() as c:
             return store.suggestions(c, kind, status, person, max(1, min(limit, 100)), max(0, offset))
+
+    @r.get("/api/versions")
+    def versions():
+        with _db() as c:
+            return dict(items=versions_list(c))
+
+    @r.get("/api/version/{name}/suggestions")
+    def vsuggestions(name: str, kind: str = "", status: str = "proposed", limit: int = 30, offset: int = 0):
+        if status not in ("proposed", "merged", "rejected", "all"):
+            raise HTTPException(400, "bad status")
+        _vcheck(name)
+        with _db() as c:
+            return version_suggestions(c, name, kind, status, max(1, min(limit, 100)), max(0, offset))
+
+    @r.get("/api/version/{name}/group")
+    def vgroup(name: str, id: str):
+        _vcheck(name)
+        if not EXT_RE.match(id):
+            raise HTTPException(400, "id must look like kind:id")
+        with _db() as c:
+            return group_payload(c, name, _vview(name), id)
 
     # -- write -----------------------------------------------------------------------------------
     def _fields(v) -> list:
@@ -542,6 +693,51 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
             raise HTTPException(400, "keep must be a person number")
         with _db(True) as c:
             return store.decide_suggestion(c, sid, str(b.get("decision", "")), u["username"], keep, str(b.get("note", ""))[:1000])
+
+    @r.post("/api/version/{name}/decide")
+    async def vdecide(request: Request, name: str):
+        u = need_user(request)
+        b = await body(request)
+        _vcheck(name, editable=True)
+        a, bb, decision = b.get("a"), b.get("b"), b.get("decision")
+        if not (isinstance(a, str) and isinstance(bb, str) and EXT_RE.match(a) and EXT_RE.match(bb)):
+            raise HTTPException(400, "a and b must be external ids like noor:12")
+        if decision not in ("accept", "reject", "clear"):
+            raise HTTPException(400, "decision must be accept, reject or clear")
+        note, kind = str(b.get("note", ""))[:1000], b.get("kind")
+
+        def work():
+            os.makedirs(_vdir(), exist_ok=True)
+            with open(os.path.join(_vdir(), ".lock"), "a+") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)                  # one decision + rebuild at a time
+                try:
+                    with _db(True) as c:
+                        key = store.pair_key(a, bb)
+                        before_view = _vview(name)
+                        d0 = store.version_decision_for(c, name, *key)
+                        before = before_view.pair_state(*key, d0) if before_view else dict(state="proposed", rule=None, conflict=None)
+                        res = store.set_version_decision(c, name, a, bb, decision, u["username"], note,
+                                                         kind if isinstance(kind, str) else None)
+                        try:
+                            version.rebuild(name, config.DB, _vdir())
+                        except Exception as e:
+                            store.undo_version_decision(c, res)
+                            raise HTTPException(500, f"rebuild failed, decision rolled back: {e}")
+                        view = _vview(name)
+                        d1 = store.version_decision_for(c, name, *key)
+                        after = view.pair_state(*key, d1)
+                        g = view.group(key[0])
+                        warn = None
+                        if after["conflict"] == "manual_reject_ignored":
+                            warn = "these two ids are one person in the wiki itself; the wiki's identity wins, the reject was not applied"
+                        elif after["conflict"] == "manual_reject_transitive":
+                            warn = "the two ids stay together through other merges in this version; only the direct edge was removed"
+                        return dict(ok=True, version=name, pair=list(key), decision=decision, state_before=before["state"],
+                                    state_after=after["state"], conflict=after["conflict"], warning=warn,
+                                    group=g["members"] if g else [], built=view.meta.get("built"))
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+        return await run_in_threadpool(work)
 
     @r.post("/api/by-ext/{kind}/{ext_id}")
     async def ensure(request: Request, kind: str, ext_id: str):

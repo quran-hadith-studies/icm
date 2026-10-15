@@ -22,14 +22,14 @@ import os
 import sqlite3
 import time
 from collections import Counter, defaultdict
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from . import store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 POLICY_DIR = os.path.join(HERE, "policies")
 SOURCE_KINDS = ("noor", "kg", "dirayah")
-RULES = ("seed", "certain_dirayah", "wiki_merge", "noor_kg", "dup", "dirayah_same_id")
+RULES = ("seed", "certain_dirayah", "wiki_merge", "noor_kg", "dup", "dirayah_same_id", "manual")
 
 TOP_KEYS = {"name", "label_fa", "description_fa", "wiki_merges", "noor_kg", "dup", "dirayah"}
 SECTION_DEFAULTS = {
@@ -123,11 +123,12 @@ def _rule_of(kind: str) -> str:
             "link_dirayah": "dirayah_same_id"}[kind]
 
 
-def _wiki_state(c: sqlite3.Connection) -> str:
+def _wiki_state(c: sqlite3.Connection, decisions: Sequence[dict] = ()) -> str:
     q = lambda s: c.execute(s).fetchone()[0]
     raw = json.dumps([q("select max(id) from revision"), q("select count(*) from person_ext"),
                       q("select count(*) from merge_suggestion where status!='proposed'"),
-                      q("select max(id) from merge_suggestion")])
+                      q("select max(id) from merge_suggestion")]
+                     + ([[len(decisions), [(d["id"], d["decision"]) for d in decisions]]] if decisions else []))
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -178,6 +179,17 @@ class _Groups:
         return lo
 
 
+def suggestion_ids(kind: str, ev: dict) -> Tuple[Optional[str], Optional[str]]:
+    """The external ids ("noor:1", ...) a suggestion's evidence names, None for a side it does not name."""
+    if kind in ("link_kg", "name_chrono"):
+        ea, eb = ev.get("noor", {}).get("id"), ev.get("kg", {}).get("id")
+    elif kind == "link_dirayah":
+        ea, eb = ev.get("noor"), ev.get("dirayah")
+    else:
+        ea, eb = ev.get("a", {}).get("id"), ev.get("b", {}).get("id")
+    return ea, eb
+
+
 def _first_ext(by_person: Dict[int, List[Tuple[str, str]]], pid: int, kind: str) -> Optional[str]:
     ids = sorted((e for k, e in by_person.get(pid, []) if k == kind), key=lambda e: (len(e), e))
     return f"{kind}:{ids[0]}" if ids else None
@@ -186,7 +198,10 @@ def _first_ext(by_person: Dict[int, List[Tuple[str, str]]], pid: int, kind: str)
 def build(policy: dict, wiki_db: str, out_path: str, log: Callable[[str], None] = print) -> dict:
     """Apply ``policy`` to the wiki and write the snapshot at ``out_path``; returns its meta."""
     c = store.connect(wiki_db, readonly=True)
-    state = _wiki_state(c)
+    decisions = store.version_decisions(c, policy["name"]) if policy["name"] != "raw" else []
+    state = _wiki_state(c, decisions)
+    rejects = {(d["a"], d["b"]): d for d in decisions if d["decision"] == "reject"}
+    accepts = [d for d in decisions if d["decision"] == "accept"]
     holder, rule = _base_state(c, policy["wiki_merges"])
     persons = {r["id"]: r for r in c.execute("select id, display_name, merged_into from person where status in ('active','merged')")}
     by_person: Dict[int, List[Tuple[str, str]]] = defaultdict(list)
@@ -223,12 +238,7 @@ def build(policy: dict, wiki_db: str, out_path: str, log: Callable[[str], None] 
             ev = json.loads(r["evidence_json"] or "{}")
             kind = r["kind"]
             (ka, kb), cls = KIND_INFO[kind]
-            if kind in ("link_kg", "name_chrono"):
-                ea, eb = ev.get("noor", {}).get("id"), ev.get("kg", {}).get("id")
-            elif kind == "link_dirayah":
-                ea, eb = ev.get("noor"), ev.get("dirayah")
-            else:
-                ea, eb = ev.get("a", {}).get("id"), ev.get("b", {}).get("id")
+            ea, eb = suggestion_ids(kind, ev)
             if pa > pb and cls == "dup":
                 pa, pb, ea, eb = pb, pa, eb, ea
             ea = ea or _first_ext(by_person, pa, ka)
@@ -237,13 +247,43 @@ def build(policy: dict, wiki_db: str, out_path: str, log: Callable[[str], None] 
                 continue
             cand = dict(pa=pa, pb=pb, a=ea, b=eb, kind=kind, cls=cls, rule=_rule_of(kind), score=r["score"] or 0.0,
                         ev=ev, kinds=(ka, kb))
-            if _passes(policy, kind, ev):
+            if tuple(sorted((ea, eb))) in rejects:
+                conflicts.append(dict(a=ea, b=eb, rule=cand["rule"], score=cand["score"], reason="manual_reject"))
+                cand["removed"] = True
+            elif _passes(policy, kind, ev):
                 cands.append(cand)
             else:
                 conflicts.append(dict(a=ea, b=eb, rule=cand["rule"], score=cand["score"], reason="threshold"))
     cands.sort(key=lambda x: (x["cls"] != "dup", -x["score"], x["pa"], x["pb"]))
 
     joined: Dict[int, Tuple[str, float]] = {}                      # group-side person -> (rule, score) that brought it in
+    # -- manual decisions (after the policy rules): rejects of pairs the wiki itself joined are ignored, accepts are
+    #    forced edges applied before the matching so that rule edges clashing with them lose
+    reject_ignored: Set[Tuple[str, str]] = set()
+    for (ra_, rb_), d in rejects.items():
+        pa_, pb_ = (holder.get(tuple(x.split(":", 1))) for x in (ra_, rb_))
+        if pa_ is not None and pa_ in g.parent and pb_ is not None and pb_ in g.parent and g.find(pa_) == g.find(pb_):
+            reject_ignored.add((ra_, rb_))
+            conflicts.append(dict(a=ra_, b=rb_, rule="manual", score=0.0, reason="manual_reject_ignored"))
+    n_accept = 0
+    for d in accepts:
+        pa_, pb_ = (holder.get(tuple(x.split(":", 1))) for x in (d["a"], d["b"]))
+        if pa_ is None or pb_ is None or pa_ not in g.parent or pb_ not in g.parent:
+            conflicts.append(dict(a=d["a"], b=d["b"], rule="manual", score=1.0, reason="manual_unknown_id"))
+            continue
+        ra, rb = g.find(pa_), g.find(pb_)
+        n_accept += 1
+        if ra == rb:
+            continue
+        same_kind = d["a"].split(":")[0] if d["a"].split(":")[0] == d["b"].split(":")[0] else None
+        clash = sorted((g.kinds[ra] & g.kinds[rb]) - ({same_kind} if same_kind else set()))
+        ev = {"forced": True, "user": d.get("user"), "note": d.get("note")}
+        if clash:
+            ev["kind_clash"] = clash
+        for p in g.members[rb]:
+            joined.setdefault(p, ("manual", 1.0))
+        g.union(ra, rb)
+        edges.append(dict(a=d["a"], b=d["b"], rule="manual", score=1.0, ev=ev))
     for cd in cands:
         ra, rb = g.find(cd["pa"]), g.find(cd["pb"])
         if ra == rb:
@@ -259,6 +299,12 @@ def build(policy: dict, wiki_db: str, out_path: str, log: Callable[[str], None] 
             joined.setdefault(p, (cd["rule"], cd["score"]))
         g.union(ra, rb)
         edges.append(dict(a=cd["a"], b=cd["b"], rule=cd["rule"], score=cd["score"], ev=cd["ev"]))
+    for (ra_, rb_) in rejects:                                 # still together by another route: not split, recorded
+        if (ra_, rb_) in reject_ignored:
+            continue
+        pa_, pb_ = (holder.get(tuple(x.split(":", 1))) for x in (ra_, rb_))
+        if pa_ in g.parent and pb_ in g.parent and g.find(pa_) == g.find(pb_):
+            conflicts.append(dict(a=ra_, b=rb_, rule="manual", score=0.0, reason="manual_reject_transitive"))
     ext_rows: List[tuple] = []
     person_rows: List[tuple] = []
     for pids in g.members.values():
@@ -286,7 +332,9 @@ def build(policy: dict, wiki_db: str, out_path: str, log: Callable[[str], None] 
                 policy_json=json.dumps(policy, ensure_ascii=False), built=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 wiki_db=os.path.abspath(wiki_db), wiki_state=state, n_groups=str(len(person_rows)),
                 n_ext=str(len(ext_rows)), n_edges=str(len(edges)), n_conflicts=str(len(conflicts)),
-                counts_json=json.dumps({r: counts.get(r, 0) for r in RULES}))
+                counts_json=json.dumps({**{r: counts.get(r, 0) for r in RULES}, "manual_accept": n_accept,
+                                        "manual_reject": len(rejects)}))
+    c.close()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     tmp = out_path + ".tmp"
     if os.path.exists(tmp):
@@ -307,6 +355,44 @@ def build(policy: dict, wiki_db: str, out_path: str, log: Callable[[str], None] 
     os.replace(tmp, out_path)
     log(f"{policy['name']}: {len(person_rows)} groups, {len(edges)} edges, {len(conflicts)} conflicts -> {out_path}")
     return meta
+
+
+NAME_RE = __import__("re").compile(r"[A-Za-z0-9_.-]{1,40}")
+
+
+def version_path(out_dir: str, name: str) -> str:
+    return os.path.join(out_dir, f"{name}.sqlite")
+
+
+def policy_exists(name: str) -> bool:
+    return name == "raw" or (bool(NAME_RE.fullmatch(name)) and os.path.exists(os.path.join(POLICY_DIR, name + ".json")))
+
+
+def rebuild(version_name: str, wiki_db: str, out_dir: str, log: Callable[[str], None] = lambda m: None) -> dict:
+    """Rebuild ``<out_dir>/<version_name>.sqlite`` from the wiki (the policy is loaded by name, the manual decisions
+    are read from the wiki) and refresh its eval; the old file stays if the build raises. Missing narrators / KG
+    databases only skip the death-year agreement."""
+    if not NAME_RE.fullmatch(version_name):
+        raise ValueError("bad version name")
+    policy = load_policy(version_name)
+    out = version_path(out_dir, version_name)
+    meta = build(policy, wiki_db, out, log=log)
+    try:
+        from . import config
+        paths = []
+        for f in (config.narrators_db, config.kg_db, config.dirayah_db):
+            try:
+                paths.append(f())
+            except Exception:
+                paths.append(None)
+        evaluate(out, *paths)
+    except Exception as e:                                       # the snapshot is valid without its eval figures
+        log(f"evaluate skipped: {e}")
+        try:
+            evaluate(out, None, None, None)
+        except Exception:
+            pass
+    return read_meta(out) if os.path.exists(out) else meta
 
 
 def read_meta(path: str) -> dict:
@@ -400,3 +486,48 @@ def evaluate(out_path: str, narrators_db: Optional[str], kg_db: Optional[str], d
         o.execute("insert or replace into meta values ('eval_json', ?)", (json.dumps(ev, ensure_ascii=False),))
     o.close()
     return ev
+
+
+class View:
+    """A built version file loaded read-only into memory: groups, edges and conflicts, for the wiki's API."""
+
+    def __init__(self, path: str):
+        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            self.meta = dict(c.execute("select k, v from meta"))
+            self.person = {r[0]: dict(canon=r[1], name=r[2], n_ext=r[3]) for r in c.execute("select id, canon, name, n_ext from person")}
+            self.of: Dict[str, int] = {}
+            self.members: Dict[int, List[dict]] = defaultdict(list)
+            for kind, ext_id, pid, rule, score in c.execute("select kind, ext_id, person_id, rule, score from ext order by kind, ext_id"):
+                self.of[f"{kind}:{ext_id}"] = pid
+                self.members[pid].append(dict(id=f"{kind}:{ext_id}", kind=kind, rule=rule, score=score))
+            self.edges = [dict(a=a, b=b, rule=r, score=s, evidence=json.loads(e) if e else None)
+                          for a, b, r, s, e in c.execute("select a, b, rule, score, evidence_json from edge")]
+            self.conflicts: Dict[Tuple[str, str], dict] = {}
+            for a, b, r, s, why in c.execute("select a, b, rule, score, reason from conflict"):
+                self.conflicts.setdefault(tuple(sorted((a, b))), dict(rule=r, score=s, reason=why))
+        finally:
+            c.close()
+        self.edge_of = {tuple(sorted((e["a"], e["b"]))): e for e in self.edges}
+
+    def group(self, ext: str) -> Optional[dict]:
+        pid = self.of.get(ext)
+        if pid is None:
+            return None
+        ms = self.members[pid]
+        ids = {m["id"] for m in ms}
+        return dict(person_id=pid, canon=self.person[pid]["canon"], name=self.person[pid]["name"], members=ms,
+                    edges=[e for e in self.edges if e["a"] in ids or e["b"] in ids])
+
+    def pair_state(self, a: str, b: str, decision: Optional[dict] = None) -> dict:
+        """{state: merged|rejected|proposed, rule, conflict}: how the version treats the pair of ids."""
+        key = tuple(sorted((a, b)))
+        conf = self.conflicts.get(key)
+        pa, pb = self.of.get(a), self.of.get(b)
+        if pa is not None and pa == pb:
+            e = self.edge_of.get(key)
+            rule = e["rule"] if e else next((m["rule"] for m in self.members[pa] if m["id"] in key and m["rule"] != "seed"), "seed")
+            return dict(state="merged", rule=rule, conflict=conf["reason"] if conf else None)
+        if decision and decision["decision"] == "reject":
+            return dict(state="rejected", rule=None, conflict=conf["reason"] if conf else None)
+        return dict(state="proposed", rule=None, conflict=conf["reason"] if conf else None)

@@ -99,6 +99,19 @@ create index if not exists ms_b on merge_suggestion(b, status);
 create index if not exists ms_status on merge_suggestion(status, kind, score);
 create virtual table if not exists person_fts using fts5(names, tokenize='unicode61 remove_diacritics 2');
 create table if not exists meta(k text primary key, v text);
+create table if not exists version_decision(
+  id       integer primary key,
+  version  text not null,                          -- narrator-database version the decision belongs to (v1m, ...)
+  a        text not null,                          -- external ids "kind:id", a < b as strings
+  b        text not null,
+  decision text not null,                          -- accept | reject
+  kind     text,                                   -- suggestion kind it answers, if any
+  note     text,
+  user     text,
+  ts       text,
+  status   text not null default 'current');       -- current | retired
+create index if not exists vd_version on version_decision(version, status);
+create unique index if not exists vd_current on version_decision(version, a, b) where status='current';
 """
 
 
@@ -743,6 +756,83 @@ def decide_suggestion(c, sid: int, decision: str, user: str, keep: Optional[int]
                       (decision, user if decision == "dismissed" else None, now() if decision == "dismissed" else None, sid))
         return dict(ok=True)
     raise WikiError("decision must be accepted, dismissed or proposed")
+
+
+# ---------------------------------------------------------------------------
+# manual merge decisions per narrator-database version (read by narwiki.version.build)
+# ---------------------------------------------------------------------------
+_EXT_ID = re.compile(r"^[a-z_]{2,20}:[\w.-]{1,40}$")
+
+
+def pair_key(a: str, b: str) -> Tuple[str, str]:
+    a, b = str(a).strip(), str(b).strip()
+    return (a, b) if a < b else (b, a)
+
+
+def _vd_dict(r) -> dict:
+    return {k: r[k] for k in r.keys()}
+
+
+def set_version_decision(c, version: str, a: str, b: str, decision: str, user: str, note: str = "",
+                         kind: Optional[str] = None) -> dict:
+    """Record ``accept`` / ``reject`` for the pair of external ids in ``version`` (the previous current row of the
+    pair is retired); ``clear`` only retires it. Returns {pair, decision, id, retired: [ids]}; see undo_version_decision."""
+    if decision not in ("accept", "reject", "clear"):
+        raise WikiError("decision must be accept, reject or clear")
+    if not version or not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", version):
+        raise WikiError("bad version name")
+    a, b = pair_key(a, b)
+    for x in (a, b):
+        if not _EXT_ID.match(x):
+            raise WikiError(f"bad external id {x!r}")
+        k, _, e = x.partition(":")
+        if c.execute("select 1 from person_ext where kind=? and ext_id=?", (k, e)).fetchone() is None:
+            raise WikiError(f"unknown external id {x}")
+    if a == b:
+        raise WikiError("a and b are the same id")
+    if not _has_vd(c):
+        c.executescript(SCHEMA)
+    with c:
+        old = [r[0] for r in c.execute("select id from version_decision where version=? and a=? and b=? and status='current'",
+                                       (version, a, b))]
+        c.execute("update version_decision set status='retired' where version=? and a=? and b=? and status='current'",
+                  (version, a, b))
+        new = None
+        if decision != "clear":
+            new = c.execute("insert into version_decision(version, a, b, decision, kind, note, user, ts) values (?,?,?,?,?,?,?,?)",
+                            (version, a, b, decision, kind, note, user, now())).lastrowid
+    return dict(pair=[a, b], decision=decision, id=new, retired=old)
+
+
+def undo_version_decision(c, res: dict) -> None:
+    """Roll back what set_version_decision returned (used when the version could not be rebuilt)."""
+    with c:
+        if res.get("id"):
+            c.execute("delete from version_decision where id=?", (res["id"],))
+        for i in res.get("retired", []):
+            c.execute("update version_decision set status='current' where id=?", (i,))
+
+
+def _has_vd(c) -> bool:
+    return c.execute("select 1 from sqlite_master where name='version_decision'").fetchone() is not None
+
+
+def version_decisions(c, version: str, status: str = "current") -> List[dict]:
+    """The version's decisions (current by default; status '' = all), oldest first. [] when the table is absent."""
+    if not _has_vd(c):
+        return []
+    q, args = "select * from version_decision where version=?", [version]
+    if status:
+        q += " and status=?"; args.append(status)
+    return [_vd_dict(r) for r in c.execute(q + " order by id", args)]
+
+
+def version_decision_for(c, version: str, a: str, b: str) -> Optional[dict]:
+    if not _has_vd(c):
+        return None
+    a, b = pair_key(a, b)
+    r = c.execute("select * from version_decision where version=? and a=? and b=? and status='current'", (version, a, b)).fetchone()
+    return _vd_dict(r) if r else None
 
 
 # ---------------------------------------------------------------------------

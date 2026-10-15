@@ -992,12 +992,22 @@ each with its record's tagged chain, marked as suggestions; the mentions Noor's 
 `/api/person/<id>/export.html` downloads a self-contained page (inline CSS, JS and data; the first 100 occurrences per
 source).
 
+A **version selector** in the header (all pages; options from `/api/versions`) puts the wiki in *version mode*: the choice lives in
+the URL (`?version=v1m`, kept by every in-app link; no parameter = classic mode, unchanged) and is remembered in `localStorage`
+only as an offer to continue. A banner names the version. In version mode `/suggestions` lists `/api/version/<name>/suggestions`
+(status filter with counts, state chip with rule or conflict reason, «ادغام در این نسخه» / «ردکردن در این نسخه» / «بازگرداندن تصمیم»
+with a note and the resulting group; `raw` is read-only), the person page gains a «گروه در نسخه‌ی …» block with the group's members
+and the manual decisions touching it (each clearable), and `/merge` adds «ادغام فقط در این نسخه» (the wiki-level merge itself stays
+unchanged and not version-specific).
+
 **API** (`narwiki/api.py`, `make_router(get_user, prefix="/narrator")`): reads `/api/me`, `/api/stats`,
 `/api/search?q=&kind=noor|kg|both|noor_only|kg_only|wiki&dated=1|0&sugg=1`, `/api/person/<id>` (+ `/hadiths?src=noor|kg|hadithai`,
 `/history`, `/projects`, `/export.html`), `/api/by-ext/<kind>/<id>`, `/api/merge/preview?a=&b=`, `/api/queue`,
 `/api/revision/<id>`, `/api/suggestions`; writes (header `X-NARWIKI: 1`) `POST /api/person`, `/api/person/<id>`,
 `/api/merge`, `/api/person/<id>/split`, `/api/revision/<id>/revert`, `/api/revision/<id>/review`,
-`/api/suggestion/<id>`, `/api/by-ext/<kind>/<id>` (create a KG stub's person). The web app never creates the database:
+`/api/suggestion/<id>`, `/api/by-ext/<kind>/<id>` (create a KG stub's person). Per-version decisions (below): reads
+`/api/versions`, `/api/version/<name>/suggestions?kind=&status=proposed|merged|rejected|all`, `/api/version/<name>/group?id=<kind:id>`,
+`/api/person/<id>?version=<name>` (adds `version_group`); write `POST /api/version/<name>/decide` `{a, b, decision: accept|reject|clear, note}`. The web app never creates the database:
 until it is installed every API call answers 503.
 
 **ICM side.** `narwiki.lookup` (standard library only) is what ICM imports: `available()` and
@@ -1033,6 +1043,24 @@ joined as `dirayah_same_id`. Each group's canonical id is `noor:<min>`, else `kg
 Tables: `meta` (name, label, description, built, wiki_state, counts, eval, policy), `person`, `ext`, `edge` (with
 evidence), `conflict`. `eval` is measured when the file is built: rule counts, conflicts by reason, the Noor–KG
 death-year agreement and the Dirayah verification.
+
+#### Manual decisions per version
+
+A version is a *living* file: the user's accept / reject decisions on pairs of external ids ("noor:12", "kg:5") are stored per
+version in the wiki database (`version_decision`, one current row per version and pair; older rows are `retired`), and
+the version file is rebuilt after every decision (under a second; `POST /api/version/<name>/decide`, serialised by a file lock
+`<versions dir>/.lock`; if the rebuild fails the decision is rolled back and the old file stays). The rebuild changes the file's
+`wiki_state`, so ICM projects using it recompute from step 4 on their next advance. The wiki's own person merges
+(`/api/merge`) are a separate thing and unchanged. The versions directory is `NARWIKI_VERSIONS_DIR` (default: ICM's `narrators_versions`).
+
+Decisions apply after the policy rules: a **reject** removes the pair's candidate edge (conflict `manual_reject`; the
+runner-up claims may then win); if the ids stay together by another route that is recorded as `manual_reject_transitive`
+(chains are not broken), and a pair the wiki itself has joined (certain Dirayah join, wiki merge per `wiki_merges`) stays
+joined, recorded as `manual_reject_ignored` (the response carries a `warning`). An **accept** is a forced edge (rule `manual`, score 1)
+applied before the one-to-one matching, so clashing rule edges lose (`one_to_one`); if the two groups already hold different
+ids of one kind the merge still happens and the edge evidence is `{"forced": true, "kind_clash": ["kg"]}`. Accepts naming an id
+unknown to the wiki are recorded as conflict `manual_unknown_id`. `counts_json` gains `manual`, `manual_accept`, `manual_reject`.
+`raw` and a version without a policy file are not editable.
 
 **Measured, `v1m`** (laptop wiki): 2,981 certain Dirayah joins, 636 Noor–KG merges, 156 KG duplicates, 2,261 Dirayah
 same-id-and-name joins (59,795 groups for 65,829 external ids; 782 persons hold at least two Noor/KG ids). Of the 636 Noor–KG pairs 155 have

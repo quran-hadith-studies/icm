@@ -7,6 +7,7 @@ Kept free of imports beyond the standard library: ``narwiki.lookup`` (imported b
                  web/narwiki_routes.py; ``user/`` is never rsynced or deployed over).
   NARWIKI_OPEN   "1" (default): every visitor acts as an admin (anonymous ones as "guest"), like ICM today;
                  "0": writes need a login, reviews and reverts need an admin.
+  NARWIKI_VERSIONS_DIR  where narrator-database versions live (default: ICM's narrators_versions directory).
   ICM_CACHE_DIR  where ICM keeps its projects; ``narrator_index.json`` there lists the ICM projects that
                  use each narrator id (read by the wiki's «پروژه‌های ICM»).
 """
@@ -19,6 +20,10 @@ PROJECT = os.path.dirname(HERE)                                              # h
 
 DB = os.environ.get("NARWIKI_DB", os.path.join(PROJECT, "narwiki-data", "wiki.sqlite"))
 OPEN = os.environ.get("NARWIKI_OPEN", "1") != "0"
+# narrator-database versions (one SQLite per version, rebuilt after every manual decision); same directory ICM reads
+# (icm.config.NARRATOR_VERSIONS_DIR, duplicated here so this module stays import-light)
+VERSIONS_DIR = os.environ.get("NARWIKI_VERSIONS_DIR") or os.environ.get("ICM_NARRATOR_VERSIONS_DIR") or os.path.join(
+    os.environ.get("ICM_DATA_DIR", os.path.join(HERE, "external", "icm")), "narrators_versions")
 ICM_CACHE_DIR = os.environ.get("ICM_CACHE_DIR", os.path.join(PROJECT, "icm-cache"))
 
 # external id kinds the UI knows by name; any other kind is shown as is

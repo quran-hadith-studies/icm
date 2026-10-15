@@ -10,6 +10,18 @@ const $app = document.getElementById('app');
 const FA = '۰۱۲۳۴۵۶۷۸۹';
 const fa = x => x == null ? '' : String(x).replace(/[0-9]/g, d => FA[d]);
 let ME = { user: null, admin: false, open: true };
+/* narrator-database version ("version mode"): the URL's ?version= is the truth; localStorage only remembers the last choice */
+const VKEY = 'narwiki.version';
+const lsGet = () => { try { return localStorage.getItem(VKEY) || ''; } catch (_) { return ''; } };
+const lsSet = v => { try { if (v) localStorage.setItem(VKEY, v); else localStorage.removeItem(VKEY); } catch (_) {} };
+const verFromUrl = () => STATIC ? '' : (new URLSearchParams(location.search).get('version') || '');
+let VER = verFromUrl();
+let VERSIONS = null;
+const withVer = path => !VER || /[?&]version=/.test(path) ? path : path + (path.includes('?') ? '&' : '?') + 'version=' + encodeURIComponent(VER);
+const vmeta = () => (VERSIONS || []).find(v => v.name === VER);
+const vLabel = () => { const m = vmeta(); return (m && m.label_fa) || VER; };
+const vEditable = () => !!VER && !STATIC && VER !== 'raw' && (!vmeta() || vmeta().editable);
+const vApi = rest => `/version/${encodeURIComponent(VER)}${rest}`;
 
 /* ---------- helpers ---------- */
 function el(tag, attrs, ...kids) {
@@ -51,9 +63,17 @@ document.getElementById('modal-x').onclick = () => document.getElementById('moda
 document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') e.target.hidden = true; });
 /* in-app link: pushState inside the app, a plain link in an exported file */
 function link(path, ...kids) {
-  return el('a', { href: BASE + path, onclick: STATIC ? null : (ev => { if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button) return; ev.preventDefault(); go(path); }) }, ...kids);
+  return el('a', { href: BASE + withVer(path), onclick: STATIC ? null : (ev => { if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button) return; ev.preventDefault(); go(path); }) }, ...kids);
 }
-function go(path) { if (STATIC) { location.href = BASE + path; return; } history.pushState({}, '', BASE + path); render(); window.scrollTo(0, 0); }
+function go(path) { path = withVer(path); if (STATIC) { location.href = BASE + path; return; } history.pushState({}, '', BASE + path); render(); window.scrollTo(0, 0); }
+const url = path => BASE + withVer(path);                      // for history.replaceState
+function setVersion(v) {
+  lsSet(v); VER = v;
+  const u = new URL(location.href);
+  if (v) u.searchParams.set('version', v); else u.searchParams.delete('version');
+  history.pushState({}, '', u.pathname + u.search);
+  render();
+}
 window.addEventListener('popstate', () => render());
 function help(...kids) { return el('details', { class: 'help' }, el('summary', {}, 'توضیحات'), ...kids); }
 const P = t => el('p', {}, t);
@@ -92,6 +112,48 @@ const srcChip = s => el('span', { class: 'chip ' + (s || '').split('/')[0], titl
 const deathText = p => p.death_lo ? (p.death_hi && p.death_hi !== p.death_lo ? `د. ${fa(p.death_lo)}–${fa(p.death_hi)}` : `د. ${fa(p.death_lo)}`) : '';
 const fmtTs = t => t ? fa(t.replace('T', ' ').replace('Z', '')) : '';
 
+
+/* ---------- version selector, banner ---------- */
+const VSTATE_FA = { proposed: 'پیشنهادی', merged: 'ادغام‌شده', rejected: 'ردشده' };
+const RULE_FA = { link_kg: 'پیوند پیشین نور↔گراف', name_chrono: 'نام + تاریخ + سند', noor_dup: 'تکراری نور', kg_dup: 'تکراری گراف', certain_dirayah: 'درایه (قطعی)', noor_kg: 'نور↔گراف', dup: 'تکراری یک پایگاه', dirayah_same_id: 'درایه (شناسه و نام یکسان)',
+  dirayah: 'درایه', wiki_merge: 'ادغام ویکی', manual: 'دستی', seed: 'آغازین' };
+const CONFLICT_FA = { one_to_one: 'برنده‌ی دیگری داشت (ادغام یک‌به‌یک)', threshold: 'زیر آستانه', manual_reject: 'ردشده‌ی دستی', manual_reject_transitive: 'ردشده‌ی دستی، ولی از راه دیگری هنوز با هم‌اند',
+  manual_reject_ignored: 'ردِ دستی اعمال نشد: ویکی خودش این دو را یکی کرده', manual_unknown_id: 'شناسه‌ی ناشناخته برای ویکی', kind_clash: 'دو شناسه از یک پایگاه در یک گروه' };
+const ruleFa = r => RULE_FA[r] || r;
+const DEC_FA = { accept: 'ادغام', reject: 'رد' };
+const VSEL_HELP = () => help(
+  P('«نسخه‌ی راویان» یک پایگاه راویان زنده است که از ویکی ساخته می‌شود: هر شناسه‌ی نور یا گراف دانش در آن به یک گروه (یک راوی) می‌رسد، طبق قاعده‌های آن نسخه (مثلاً v1m: فقط ادغام‌های با اطمینان بالا). پروژه‌های ICM از یکی از این نسخه‌ها می‌خوانند.'),
+  UL('بی انتخاب نسخه، ویکی مثل همیشه کار می‌کند (حالت کلاسیک). با انتخاب نسخه، پیشنهادهای ادغام، صفحه‌ی راوی و ادغام دستی وضعیت همان نسخه را نشان می‌دهند و می‌توانید در آن «ادغام» یا «رد» کنید.',
+    'تصمیم‌ها جدا برای هر نسخه ثبت می‌شوند و فقط روی همان نسخه اثر دارند؛ ادغام‌های خودِ ویکی (صفحه‌ی «ادغام دستی» و دکمه‌های حالت کلاسیک) به نسخه‌ها وابسته نیستند و برای پیراستن ویکی‌اند.',
+    'هر تصمیم فایل نسخه را دوباره می‌سازد (چند ثانیه). چون وضعیت ویکی در فایل عوض می‌شود، پروژه‌های ICM که از آن نسخه می‌خوانند در پیشروی بعدی از مرحله‌ی ۴ دوباره حساب می‌کنند.',
+    'نسخه‌ی «raw» هیچ ادغامی ندارد و فقط‌خواندنی است. انتخاب نسخه در نشانی (?version=) می‌ماند و هنگام رفتن میان صفحه‌ها حفظ می‌شود.'));
+function versionBar() {
+  const sel = document.getElementById('vsel'), ban = document.getElementById('vbanner');
+  if (STATIC || !sel || !ban) return;
+  const opts = [el('option', { value: '' }, 'بدون نسخه (ویکی کلاسیک)')];
+  const list = VERSIONS || [];
+  for (const v of list) {
+    const bits = [v.label_fa || v.name, `(${v.name})`];
+    if (v.name === 'raw') bits.push('— فقط‌خواندنی'); else {
+      if (v.built) bits.push('— ' + fa(String(v.built).slice(0, 10)));
+      if (v.n_groups != null) bits.push(`— ${fa(v.n_groups)} گروه`);
+      bits.push(`— ${fa(v.n_decisions || 0)} تصمیم`);
+    }
+    opts.push(el('option', { value: v.name }, bits.join(' ')));
+  }
+  if (VER && !list.some(v => v.name === VER)) opts.push(el('option', { value: VER }, VER));
+  const s = el('select', { id: 'vselect', title: 'نسخه‌ی راویان', onchange: ev => setVersion(ev.target.value) }, ...opts);
+  s.value = VER;
+  const last = lsGet();
+  fill(sel, el('label', { class: 'small muted', for: 'vselect' }, 'نسخه: '), s,
+    !VER && last && list.some(v => v.name === last) ? el('a', { href: '#', class: 'small', onclick: ev => { ev.preventDefault(); setVersion(last); } }, ' ادامه با ' + last) : null);
+  fill(ban, VER ? el('div', { class: 'wrap' }, el('div', { class: 'vbanner' }, el('span', {}, `نسخه‌ی راویان: ${vLabel()} (${VER}) — تصمیم‌ها فقط روی این نسخه اعمال می‌شود`),
+    VER === 'raw' ? el('span', { class: 'chip ghost' }, 'فقط‌خواندنی') : null, ' ',
+    el('a', { href: BASE + '/', onclick: ev => { ev.preventDefault(); setVersion(''); } }, 'بازگشت به حالت کلاسیک ویکی'),
+    VSEL_HELP())) : null);
+  document.querySelectorAll('[data-path]').forEach(a => a.setAttribute('href', BASE + withVer(a.dataset.path)));
+}
+
 /* ---------- routing ---------- */
 function route() {
   const m = location.pathname.slice(BASE.length).split('/').filter(Boolean);
@@ -101,7 +163,10 @@ function route() {
   return { page: m[0] };
 }
 async function render() {
+  VER = verFromUrl();
   if (!STATIC) ME = await api('/me').catch(() => ME);
+  if (!STATIC && VERSIONS === null) VERSIONS = await api('/versions').then(r => r.items).catch(() => []);
+  versionBar();
   const who = document.getElementById('who');
   if (who) fill(who, STATIC ? 'نسخه‌ی ذخیره‌شده' : ME.user ? `${ME.user}${ME.admin ? ' (مدیر)' : ''}` : el('a', { href: '/account/login?next=' + encodeURIComponent(location.pathname) }, 'ورود'));
   const r = route();
@@ -124,6 +189,7 @@ const HOME_HELP = () => help(
     'با شناسه‌ی منبع، مثل noor:2323 یا kg:3795، یا با شماره‌ی شخص در ویکی،',
     'با پالایه‌ها: کدام پایگاه (فقط نور، فقط گراف، هر دو = ادغام‌شده، یا ساخته‌شده در ویکی)، دارای تاریخ وفات یا بی‌تاریخ، و «پیشنهاد ادغام دارد».'),
   P('بی‌جستجو، پرروایت‌ترین راویان نخست می‌آیند (شمار روایت‌ها در منبع‌ها). روی نام هر راوی بزنید تا صفحه‌اش باز شود. جستجو هیچ چیزی را تغییر نمی‌دهد.'),
+  P('در بالای صفحه می‌توانید یک «نسخه‌ی راویان» برگزینید (مثلاً v1m): آن‌گاه پیشنهادهای ادغام و صفحه‌ی راوی وضعیت همان نسخه را نشان می‌دهند و می‌توانید در آن نسخه ادغام یا رد کنید؛ بی انتخاب نسخه، ویکی مثل همیشه کار می‌کند. جزئیات در «توضیحات» بالای صفحه‌ی هر نسخه.'),
   P('بخش‌های دیگر: «پیشنهادهای ادغام» (جفت‌هایی که به احتمال زیاد یک نفرند و خودکار پیدا شده‌اند؛ هیچ‌کدام خودکار ادغام نشده است)، «صف بازبینی» (همه‌ی تغییرهای کاربران که هنوز بازبینی نشده‌اند)، «ادغام دستی» و «راوی تازه».'));
 
 async function home() {
@@ -139,7 +205,7 @@ async function home() {
   const run = async (keepOffset) => {
     if (!keepOffset) offset = 0;
     const p = new URLSearchParams({ q: q.value.trim(), kind: kind.value, dated: dated.value, sugg: sugg.checked ? '1' : '', offset, limit: 50 });
-    history.replaceState({}, '', BASE + '/?' + [...p].filter(([k, v]) => v && v !== '0' || (k === 'dated' && v === '0')).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&'));
+    history.replaceState({}, '', url('/?' + [...p].filter(([k, v]) => v && v !== '0' || (k === 'dated' && v === '0')).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')));
     fill(out, el('p', { class: 'muted' }, 'جستجو…'));
     try {
       const r = await api('/search?' + p);
@@ -189,9 +255,9 @@ const PERSON_HELP = () => help(
   P('کارها: «ویرایش» (افزودن یا کنار گذاشتن مقدار، تغییر نام نمایشی)، «جداسازی» (اگر دو نفر به اشتباه یکی شده‌اند)، «ادغام با…» (اگر این راوی با شخص دیگری یکی است)، «تاریخچه» و «ذخیره‌ی صفحه» (یک فایل HTML تنها با همه‌ی داده‌ها، که بی‌اینترنت هم باز می‌شود). هر تغییر فوراً اعمال می‌شود و در «صف بازبینی» می‌ماند تا بازبین تأیید یا رد کند (رد کردن می‌تواند تغییر را برگرداند).'));
 
 async function person(id) {
-  const d = await api('/person/' + id);
+  const d = await api('/person/' + id + (VER ? '?version=' + encodeURIComponent(VER) : ''));
   const p = d.person;
-  if (!STATIC && p.id !== id) history.replaceState({}, '', BASE + '/p/' + p.id);
+  if (!STATIC && p.id !== id) history.replaceState({}, '', url('/p/' + p.id));
   const head = el('div', { class: 'card' },
     el('h1', {}, p.display_name, ' ', el('span', { class: 'small muted' }, '#' + fa(p.id))),
     p.requested !== p.id ? el('div', { class: 'warn small' }, `شخص #${fa(p.requested)} در این شخص ادغام شده است.`) : null,
@@ -207,7 +273,7 @@ async function person(id) {
         el('a', { class: 'btn', href: `${API}/person/${p.id}/export.html`, download: `narrator-${p.id}.html` }, 'ذخیره‌ی صفحه (HTML)')));
   const noor = d.cards.filter(c => extKind(c.id) === 'noor'), kg = d.cards.filter(c => extKind(c.id) === 'kg');
   const entries = noor.flatMap(c => (c.entries || []).map(e => ({ ...e, via: c.id })));
-  fill($app, head, PERSON_HELP(),
+  fill($app, head, PERSON_HELP(), VER ? versionGroupCard(d) : null,
     card('ویژگی‌ها', fieldsTable(p.fields), p.retired.length ? el('details', { class: 'small' }, el('summary', { class: 'muted' }, `${fa(p.retired.length)} مقدار کنارگذاشته`), fieldsTable(p.retired)) : null),
     el('div', { class: 'cols' },
       el('div', { class: 'card srccol' }, el('h2', {}, el('span', { class: 'chip noor' }, 'نور'), ' راویان نور (جامع الاحادیث)'), noor.length ? noor.map(noorCard) : el('p', { class: 'muted' }, 'شناسه‌ای در نور ندارد.')),
@@ -297,6 +363,51 @@ function hadithCard(p, counts) {
     counts.hadithai_confirmed ? ` hadith.ai در ${fa(counts.hadithai_confirmed)} جا از همین سندهای نور همین نام را برچسب زده است (هم‌خوان با نور).` : ''), tabs, note, box);
 }
 
+
+/* ---------- version group block on the person page ---------- */
+const VGROUP_HELP = () => help(
+  P('هر شناسه‌ی نور یا گراف دانش این راوی در نسخه‌ی انتخاب‌شده به یک گروه می‌رسد؛ اعضای گروه همان شناسه‌هایی‌اند که این نسخه یکی شمرده است، با قاعده‌ای که آن‌ها را به هم وصل کرده (آغازین = خودِ شناسه) و امتیازش.'),
+  UL('تصمیم‌های دستی زیر فقط برای همین نسخه‌اند. «بازگرداندن تصمیم» آن را برمی‌دارد و نسخه دوباره ساخته می‌شود؛ پروژه‌های ICM آن نسخه از مرحله‌ی ۴ دوباره حساب می‌کنند.',
+    '«ردکردن» جفت را از پیشنهادهای ادغامِ آن نسخه برمی‌دارد، ولی چیزی را که خودِ ویکی یکی کرده جدا نمی‌کند؛ اگر دو شناسه از راه دیگری هم به هم وصل باشند (زنجیره)، رد دومی لازم است.',
+    'در نسخه‌ی raw ادغامی نیست و همه‌چیز فقط‌خواندنی است.'));
+function versionGroupCard(d) {
+  const groups = d.version_group || [];
+  const title = `گروه در نسخه‌ی ${VER}`;
+  const body = groups.length ? groups.map(g => {
+    const decs = g.group_decisions || g.decisions || [];
+    return el('div', { class: 'sug' },
+      g.name ? el('div', {}, el('b', {}, g.name), ' ', el('span', { class: 'small muted' }, g.canon || '')) : null,
+      el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ['پایگاه', 'شناسه', 'قاعده', 'امتیاز', 'راوی در ویکی'].map(t => el('th', {}, t)))),
+        el('tbody', {}, g.members.map(m => el('tr', {}, el('td', {}, el('span', { class: 'chip ' + m.kind }, KIND_FA[m.kind] || m.kind)), el('td', {}, m.id),
+          el('td', {}, ruleFa(m.rule)), el('td', {}, m.score != null ? fa(Math.round(m.score * 100) / 100) : ''),
+          el('td', {}, m.kind === 'noor' || m.kind === 'kg' ? extPersonLink(m.id) : '')))))),
+      el('h3', {}, 'تصمیم‌های دستی'),
+      decs.length ? decs.map(dec => vDecisionRow(dec)) : el('p', { class: 'muted small' }, 'تصمیم دستی‌ای برای این گروه نیست.'));
+  }) : el('p', { class: 'muted' }, 'این راوی شناسه‌ای از نور یا گراف دانش ندارد.');
+  return card(title, VGROUP_HELP(), VER === 'raw' ? el('p', { class: 'small muted' }, 'نسخه‌ی raw ادغامی ندارد؛ هر شناسه گروه خودش است.') : null, body);
+}
+function extPersonLink(ext) {
+  const span = el('span', { class: 'small muted' }, '…');
+  const [k, ...r] = ext.split(':');
+  api(`/by-ext/${k}/${r.join(':')}`).then(p => fill(span, link('/p/' + p.id, p.display_name))).catch(() => fill(span, '—'));
+  return span;
+}
+function vDecisionRow(dec, after) {
+  const row = el('div', { class: 'erow' }, el('span', { class: 'chip ' + (dec.decision === 'accept' ? 'accepted' : 'rejected') }, DEC_FA[dec.decision] || dec.decision),
+    extChip(dec.a), '⟷', extChip(dec.b), dec.note ? el('span', { class: 'small' }, '«' + dec.note + '»') : null,
+    el('span', { class: 'small muted' }, [dec.user || dec.by || dec.username, fmtTs(dec.ts || dec.created)].filter(Boolean).join(' ')));
+  if (vEditable()) {
+    const b = el('button', { class: 'danger' }, 'بازگرداندن تصمیم');
+    b.onclick = busy(b, async () => {
+      const r = await post(vApi('/decide'), { a: dec.a, b: dec.b, decision: 'clear' });
+      await refreshVersions(); toast('تصمیم برداشته شد؛ نسخه دوباره ساخته شد.' + (r.warning ? ' ' + r.warning : '')); (after || render)();
+    });
+    row.append(b);
+  }
+  return row;
+}
+async function refreshVersions() { VERSIONS = await api('/versions').then(r => r.items).catch(() => VERSIONS || []); versionBar(); }
+
 /* ---------- suggestions ---------- */
 function pbox(s, side) {
   const p = s[side + '_person'];
@@ -380,6 +491,7 @@ const SUG_HELP = () => help(
   P('ادغام در ویکی، تصمیم پروژه‌های ICM را عوض نمی‌کند: در مرحله‌ی ۴ هر پروژه فقط به صورت پیشنهاد دیده می‌شود.'));
 
 async function suggestionsPage() {
+  if (VER) return vSuggestionsPage();
   const qs = new URLSearchParams(location.search);
   const kind = el('select', {}, [['', 'همه‌ی گونه‌ها'], ...Object.entries(SUG_FA)].map(([v, t]) => el('option', { value: v }, t)));
   kind.value = qs.get('kind') || '';
@@ -388,7 +500,7 @@ async function suggestionsPage() {
   const out = el('div'), counts = el('div', { class: 'small muted' });
   let offset = 0;
   const run = async () => {
-    history.replaceState({}, '', `${BASE}/suggestions?kind=${kind.value}&status=${status.value}`);
+    history.replaceState({}, '', url(`/suggestions?kind=${kind.value}&status=${status.value}`));
     fill(out, el('p', { class: 'muted' }, 'خواندن…'));
     try {
       const r = await api(`/suggestions?kind=${kind.value}&status=${status.value}&offset=${offset}&limit=20`);
@@ -398,6 +510,100 @@ async function suggestionsPage() {
   };
   kind.onchange = status.onchange = () => { offset = 0; run(); };
   fill($app, el('h1', {}, 'پیشنهادهای ادغام'), SUG_HELP(), card(null, el('div', { class: 'toolbar' }, kind, status), counts), out);
+  await run();
+}
+
+
+/* ---------- suggestions in version mode ---------- */
+const VSUG_HELP = () => help(
+  P('این‌جا همان پیشنهادهای ادغامِ ویکی را می‌بینید، ولی با وضعیتشان در نسخه‌ی انتخاب‌شده: «ادغام‌شده» (قاعده‌های نسخه این دو شناسه را یکی کرده‌اند)، «ردشده» (زیر آستانه، بازنده‌ی ادغام یک‌به‌یک، یا ردِ دستی) یا «پیشنهادی» (هنوز تصمیمی نیست). شواهد همان‌هایی است که در حالت کلاسیک هم می‌بینید.'),
+  UL('«ادغام در این نسخه» دو شناسه را به زور یکی می‌کند (قاعده‌ی «دستی»، امتیاز ۱) و بر قاعده‌های خودکار پیشی دارد. «ردکردن در این نسخه» این جفت را از ادغام برمی‌دارد. «بازگرداندن تصمیم» تصمیم دستی را پاک می‌کند.',
+    'هر تصمیم فقط روی همین نسخه اثر دارد، نسخه را دوباره می‌سازد، و پروژه‌های ICM آن نسخه در پیشروی بعدی از مرحله‌ی ۴ دوباره حساب می‌کنند. ادغامِ ویکی تغییر نمی‌کند.',
+    'ردکردن فقط همان جفت را مسدود می‌کند: چیزی را که خودِ ویکی یکی کرده (ادغام ویکی، پیوند قطعی درایه) جدا نمی‌کند و هشدار می‌دهد؛ اگر دو شناسه از راه دیگری هم (گروه‌های زنجیره‌ای) به هم وصل باشند، ردِ جفت دوم هم لازم است.',
+    'در نسخه‌ی raw هیچ ادغامی نیست و دکمه‌ای نیست.'));
+function groupChips(members) {
+  return el('div', { class: 'erow' }, (members || []).map(m => el('span', {}, extChip(m.id), el('span', { class: 'small muted' }, ' ' + ruleFa(m.rule) + (m.score != null && m.rule !== 'seed' ? ' ' + fa(Math.round(m.score * 100) / 100) : '')), ' ')));
+}
+function vsugBox(s, onChange) {
+  const box = el('div');
+  let result = null, form = null;
+  const draw = () => {
+    const st = s.version_state, editable = vEditable() && s.a_ext && s.b_ext;
+    const chips = [el('span', { class: 'chip ' + (st === 'merged' ? 'accepted' : st === 'rejected' ? 'rejected' : 'proposed') }, VSTATE_FA[st] || st)];
+    if (st === 'merged' && s.version_rule) chips.push(el('span', { class: 'chip ghost' }, 'قاعده: ' + ruleFa(s.version_rule)));
+    if (s.conflict_reason) chips.push(el('span', { class: 'chip ghost' }, CONFLICT_FA[s.conflict_reason] || s.conflict_reason));
+    const acts = el('div', { class: 'toolbar' });
+    if (editable) {
+      if (st !== 'merged') acts.append(el('button', { class: 'primary', onclick: () => ask('accept') }, 'ادغام در این نسخه'));
+      if (st !== 'rejected') acts.append(el('button', { class: 'danger', onclick: () => ask('reject') }, 'ردکردن در این نسخه'));
+      if (s.decision) { const c = el('button', {}, 'بازگرداندن تصمیم'); c.onclick = busy(c, () => send('clear', '')); acts.append(c); }
+    } else if (VER === 'raw') acts.append(el('span', { class: 'small muted' }, 'نسخه‌ی raw ادغامی ندارد و فقط‌خواندنی است.'));
+    else if (!(s.a_ext && s.b_ext)) acts.append(el('span', { class: 'small muted' }, 'شناسه‌ی منبع یکی از دو طرف پیدا نشد؛ تصمیم ممکن نیست.'));
+    if (s.a_ext && s.b_ext) acts.append(link(`/merge?a=${s.a_now}&b=${s.b_now}`, el('span', { class: 'btn' }, 'مقایسه‌ی کامل')));
+    fill(box, el('div', { class: 'sug' },
+      el('div', { class: 'toolbar' }, el('b', {}, SUG_FA[s.kind] || s.kind), ...chips, el('span', { class: 'small muted' }, `امتیاز ${fa(s.score)} · پیشنهاد #${fa(s.id)}`),
+        s.a_ext && s.b_ext ? el('span', { class: 'small muted' }, `${s.a_ext} ⟷ ${s.b_ext}`) : null),
+      s.decision ? vDecisionRow(s.decision, () => { s.decision = null; onChange(true); }) : null,
+      el('div', { class: 'pair' }, pbox(s, 'a'), el('div', { class: 'mid' }, '⟷'), pbox(s, 'b')),
+      evidence(s), acts, form, result));
+  };
+  async function send(decision, note) {
+    const r = await post(vApi('/decide'), { a: s.a_ext, b: s.b_ext, decision, note, kind: s.kind });
+    s.version_state = r.state_after; s.conflict_reason = r.conflict;
+    s.decision = decision === 'clear' ? null : { a: s.a_ext, b: s.b_ext, decision, note };
+    s.version_rule = r.state_after === 'merged' ? (decision === 'accept' ? 'manual' : ((r.group.find(m => m.rule !== 'seed' && (m.id === s.a_ext || m.id === s.b_ext)) || {}).rule || null)) : null;
+    form = null;
+    result = el('div', { class: r.warning ? 'err' : 'ok' },
+      el('div', {}, `وضعیت: ${VSTATE_FA[r.state_before] || r.state_before} ← ${VSTATE_FA[r.state_after] || r.state_after}` + (r.conflict ? ` (${CONFLICT_FA[r.conflict] || r.conflict})` : '')),
+      r.warning ? el('div', {}, 'هشدار: ' + (WARN_FA[r.conflict] || r.warning)) : null,
+      el('div', { class: 'small' }, 'گروه حاصل:'), groupChips(r.group), el('div', { class: 'small muted' }, 'نسخه دوباره ساخته شد؛ پروژه‌های ICM این نسخه از مرحله‌ی ۴ دوباره حساب می‌کنند.'));
+    draw(); onChange(false);
+  }
+  function ask(decision) {
+    const note = el('input', { type: 'text', placeholder: 'یادداشت کوتاه (اختیاری)', class: 'wide' });
+    const ok = el('button', { class: decision === 'accept' ? 'primary' : 'danger' }, decision === 'accept' ? 'تأیید ادغام' : 'تأیید رد');
+    ok.onclick = busy(ok, () => send(decision, note.value));
+    form = el('div', { class: 'card' }, el('div', {}, (decision === 'accept' ? 'ادغام' : 'ردکردن') + ` ${s.a_ext} و ${s.b_ext} فقط در نسخه‌ی ${VER}؟`),
+      el('div', { class: 'toolbar' }, note, ok, el('button', { onclick: () => { form = null; draw(); } }, 'انصراف')));
+    draw();
+  }
+  draw();
+  return box;
+}
+const WARN_FA = { manual_reject_ignored: 'این دو شناسه در خودِ ویکی یک شخص‌اند؛ هویت ویکی غالب است و ردِ شما اعمال نشد.',
+  manual_reject_transitive: 'این دو شناسه از راه ادغام‌های دیگر در این نسخه هنوز با هم‌اند؛ فقط یالِ مستقیم برداشته شد (برای جدا شدن، جفت دیگر زنجیره را هم رد کنید).' };
+async function vSuggestionsPage() {
+  const qs = new URLSearchParams(location.search);
+  const kind = el('select', {}, [['', 'همه‌ی گونه‌ها'], ...Object.entries(SUG_FA)].map(([v, t]) => el('option', { value: v }, t)));
+  kind.value = qs.get('kind') || '';
+  const STAT = [['proposed', 'پیشنهادی'], ['merged', 'ادغام‌شده'], ['rejected', 'ردشده'], ['all', 'همه']];
+  const status = el('select', {}, STAT.map(([v, t]) => el('option', { value: v }, t)));
+  status.value = STAT.some(x => x[0] === qs.get('status')) ? qs.get('status') : 'proposed';
+  const out = el('div');
+  let offset = 0;
+  const setCounts = c => {
+    const tot = (c.proposed || 0) + (c.merged || 0) + (c.rejected || 0);
+    [...status.options].forEach(o => { const base = STAT.find(x => x[0] === o.value)[1]; o.textContent = `${base} (${fa(o.value === 'all' ? tot : c[o.value] || 0)})`; });
+  };
+  const run = async () => {
+    history.replaceState({}, '', url(`/suggestions?kind=${kind.value}&status=${status.value}`));
+    fill(out, el('p', { class: 'muted' }, 'خواندن…'));
+    try {
+      const r = await api(`${vApi('/suggestions')}?kind=${kind.value}&status=${status.value}&offset=${offset}&limit=20`);
+      setCounts(r.counts);
+      const onChange = async full => {
+        const c = await api(`${vApi('/suggestions')}?kind=${kind.value}&status=proposed&limit=1`).catch(() => null);
+        if (c) setCounts(c.counts);
+        if (full) run();
+      };
+      fill(out, el('div', { class: 'small muted' }, `${fa(r.total)} پیشنهاد، به ترتیب امتیاز`), r.items.length ? r.items.map(s => vsugBox(s, onChange)) : el('p', { class: 'muted' }, 'موردی نیست.'),
+        pager(r.total, offset, 20, o => { offset = o; run(); window.scrollTo(0, 0); }));
+    } catch (e) { fill(out, errBox(e)); }
+  };
+  kind.onchange = status.onchange = () => { offset = 0; run(); };
+  fill($app, el('h1', {}, `پیشنهادهای ادغام در نسخه‌ی ${VER}`), VSUG_HELP(),
+    VER === 'raw' ? el('div', { class: 'card muted' }, 'نسخه‌ی raw هیچ ادغامی ندارد؛ این‌جا فقط می‌توانید پیشنهادها را ببینید و تصمیمی ثبت نمی‌شود.') : null,
+    card(null, el('div', { class: 'toolbar' }, kind, status)), out);
   await run();
 }
 
@@ -511,8 +717,8 @@ async function mergePage() {
   const qs = new URLSearchParams(location.search);
   let A = null, B = null;
   const prev = el('div');
-  const update = async () => {
-    history.replaceState({}, '', `${BASE}/merge?a=${A ? A.id : ''}&b=${B ? B.id : ''}`);
+  let update = async () => {
+    history.replaceState({}, '', url(`/merge?a=${A ? A.id : ''}&b=${B ? B.id : ''}`));
     if (!A || !B) { fill(prev, el('p', { class: 'muted' }, 'دو راوی را برگزینید.')); return; }
     if (A.id === B.id) { fill(prev, errBox('هر دو یک شخص‌اند.')); return; }
     fill(prev, el('p', { class: 'muted' }, 'مقایسه…'));
@@ -536,12 +742,39 @@ async function mergePage() {
         radio(m.a, true), radio(m.b, false), note, el('div', { class: 'toolbar' }, ok)));
     } catch (e) { fill(prev, errBox(e)); }
   };
-  fill($app, el('h1', {}, 'ادغام دو راوی'), help(
+  const vbox = el('div');
+  const vUpdate = async () => {
+    if (!VER) return;
+    if (!A || !B || A.id === B.id) { fill(vbox, card('ادغام فقط در نسخه‌ی ' + VER, el('p', { class: 'muted' }, 'پس از برگزیدن دو راوی، می‌توانید آن‌ها را فقط در این نسخه ادغام کنید.'))); return; }
+    const pick = p => { const xs = p.ext.filter(x => /^(noor|kg):/.test(x)); const n = xs.filter(x => x.startsWith('noor:')), g = xs.filter(x => x.startsWith('kg:')); return { xs, def: (n[0] || g[0] || ''), ambiguous: n.length > 1 || (!n.length && g.length > 1) || (xs.length > 1 && n.length === 0) }; };
+    const pa = pick(A), pb = pick(B);
+    const selFor = (pp, p) => { const s = el('select', {}, pp.xs.map(x => el('option', { value: x }, x))); s.value = pp.def; return s; };
+    const sa = selFor(pa, A), sb = selFor(pb, B);
+    const note = el('input', { type: 'text', placeholder: 'یادداشت کوتاه (اختیاری)', class: 'wide' });
+    const ok = el('button', { class: 'primary' }, 'ادغام فقط در این نسخه');
+    const res = el('div');
+    ok.onclick = busy(ok, async () => {
+      if (!sa.value || !sb.value) throw new Error('هر دو راوی باید شناسه‌ی نور یا گراف دانش داشته باشند.');
+      if (!confirm(`ادغام ${sa.value} و ${sb.value} فقط در نسخه‌ی ${VER}؟`)) return;
+      const r = await post(vApi('/decide'), { a: sa.value, b: sb.value, decision: 'accept', note: note.value });
+      await refreshVersions();
+      fill(res, el('div', { class: 'ok' }, `وضعیت: ${VSTATE_FA[r.state_before] || r.state_before} ← ${VSTATE_FA[r.state_after] || r.state_after}`, ' ', groupChips(r.group)));
+    });
+    fill(vbox, card('ادغام فقط در نسخه‌ی ' + VER,
+      el('p', { class: 'small muted' }, 'این صفحه ادغامِ خودِ ویکی است و به نسخه وابسته نیست. برای اعمال روی همین نسخه از دکمه‌ی زیر استفاده کنید (دو شناسه‌ی اصلی هر راوی؛ در صورت چند شناسه یکی را برگزینید).'),
+      !vEditable() ? el('p', { class: 'warn' }, 'این نسخه فقط‌خواندنی است.') : null,
+      el('div', { class: 'toolbar' }, el('span', {}, '#' + fa(A.id)), sa, '⟷', el('span', {}, '#' + fa(B.id)), sb),
+      pa.xs.length > 1 || pb.xs.length > 1 ? el('p', { class: 'small warn' }, 'یکی از دو راوی چند شناسه دارد؛ شناسه‌ی درست را برگزینید.') : null,
+      vEditable() ? el('div', { class: 'toolbar' }, note, ok) : null, res));
+  };
+  const _update = update;
+  update = async () => { await _update(); await vUpdate(); };
+  fill($app, el('h1', {}, 'ادغام دو راوی'), VER ? el('div', { class: 'err' }, `نسخه‌ی ${VER} انتخاب شده است؛ ادغامِ این صفحه در خودِ ویکی انجام می‌شود و مخصوص نسخه نیست. برای ادغام فقط در نسخه، از بخش «ادغام فقط در نسخه» زیر استفاده کنید.`) : null, help(
     P('دو شخص را که در واقع یک راوی‌اند یکی کنید: مثلاً راوی نور و همان راوی در گراف دانش، یا دو مدخل تکراری در یک پایگاه.'),
     UL('هر دو را با جستجو پیدا کنید (نام، noor:…، kg:… یا شماره‌ی شخص).', 'پیش‌نمایش همه‌ی ویژگی‌های دو طرف را کنار هم نشان می‌دهد؛ «ناسازگار» یعنی هر دو مقدار دارند و هیچ مقدار مشترکی ندارند (مثلاً سال وفات متفاوت). هشدارها: فاصله‌ی وفات بیش از ۳۰ سال، یا هر دو شناسه‌ای در یک پایگاه دارند.',
       'برگزینید کدام شخص بماند: شماره و نام نمایشی او می‌ماند؛ شناسه‌ها و مقدارهای دیگری به او منتقل می‌شوند و دیگری «ادغام‌شده» علامت می‌خورد.'),
     P('ادغام فوراً اعمال می‌شود، یک نسخه در تاریخچه و یک مورد در صف بازبینی می‌سازد و با «بازگردانی» برمی‌گردد (تا وقتی کسی این دو را پس از آن تغییر نداده باشد). اگر پیشنهادی میان این دو باز باشد، «پذیرفته» علامت می‌خورد.')),
-    el('div', { class: 'cols' }, card(null, picker('راوی نخست', qs.get('a'), p => { A = p; update(); })), card(null, picker('راوی دوم', qs.get('b'), p => { B = p; update(); }))), prev);
+    el('div', { class: 'cols' }, card(null, picker('راوی نخست', qs.get('a'), p => { A = p; update(); })), card(null, picker('راوی دوم', qs.get('b'), p => { B = p; update(); }))), vbox, prev);
   update();
 }
 
@@ -604,7 +837,7 @@ async function queuePage() {
   const out = el('div');
   let offset = 0;
   const run = async () => {
-    history.replaceState({}, '', `${BASE}/queue?status=${status.value}&kind=${kind.value}`);
+    history.replaceState({}, '', url(`/queue?status=${status.value}&kind=${kind.value}`));
     fill(out, el('p', { class: 'muted' }, 'خواندن…'));
     try {
       const r = await api(`/queue?status=${status.value}&kind=${kind.value}&offset=${offset}&limit=20`);

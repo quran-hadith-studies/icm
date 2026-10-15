@@ -169,6 +169,135 @@ def test_evaluate_without_sources_and_list():
         shutil.rmtree(d)
 
 
+# ---- manual decisions per version -------------------------------------------------------------
+def same(o, a, b):
+    g = lambda x: o.execute("select person_id from ext where kind=? and ext_id=?", tuple(x.split(":"))).fetchone()[0]
+    return g(a) == g(b)
+
+
+def test_manual_accept_forces_pair_rules_reject():
+    d = tempfile.mkdtemp(prefix="narver_")
+    try:
+        c, path, p = world(d)
+        out, o = built(d, V1, path, "a.sqlite")
+        st0 = version.read_meta(out)["wiki_state"]
+        assert not same(o, "noor:2", "kg:20")                               # medium pair: excluded by the policy
+        store.set_version_decision(c, "t", "kg:20", "noor:2", "accept", "ali", "sure")
+        out, o = built(d, V1, path, "b.sqlite")
+        assert same(o, "noor:2", "kg:20")
+        e = o.execute("select rule, score, evidence_json from edge where a='kg:20' or b='kg:20'").fetchone()
+        assert e[0] == "manual" and e[1] == 1.0 and json.loads(e[2])["forced"] is True and "kind_clash" not in json.loads(e[2])
+        assert o.execute("select rule from ext where kind='noor' and ext_id='2'").fetchone()[0] == "manual"      # the b side is brought in
+        m = version.read_meta(out)
+        cj = json.loads(m["counts_json"])
+        assert cj["manual"] == 1 and cj["manual_accept"] == 1 and cj["manual_reject"] == 0
+        assert m["wiki_state"] != st0
+        # clear restores the rule-only result and the original state
+        store.set_version_decision(c, "t", "noor:2", "kg:20", "clear", "ali")
+        out, o = built(d, V1, path, "c.sqlite")
+        assert not same(o, "noor:2", "kg:20") and version.read_meta(out)["wiki_state"] != m["wiki_state"]
+        assert store.version_decision_for(c, "t", "noor:2", "kg:20") is None
+        assert len(store.version_decisions(c, "t", status="retired")) == 1
+    finally:
+        shutil.rmtree(d)
+
+
+def test_manual_reject_removes_rule_edge_and_state_changes():
+    d = tempfile.mkdtemp(prefix="narver_")
+    try:
+        c, path, p = world(d)
+        s0 = version.read_meta(built(d, V1, path, "a.sqlite")[0])["wiki_state"]
+        store.set_version_decision(c, "t", "noor:1", "kg:10", "reject", "ali")
+        out, o = built(d, V1, path, "b.sqlite")
+        assert not same(o, "noor:1", "kg:10")
+        assert o.execute("select count(*) from edge where a='noor:1' and b='kg:10'").fetchone()[0] == 0
+        assert same(o, "noor:1", "kg:11")                                   # the runner-up now wins noor:1
+        assert o.execute("select reason from conflict where a='noor:1' and b='kg:10'").fetchone()[0] == "manual_reject"
+        s1 = version.read_meta(out)["wiki_state"]
+        assert s1 != s0 and json.loads(version.read_meta(out)["counts_json"])["manual_reject"] == 1
+        store.set_version_decision(c, "t", "noor:1", "kg:10", "accept", "ali")           # reject -> accept replaces it
+        out, o = built(d, V1, path, "c.sqlite")
+        assert same(o, "noor:1", "kg:10") and version.read_meta(out)["wiki_state"] not in (s0, s1)
+        assert len(store.version_decisions(c, "t")) == 1
+        # decisions of another version do not leak
+        store.set_version_decision(c, "other", "noor:2", "kg:20", "accept", "ali")
+        _, o = built(d, V1, path, "d.sqlite")
+        assert not same(o, "noor:2", "kg:20")
+        try:
+            store.set_version_decision(c, "t", "noor:2", "kg:999", "accept", "ali")
+            assert False
+        except store.WikiError:
+            pass
+    finally:
+        shutil.rmtree(d)
+
+
+def test_manual_accept_beats_clashing_rule_edge_and_flags_kind_clash():
+    d = tempfile.mkdtemp(prefix="narver_")
+    try:
+        c, path, p = world(d)
+        store.set_version_decision(c, "t", "noor:1", "kg:11", "accept", "ali")           # rule edge noor:1-kg:10 (score 2.2) loses
+        _, o = built(d, V1, path)
+        assert same(o, "noor:1", "kg:11") and not same(o, "noor:1", "kg:10")
+        assert o.execute("select reason, rule from conflict where a='noor:1' and b='kg:10'").fetchone() == ("one_to_one", "noor_kg")
+        # accepting across groups that both hold a KG id still merges, but flags it
+        store.set_version_decision(c, "t", "noor:1", "kg:11", "clear", "ali")
+        store.set_version_decision(c, "t", "noor:1", "kg:10", "accept", "ali")
+        store.set_version_decision(c, "t", "noor:1", "kg:20", "accept", "ali")
+        _, o = built(d, V1, path, "k.sqlite")
+        assert same(o, "noor:1", "kg:20") and same(o, "noor:1", "kg:10")                 # group {noor:1, kg:10} + {kg:20}
+        ev = json.loads(o.execute("select evidence_json from edge where rule='manual' and (a='kg:20' or b='kg:20')").fetchone()[0])
+        assert ev["forced"] is True and ev["kind_clash"] == ["kg"]
+    finally:
+        shutil.rmtree(d)
+
+
+def test_manual_reject_of_wiki_joined_pair_is_ignored_and_transitive_recorded():
+    d = tempfile.mkdtemp(prefix="narver_")
+    try:
+        c, path, p = world(d)
+        store.merge(c, p["z"], p["h"], keep=p["z"], user="ali")
+        store.set_version_decision(c, "t", "noor:2", "kg:20", "reject", "ali")
+        _, o = built(d, V1, path)
+        assert same(o, "noor:2", "kg:20")
+        assert o.execute("select count(*) from conflict where reason='manual_reject_ignored' and a='kg:20'").fetchone()[0] == 1
+        # noor:3~noor:4 (dup edge) and noor:3~kg:11 forced: rejecting kg:11/noor:4 cannot break the chain
+        store.set_version_decision(c, "t", "noor:3", "kg:11", "accept", "ali")
+        store.set_version_decision(c, "t", "kg:11", "noor:4", "reject", "ali")
+        _, o = built(d, V1, path, "t.sqlite")
+        assert same(o, "kg:11", "noor:4")
+        assert o.execute("select count(*) from conflict where reason='manual_reject_transitive'").fetchone()[0] == 1
+    finally:
+        shutil.rmtree(d)
+
+
+def test_rebuild_without_source_databases_and_old_wiki_without_table():
+    d = tempfile.mkdtemp(prefix="narver_")
+    try:
+        c, path, p = world(d)
+        out_dir = os.path.join(d, "versions")
+        os.environ["NARWIKI_DIRAYAH_DB"] = os.path.join(d, "none.sqlite")
+        from narwiki import config
+        old = config.narrators_db, config.kg_db
+        config.narrators_db = config.kg_db = lambda: os.path.join(d, "none.sqlite")
+        try:
+            store.set_version_decision(c, "v1m", "noor:2", "kg:20", "accept", "ali")
+            m = version.rebuild("v1m", path, out_dir)
+        finally:
+            config.narrators_db, config.kg_db = old
+            os.environ.pop("NARWIKI_DIRAYAH_DB")
+        f = os.path.join(out_dir, "v1m.sqlite")
+        assert os.path.exists(f) and not os.path.exists(f + ".tmp")
+        assert same(sqlite3.connect(f), "noor:2", "kg:20") and "eval_json" in version.read_meta(f)
+        assert json.loads(m["counts_json"])["manual_accept"] == 1
+        # a wiki database from before the table existed: no decisions, no failure
+        c.execute("drop table version_decision"); c.commit()
+        version.rebuild("v1m", path, out_dir)
+        assert not same(sqlite3.connect(f), "noor:2", "kg:20")
+    finally:
+        shutil.rmtree(d)
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-q"]))
