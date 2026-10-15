@@ -28,7 +28,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from narrators.common import STOP, bare, name_tokens
-from . import config, corpus, hadithai, sanad_parse
+from . import config, corpus, hadithai, narrator_versions, sanad_parse
 from .text import norm
 
 _IMAMS = json.load(open(config.HERE + "/narrators/data/imam_reigns.json", encoding="utf-8"))["imams"]
@@ -605,10 +605,46 @@ def make_cards(chains: Sequence[dict], trad: Dict[str, str]) -> Dict[str, dict]:
     return cards
 
 
-def build(wits: Sequence[dict]) -> dict:
+def collapse(cands: List[dict], version) -> List[dict]:
+    """One candidate per person of the narrator database version: the best (tier, then score) of the ids that
+    version treats as one, under the group's canon id, with ``also`` naming the group's other ids. The list keeps
+    the position of each group's best candidate. A candidate outside every group is left as it is."""
+    canon = version.canon(c["id"] for c in cands)
+    if not canon:
+        return cands
+    groups: Dict[str, List[Tuple[int, dict]]] = {}
+    for k, c in enumerate(cands):
+        groups.setdefault(canon.get(c["id"], c["id"]), []).append((k, c))
+    out = []
+    for cid, grp in groups.items():
+        if cid not in canon.values():
+            out.append(grp[0])
+            continue
+        k, best = max(grp, key=lambda kc: (_TIER_RANK.get(kc[1].get("tier"), 0), kc[1]["score"], -kc[0]))
+        seen = {m["id"] for m in version.members(cid) if m["kind"] in ("noor", "kg")} | {c["id"] for _, c in grp}
+        out.append((k, dict(best, id=cid, also=sorted(seen - {cid}))))
+    out.sort(key=lambda kc: kc[0])
+    return [c for _, c in out]
+
+
+def _collapse_chains(chains: List[dict], version) -> None:
+    """Express every element in the version's ids: candidates collapsed, an exact id canonicalised (the original
+    stays in ``exact_src``)."""
+    for ch in chains:
+        for e in ch["elems"]:
+            e["cands"] = collapse(e["cands"], version)
+            if e["exact"]:
+                c = version.canon([e["exact"]]).get(e["exact"])
+                if c and c != e["exact"]:
+                    e["exact_src"], e["exact"] = e["exact"], c
+
+
+def build(wits: Sequence[dict], version=None) -> dict:
     """identities.json: chains with candidates, and the name cards to decide.
 
-    ``wits`` are witness records (``corpus.get``) of the selected witnesses (copies excluded)."""
+    ``wits`` are witness records (``corpus.get``) of the selected witnesses (copies excluded). ``version`` is a
+    ``narrator_versions.Version`` (None: raw, every id apart)."""
+    version = version or narrator_versions.RAW
     chains: List[dict] = []
     trad = {w["wid"]: (w.get("tradition") or ("sunni" if w["corpus"] == "kg" else "shia")) for w in wits}
     flags: List[dict] = []
@@ -622,6 +658,7 @@ def build(wits: Sequence[dict]) -> dict:
             if not e["exact"] and e["kind"] == "name" and relative_word(e["name"]):
                 e["kind"], e["name"] = "relative", relative_word(e["name"])
     attach_candidates(chains, trad)
+    _collapse_chains(chains, version)
     for ch in chains:
         ch["tradition"] = trad.get(ch["wid"]) or ("sunni" if ch["source"] == "kg" else "shia")
     cards = make_cards(chains, trad)
@@ -632,23 +669,7 @@ def build(wits: Sequence[dict]) -> dict:
                            undecided_by_default=sum(1 for c in cards.values() if not c["default"])))
 
 
-def _same_person(ids: Iterable[str]) -> Dict[str, str]:
-    """kg id -> noor id for narrators the narrator database linked (high/medium)."""
-    kg = sorted({i.split(":")[1] for i in ids if i.startswith("kg:")})
-    out: Dict[str, str] = {}
-    if not kg:
-        return out
-    c = _nconn()
-    for chunk in _chunks(kg, 500):
-        q = ("select ravi_id, target_id from link where target_kind='kg' and confidence in ('high','medium') "
-             "and target_id in (%s)" % ",".join("?" * len(chunk)))
-        for r in c.execute(q, chunk):
-            out.setdefault(f"kg:{r[1]}", f"noor:{r[0]}")
-    c.close()
-    return out
-
-
-def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
+def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict:
     """Apply the user's choices. Returns chains of node ids plus the node table.
 
     decisions = {choices: {card_key: "noor:12" | "kg:7" | "none"}, merges: [[nid, nid]], overrides: {"aid|i": nid},
@@ -658,7 +679,10 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
     labels them.
     A card without a choice takes its default (a ``high`` candidate), else becomes a name-only node
     and is listed in ``undecided``. A dropped place is no narrator (isnad wording read as a name): it stays in
-    the chain with ``dropped`` and no node. Merged ids are one person, named by the Noor id when there is one."""
+    the chain with ``dropped`` and no node. Merged ids are one person, named by the Noor id when there is one.
+    The narrator database ``version`` decides which Noor/KG ids are one person (``same``: id -> canon id); a node's
+    ``ext`` lists every id of its person, which is where the graph looks facts up."""
+    version = version or narrator_versions.RAW
     d = decisions or {}
     choices, overrides = d.get("choices", {}), d.get("overrides", {})
     drops = set(d.get("drops", []))
@@ -670,8 +694,9 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
     all_ids = [c["id"] for ch in ident["chains"] for e in ch["elems"] for c in e["cands"][:1]]
     all_ids += [v for v in choices.values() if isinstance(v, str)]
     all_ids += [v for v in overrides.values() if isinstance(v, str)] + [x for m in d.get("merges", []) for x in m]
-    same = _same_person(all_ids)
-    # the user's merges are taken after the database's kg -> noor mapping, so a merge naming a kg id still applies
+    all_ids += list((d.get("dates") or {}))
+    same = version.canon(all_ids)
+    # the user's merges are taken after the version's mapping, so a merge naming any member id still applies
     canon = _union([[same.get(a, a), same.get(b, b)] for a, b in d.get("merges", [])])
     for ch in ident["chains"]:
         out = []
@@ -704,9 +729,14 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
             if nid is None:
                 nid = (f"rel:{ch['aid']}:{e['i']}" if e["kind"] == "relative"
                        else f"name:{' '.join(norm(e['name']).split())}")      # = node_name (anon places have their id)
+            src = nid
             nid = same.get(nid, nid)
             nid = canon.get(nid, nid)
-            node = nodes.setdefault(nid, dict(id=nid, names=[], tiers=set(), n=0))
+            node = nodes.setdefault(nid, dict(id=nid, names=[], tiers=set(), n=0, ext=[]))
+            for x in (nid, src):
+                for m in _ext_ids(x, version):
+                    if m not in node["ext"]:
+                        node["ext"].append(m)
             if nid.startswith("split:") and "label" not in node:
                 node["label"] = str((splits.get(nid) or {}).get("label") or e["name"])
             if e["name"] not in node["names"]:
@@ -727,6 +757,12 @@ def resolve(ident: dict, decisions: Optional[dict] = None) -> dict:
     alias.update(canon)
     return dict(chains=chains_out, nodes=nodes, undecided=sorted(undecided), same_person=same, alias=alias,
                 dropped=sorted(drops & {f"{ch['aid']}|{e['i']}" for ch in ident["chains"] for e in ch["elems"]}))
+
+
+def _ext_ids(nid: str, version) -> List[str]:
+    """Every database id of the person ``nid`` stands for (itself, for an id the version does not merge)."""
+    mem = [m["id"] for m in version.members(nid)]
+    return mem or ([nid] if nid.startswith(("noor:", "kg:")) else [])
 
 
 def node_name(ch: dict, e: dict) -> str:

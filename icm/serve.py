@@ -14,7 +14,7 @@ from __future__ import annotations
 import copy
 from typing import Dict, Optional
 
-from . import align as align_mod, corpus, identity, paths, project
+from . import align as align_mod, corpus, identity, narrator_versions, paths, project
 from . import search as search_mod
 from . import suggest as suggest_mod
 from .text import strip_tags, token_offsets, tokens
@@ -50,10 +50,10 @@ def stage(pid: str, run: str, name: str) -> Optional[dict]:
         def make():
             c = copy.deepcopy(out)
             if "suggestions" not in c:                         # runs from before step-4 suggestions
-                c["suggestions"] = suggest_mod.suggest(c)
+                c["suggestions"] = suggest_mod.suggest(c, version_of(c))
             return identity.with_node_ids(c)
         c = _cached(key, make)
-        extra = wiki_suggestions(c)
+        extra = wiki_suggestions(c, version_of(c))
         return dict(c, suggestions=c["suggestions"] + extra) if extra else c
     if name == "viz":
         v = out["viz"]
@@ -134,12 +134,21 @@ def align_view(A: dict) -> dict:
                 segments={k: {"state": v.get("state"), "span": v.get("span"), "tokens": v.get("tokens")} for k, v in A["segments"].items()})
 
 
-def wiki_suggestions(I: dict) -> list:
+def version_of(I: dict) -> narrator_versions.Version:
+    """The narrator database version an identify stage was computed with (raw for runs from before versions, or
+    when its file is gone)."""
+    try:
+        return narrator_versions.get((I.get("narrator_version") or {}).get("name"))
+    except KeyError:
+        return narrator_versions.RAW
+
+
+def wiki_suggestions(I: dict, version=None) -> list:
     """Merge suggestions from the narrator wiki, when its database is present."""
     try:
         from narwiki import lookup
         if not lookup.available():
             return []
-        return suggest_mod.wiki_same_person(I, lookup.persons_for)
+        return suggest_mod.wiki_same_person(I, lookup.persons_for, version)
     except Exception:                                  # the wiki is optional
         return []

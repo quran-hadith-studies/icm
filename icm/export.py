@@ -14,7 +14,7 @@ from typing import Dict, List
 from hadith_phylogeny.report import finite
 
 from . import graph as graph_mod
-from . import narrator_info, project, serve
+from . import narrator_info, narrator_versions, project, serve
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 SITE = "https://ebadollah.ir"
@@ -70,6 +70,8 @@ def collect(pid: str, run: str, what: str) -> dict:
     out: Dict = dict(v=VERSION, what=what, steps=steps, site=SITE, generated=time.strftime("%Y-%m-%d %H:%M"),
                      route=dict(pid=pid, run=run, step=steps[0] if steps else "seed"), project=proj, stages=stages,
                      decisions=decisions, deaths={}, hadith={}, narrators={})
+    out["narrator_version"] = ((stages.get("identify") or {}).get("narrator_version")       # the version the run was computed with
+                               or dict(name=(decisions.get("narrators") or {}).get("name") or narrator_versions.default_name()))
     S, A, I, G = stages.get("search"), stages.get("align"), stages.get("identify"), stages.get("graph")
     # full texts: the witnesses (and, on step 2, the candidates whose text the search stage cut)
     wids: List[str] = []
@@ -93,7 +95,8 @@ def collect(pid: str, run: str, what: str) -> dict:
         ids = [n for n in G.get("nodes", {}) if n.startswith(("noor:", "kg:"))]
     ids = ids[:MAX_CARDS]
     if ids:
-        out["deaths"] = graph_mod.known_deaths(ids)
+        V = serve.version_of(I) if I else narrator_versions.RAW
+        out["deaths"] = graph_mod.known_deaths(ids, V)
         out["narrators"] = {i: narrator_info.card(i, entry_chars=600) for i in ids}
     return finite(out)
 

@@ -23,6 +23,9 @@ BOOKS_META = os.environ.get("ICM_BOOKS_META", os.path.join(DATA_DIR, "books_meta
 HADITHAI_DB = os.environ.get("ICM_HADITHAI_DB", os.path.join(DATA_DIR, "hadithai.sqlite"))   # hadith.ai v2 segments + narrator tags
 NARRATORS_DB = os.environ.get("ICM_NARRATORS_DB", os.path.join(HERE, "external", "narrators.sqlite"))
 HUB_BOOKS = os.environ.get("ICM_HUB_BOOKS", os.path.join(PROJECT, "hadith-hub", "books"))
+# narrator database versions (built by ``python3 -m narwiki version build``): one read-only SQLite per merged version; "raw" needs no file
+NARRATOR_VERSIONS_DIR = os.environ.get("ICM_NARRATOR_VERSIONS_DIR", os.path.join(DATA_DIR, "narrators_versions"))
+NARRATOR_VERSION_DEFAULT = os.environ.get("ICM_NARRATOR_VERSION_DEFAULT", "v1m")      # used when its file exists, else "raw"
 JOBS_DB = os.environ.get("ICM_JOBS_DB", os.path.join(DATA_DIR, "icm_jobs.sqlite"))
 
 # open mode (for now): no login needed, every visitor may do anything; ICM_OPEN=0 restores the user rules

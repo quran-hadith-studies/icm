@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from narrators.facts import resolve as resolve_facts
 from hadith_phylogeny.chronology import interpolate
-from . import config, corpus
+from . import config, corpus, narrator_versions
 from .identity import INFALLIBLE_IDS, _nconn
 from .text import norm
 
@@ -69,36 +69,75 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
 
     # --- metadata ------------------------------------------------------------------------------
     all_nids = sorted({n for c in chains for n in c["nids"]})
-    noor_ids = [int(n.split(":")[1]) for n in all_nids if n.startswith("noor:")]
-    kg_ids = [int(n.split(":")[1]) for n in all_nids if n.startswith("kg:")]
     info: Dict[str, dict] = {n: dict(name=None, death=None, date_source=None, cities=[], imams=[], ids={}) for n in all_nids}
+    # a person is every database id of its node (``ext``, from the narrator database version); facts are gathered over all of them
+    ext: Dict[str, List[str]] = {}
+    back: Dict[str, str] = {}                          # member id -> its node
+    for n in all_nids:
+        mem = list((resolved["nodes"].get(n) or {}).get("ext") or [])
+        if n.startswith(("noor:", "kg:")) and n not in mem:
+            mem.insert(0, n)
+        ext[n] = sorted(mem, key=lambda x: (x != n, x.split(":")[0] != "noor", x))
+        for m in ext[n]:
+            back.setdefault(m, n)
+    noor_ids = sorted({int(m.split(":")[1]) for ms in ext.values() for m in ms if m.startswith("noor:")})
+    kg_ids = sorted({int(m.split(":")[1]) for ms in ext.values() for m in ms if m.startswith("kg:")})
+    nrows: Dict[int, sqlite3.Row] = {}
+    krows: Dict[int, sqlite3.Row] = {}
     nc = _nconn()
+    facts: dict = {}
     if noor_ids:
         facts = resolve_facts(nc, noor_ids)
         for r in nc.execute("select ravi_id, name, mazhab, grade, tabaqa_json from ravi where ravi_id in (%s)" % ",".join("?" * len(noor_ids)), noor_ids):
-            n = f"noor:{r['ravi_id']}"
-            f = facts.get(r["ravi_id"], {})
-            info[n].update(name=r["name"], mazhab=r["mazhab"], grade=r["grade"], imams=f.get("imams", []), cities=f.get("cities", []),
-                           death=tuple(f["death"]) if f.get("death") else None,
-                           date_source=f.get("death_source") if f.get("death") else None, ids=dict(noor=r["ravi_id"]))
+            nrows[r["ravi_id"]] = r
     teachers: Dict[str, set] = defaultdict(set)
     if noor_ids:
         q = "select teacher, student from adjacency where n_exact >= 2 and teacher in (%s) and student in (%s)" % (",".join("?" * len(noor_ids)), ",".join("?" * len(noor_ids)))
         for r in nc.execute(q, noor_ids + noor_ids):
-            teachers[f"noor:{r[1]}"].add(f"noor:{r[0]}")
+            a_, b_ = back.get(f"noor:{r[0]}"), back.get(f"noor:{r[1]}")
+            if a_ and b_ and a_ != b_:
+                teachers[b_].add(a_)
     nc.close()
     if kg_ids:
         kc = corpus.conn("kg")
         for r in kc.execute("select id,name,death_year,iqama,rank,tabaka from rawis where id in (%s)" % ",".join("?" * len(kg_ids)), kg_ids):
-            n = f"kg:{r['id']}"
-            cities = [c.strip() for c in (r["iqama"] or "").replace("،", ",").split(",") if c.strip()]
-            info[n].update(name=r["name"], rank=r["rank"], cities=cities, ids=dict(kg=r["id"]))
-            if r["death_year"]:
-                info[n]["death"] = (float(r["death_year"]), float(r["death_year"]))
-                info[n]["date_source"] = "hadith-kg"
+            krows[r["id"]] = r
         q = "select teacher, student from kg_adjacency where teacher in (%s) and student in (%s)" % (",".join("?" * len(kg_ids)), ",".join("?" * len(kg_ids)))
         for r in kc.execute(q, kg_ids + kg_ids):
-            teachers[f"kg:{r[1]}"].add(f"kg:{r[0]}")
+            a_, b_ = back.get(f"kg:{r[0]}"), back.get(f"kg:{r[1]}")
+            if a_ and b_ and a_ != b_:
+                teachers[b_].add(a_)
+    for n in all_nids:
+        i = info[n]
+        nm = [int(m.split(":")[1]) for m in ext[n] if m.startswith("noor:") and int(m.split(":")[1]) in nrows]
+        km = [int(m.split(":")[1]) for m in ext[n] if m.startswith("kg:") and int(m.split(":")[1]) in krows]
+        if nm:                                         # Noor's description first (name, madhhab, grade, imams); the KG adds cities and rank
+            r = nrows[nm[0]]
+            f = facts.get(nm[0], {})
+            i.update(name=r["name"], mazhab=r["mazhab"], grade=r["grade"], imams=f.get("imams", []), cities=list(f.get("cities", [])))
+        cities = []
+        for k in km:
+            k_ = krows[k]
+            cities += [c.strip() for c in (k_["iqama"] or "").replace("،", ",").split(",") if c.strip()]
+        if km:
+            i.update(name=i["name"] or krows[km[0]]["name"], rank=krows[km[0]]["rank"])
+            i["cities"] = list(dict.fromkeys(i["cities"] + cities))
+        for m in nm:                                   # Noor's resolved death first, else a KG one
+            if facts.get(m, {}).get("death"):
+                i["death"], i["date_source"] = tuple(facts[m]["death"]), facts[m].get("death_source")
+                break
+        else:
+            for k in km:
+                if krows[k]["death_year"]:
+                    i["death"] = (float(krows[k]["death_year"]),) * 2
+                    i["date_source"] = "hadith-kg"
+                    break
+        ids = {}
+        for kind in ("noor", "kg", "dirayah"):
+            got = sorted(int(m.split(":")[1]) for m in ext[n] if m.startswith(kind + ":") and m.split(":")[1].isdigit())
+            if got:
+                ids[kind] = got[0] if len(got) == 1 else got
+        i["ids"] = ids
     names = {n["id"]: n["names"][0] for n in resolved["nodes"].values()}
     for n in all_nids:
         info[n]["name"] = info[n]["name"] or names.get(n) or n
@@ -167,21 +206,33 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
                    units=len(variants)))
 
 
-def known_deaths(nids: Sequence[str]) -> Dict[str, dict]:
-    """{nid: {death: [lo, hi], source}} for the narrators the databases date (what ``run`` uses before the user's dates)."""
-    noor = sorted({int(n.split(":")[1]) for n in nids if n.startswith("noor:") and n.split(":")[1].isdigit()})
-    kg = sorted({int(n.split(":")[1]) for n in nids if n.startswith("kg:") and n.split(":")[1].isdigit()})
-    out: Dict[str, dict] = {}
+def known_deaths(nids: Sequence[str], version=None) -> Dict[str, dict]:
+    """{nid: {death: [lo, hi], source}} for the narrators the databases date (what ``run`` uses before the user's dates).
+    A narrator the ``version`` merges takes Noor's death first, else the KG's, over all its ids."""
+    version = version or narrator_versions.RAW
+    members: Dict[str, List[str]] = {}
+    for n in nids:
+        members[n] = [m["id"] for m in version.members(n)] or [n]
+    allm = {m for ms in members.values() for m in ms}
+    noor = sorted({int(m.split(":")[1]) for m in allm if m.startswith("noor:") and m.split(":")[1].isdigit()})
+    kg = sorted({int(m.split(":")[1]) for m in allm if m.startswith("kg:") and m.split(":")[1].isdigit()})
+    got: Dict[str, dict] = {}
     if noor:
         nc = _nconn()
         for rid, f in resolve_facts(nc, noor).items():
             if f.get("death"):
-                out[f"noor:{rid}"] = dict(death=list(f["death"]), source=f.get("death_source"))
+                got[f"noor:{rid}"] = dict(death=list(f["death"]), source=f.get("death_source"))
         nc.close()
     if kg:
         kc = corpus.conn("kg")
         for r in kc.execute("select id, death_year from rawis where death_year is not null and id in (%s)" % ",".join("?" * len(kg)), kg):
-            out[f"kg:{r[0]}"] = dict(death=[float(r[1]), float(r[1])], source="hadith-kg")
+            got[f"kg:{r[0]}"] = dict(death=[float(r[1]), float(r[1])], source="hadith-kg")
+    out: Dict[str, dict] = {}
+    for n, ms in members.items():
+        for m in sorted(ms, key=lambda x: (x.split(":")[0] != "noor", x != n, x)):
+            if m in got:
+                out[n] = got[m]
+                break
     return out
 
 

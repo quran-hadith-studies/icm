@@ -8,9 +8,10 @@ Every item is a proposal the user accepts or dismisses in step 4; nothing here c
   hidden_junk            the same, for words re-read from Noor's connectives («فقد», «به», «کلهم»)
   relative               «أبيه», «جده»: whom Noor names for the narrator before it, valid while that narrator is who we think
   same_person            a Noor id and a KG id of this family that the narrator database (or name and death year) link
+                         and the selected narrator database version does not merge
   witness_without_chain  a witness whose isnad names nobody but its collector: leave it out in step 2?
 
-    suggest(I) -> [{id, kind, aid, i, occ, wid, card, proposal: {op, id?, label?, pair?, wid?}, evidence, confidence,
+    suggest(I, version=None) -> [{id, kind, aid, i, occ, wid, card, proposal: {op, id?, label?, pair?, wid?}, evidence, confidence,
                      depends_on?: {occ, id}}]
 
 ``id`` is stable across re-runs (kind + card key, place or pair), so a dismissed suggestion stays dismissed.
@@ -21,7 +22,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-from . import identity
+from . import identity, narrator_versions
 from .graph import known_deaths
 from .sanad_parse import _strip_honorific, not_a_name, strip_nonname
 from .text import norm
@@ -72,7 +73,8 @@ def _label(pid: str) -> str:
     return pid
 
 
-def suggest(I: dict) -> List[dict]:
+def suggest(I: dict, version=None) -> List[dict]:
+    version = version or narrator_versions.RAW
     chains, cards = I["chains"], I["cards"]
     out: List[dict] = []
     seen = set()
@@ -130,7 +132,7 @@ def suggest(I: dict) -> List[dict]:
                         proposal=dict(op="choice", id=pid, label=lab),
                         evidence=f"در سندهای پیونددار نور «{e['name']}» {n} بار آمده و {_pct(share)} آن‌ها {lab} است",
                         confidence="medium" if share >= 0.8 and n >= 20 else "low")
-    _same_person(add, chains, cards, picks)
+    _same_person(add, chains, cards, picks, version)
     _no_chain(add, chains)
     return out
 
@@ -195,9 +197,14 @@ def _relative(add, picks, els, k, e, cd, base) -> None:
             add(**s)
 
 
-def _same_person(add, chains, cards, picks) -> None:
-    """Noor and KG ids of this family that may be one person: the narrator database's links the identify stage does
-    not apply by itself (low confidence), and pairs with the same name and death year."""
+def _same_person(add, chains, cards, picks, version) -> None:
+    """Noor and KG ids of this family that may be one person and that the narrator database ``version`` keeps apart:
+    the narrator database's links of every confidence (under ``raw`` nothing is merged by itself; a merged version
+    skips the pairs it merged), and pairs with the same name and death year."""
+    def merged(a: str, b: str) -> bool:
+        m = version.canon([a, b])
+        return a in m and m.get(a) == m.get(b)
+
     used = {e["exact"] for ch in chains for e in ch["elems"] if e["exact"]}
     used |= {cd["default"] for cd in cards.values() if cd.get("default")}
     used |= {i for ps in picks.values() for i, _ in ps}
@@ -206,15 +213,16 @@ def _same_person(add, chains, cards, picks) -> None:
     kg = {i for i in cand if i.startswith("kg:")}
     if not noor or not kg:
         return
-    pairs: Dict[Tuple[str, str], str] = {}
+    pairs: Dict[Tuple[str, str], Tuple[str, str]] = {}
     c = identity._nconn()
     for chunk in identity._chunks(sorted(i.split(":")[1] for i in kg), 500):
         q = ("select ravi_id, target_id, confidence, score from link where target_kind='kg' and target_id in (%s)"
              % ",".join("?" * len(chunk)))
         for r in c.execute(q, chunk):
             a, b = f"noor:{r[0]}", f"kg:{r[1]}"
-            if a in noor and (a in used or b in used) and r[2] == "low":
-                pairs[(a, b)] = f"پایگاه راویان این دو را با اطمینان کم یکی می‌داند (امتیاز {round(r[3] or 0, 2)})"
+            if a in noor and (a in used or b in used) and not merged(a, b):
+                pairs[(a, b)] = (f"پایگاه راویان این دو را با اطمینان {CONF_FA.get(r[2], r[2])} یکی می‌داند "
+                                 f"(امتیاز {round(r[3] or 0, 2)})", r[2] if r[2] in CONF_FA else "low")
     c.close()
     # same name and death year: a Noor narrator and a KG narrator both used in this family
     nu, ku = sorted(i for i in noor if i in used), sorted(i for i in kg if i in used)
@@ -235,20 +243,22 @@ def _same_person(add, chains, cards, picks) -> None:
         da = sum(deaths[a]["death"]) / 2
         for b, kt in kname.items():
             db = sum(deaths[b]["death"]) / 2
-            if (a, b) in pairs or abs(da - db) > 3 or not kt:
+            if (a, b) in pairs or abs(da - db) > 3 or not kt or merged(a, b):
                 continue
             if len(kt) >= 2 and any(len(f) >= 2 and max(identity._cov(f, kt), identity._cov(kt, f)) >= 0.88 for f in forms):
-                pairs[(a, b)] = f"نام هم‌خوان و سال وفات نزدیک: {r['name']} (ف {round(da)}) و {_kglabel(kc, b)} (ف {round(db)})"
-    for (a, b), ev in sorted(pairs.items()):
+                pairs[(a, b)] = (f"نام هم‌خوان و سال وفات نزدیک: {r['name']} (ف {round(da)}) و {_kglabel(kc, b)} (ف {round(db)})", "low")
+    for (a, b), (ev, conf) in sorted(pairs.items()):
         add(id=f"same_person:{a}|{b}", kind="same_person", aid=None, i=None, occ=None, wid=None, card=None,
-            proposal=dict(op="merge", pair=[a, b], label=f"{_label(a)} = {_kglabel(kc, b)}"), evidence=ev, confidence="low")
+            proposal=dict(op="merge", pair=[a, b], label=f"{_label(a)} = {_kglabel(kc, b)}"), evidence=ev, confidence=conf)
     # kc is corpus's shared per-thread connection: closing it broke every later kg read in the same process
 
 
-def wiki_same_person(I: dict, persons_for) -> List[dict]:
+def wiki_same_person(I: dict, persons_for, version=None) -> List[dict]:
     """Ids of this family that the narrator wiki (/narrator) records as one person: merge suggestions, never applied
     by themselves. Computed when the stage is served (the wiki changes; the stage file does not).
-    ``persons_for(ids) -> {id: {person_id, name, also}}`` is ``narwiki.lookup.persons_for``."""
+    ``persons_for(ids) -> {id: {person_id, name, also}}`` is ``narwiki.lookup.persons_for``; pairs the narrator
+    database ``version`` already merges are not offered."""
+    version = version or narrator_versions.RAW
     chains, cards = I["chains"], I["cards"]
     used = {e["exact"] for ch in chains for e in ch["elems"] if e.get("exact")}
     used |= {cd["default"] for cd in cards.values() if cd.get("default")}
@@ -257,7 +267,7 @@ def wiki_same_person(I: dict, persons_for) -> List[dict]:
     if not cand:
         return []
     wiki = persons_for(cand)
-    auto = identity._same_person(cand)                  # pairs the identify stage already treats as one person
+    auto = version.canon(cand)                          # ids the identify stage already treats as one person
     by: Dict[int, List[str]] = defaultdict(list)
     for i in cand:
         if i in wiki:
@@ -269,7 +279,7 @@ def wiki_same_person(I: dict, persons_for) -> List[dict]:
         ids.sort(key=lambda x: (not x.startswith("noor:"), x))
         a = ids[0]
         for b in ids[1:]:
-            if auto.get(b) == a or auto.get(a) == b:
+            if a in auto and auto.get(a) == auto.get(b):
                 continue
             out.append(dict(id=f"same_person:wiki:{a}|{b}", kind="same_person", aid=None, i=None, occ=None, wid=None,
                             card=None, via="wiki", person=pid,

@@ -8,8 +8,8 @@ PIPELINE_VERSION = "0.1"
 STAGE_VERSIONS = {
     "search": 2,          # 2: hadith.ai v2 segments as the automatic parts; near-identical same-work texts folded across corpora
     "align": 2,
-    "identify": 7,        # 6: hadith.ai v2 narrator tags as a chain source (before the rule-based parser); 7: their mention links and context suggestions
-    "graph": 3,
+    "identify": 8,        # 6: hadith.ai v2 narrator tags as a chain source (before the rule-based parser); 7: their mention links and context suggestions; 8: candidates collapsed by the narrator database version (the silent kg -> noor link mapping is gone)
+    "graph": 4,           # 4: facts gathered over every id of a merged narrator; the old link-table mapping no longer runs here
     "narrators": 1,
     "infer": 3,
 }

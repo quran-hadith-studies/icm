@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, Optional
 
-from . import STAGE_VERSIONS, align as align_mod, config, corpus, graph as graph_mod, identity, infer, project, search as search_mod
+from . import STAGE_VERSIONS, align as align_mod, config, corpus, graph as graph_mod, identity, infer, narrator_versions, project, search as search_mod
 from . import suggest as suggest_mod
 from .project import h
 
@@ -76,8 +76,9 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         k_align = h("align", k_search, selected, STAGE_VERSIONS["align"], *([parts_in] if parts_in else []))
         A = _get_or_run(pid, "align", k_align, lambda: align_mod.run(S, selected, parts_in), hashes)
         say("identify", 0.4, "finding the narrators")
-        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION)
-        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A), hashes)
+        V = project.narrator_version(pid)
+        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key)
+        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A, V), hashes)
         iddec = project.decision(pid, "identities")
         if not iddec:
             return _finish(pid, vers, hashes, "draft", "identities")
@@ -93,7 +94,7 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         if iddec.get("splits"):                                   # likewise: people the user split off an identity
             iddec_in["splits"] = iddec["splits"]
         k_graph = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
-        G = _get_or_run(pid, "graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S), hashes)
+        G = _get_or_run(pid, "graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S, V), hashes)
         if phdec.get("confirmed") != k_graph:
             return _finish(pid, vers, hashes, "draft", "phylogeny", graph_hash=k_graph)
         # --- analysis ---------------------------------------------------------------------------
@@ -121,16 +122,17 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         raise
 
 
-def _identify(S: dict, A: dict) -> dict:
+def _identify(S: dict, A: dict, V: narrator_versions.Version) -> dict:
     wids = [S["seed"]["wid"]] + [w["wid"] for w in A["witnesses"] if w["wid"] != S["seed"]["wid"]]
     recs = corpus.get_many(wids)
-    I = identity.build([recs[w] for w in wids if w in recs])
-    I["suggestions"] = suggest_mod.suggest(I)
+    I = identity.build([recs[w] for w in wids if w in recs], V)
+    I["suggestions"] = suggest_mod.suggest(I, V)
+    I["narrator_version"] = V.info()
     return I
 
 
-def _graph(A: dict, I: dict, iddec: dict, ph: dict, S: dict) -> dict:
-    res = identity.resolve(I, iddec)
+def _graph(A: dict, I: dict, iddec: dict, ph: dict, S: dict, V: narrator_versions.Version) -> dict:
+    res = identity.resolve(I, iddec, V)
     if iddec.get("dates"):                     # step 4 dates a person (noor:/kg:) or the name at one place (occ:<aid>|<i>)
         occ = {f"{c['aid']}|{e['i']}": e["nid"] for c in res["chains"] for e in c["elems"]}
         dates = dict(ph.get("dates", {}))

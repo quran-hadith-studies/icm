@@ -568,6 +568,18 @@ diagram. One **project** per family; a user (logged in) walks through six steps 
    ranges added by `search.with_marks` when the API serves the stage; stage files are unchanged). The «در جستجو»
    ticks beside the clauses only restrict which clauses are *queried* in round 1 (`part_query`, "search again");
    scoring and alignment always use every clause.
+   **Narrator database (step 2).** A card «پایگاه راویان» under the seed's parts chooses which ids steps 4-6 treat as one
+   person: a `<select>` of `raw` (nothing merged; every link is only a suggestion) and every built version
+   (`narrators_versions/<name>.sqlite`, e.g. `v1m`), each with its build date, number of multi-id persons and a
+   precision line from its `eval` (Noor–KG death-year agreement, one-to-one conflicts). The default is `v1m` when its file
+   exists, else `raw` (`ICM_NARRATOR_VERSION_DEFAULT`). «اعمال» appends a `narrators` decision `{name}` (owner or admin, any
+   time; `POST decide/narrators` with payload `{version}`); the worker then recomputes identify onwards, earlier runs stay
+   viewable, existing `identities` decisions still apply (ids are canonicalised in `resolve`). The identify hash includes
+   `Version.key` (`[name, wiki_state]`, so a rebuilt file recomputes), `STAGE_VERSIONS` identify 8 and graph 4. The old
+   silent kg→noor mapping from the link table is gone: under `raw` the link pairs are only `same_person` suggestions
+   (every confidence, plus same name and close death); under a merged version the version's pairs are already one node
+   (candidates carry `also`, the other ids) and the rest stay suggestions. Step 4 shows the run's version and the
+   narrator card lists the merged members with rule and score. Static exports show the version name.
 3. **Alignment**: per-clause multiple alignment of the selected witnesses and the variant units of the model
    (clause present/absent, words some witnesses omit, substituted words, number words), `icm/align.py`.
    A clause's slot in a witness is its matched span without isolated edge matches (the "الله" of "قال رسول
@@ -749,7 +761,8 @@ What every step also offers (added 2026-10-13):
   * `STAGE_VERSIONS` search 2, identify 7, `DATA_VERSION` 2026-10-14: a project's next run recomputes from search on.
 * **Narrator wiki.** When `narwiki`'s database is present, `/api/narrators` and the narrator card carry the wiki person,
   and step 4 offers «یک شخص با دو شناسه» suggestions for ids the wiki holds as one person (computed when the stage is
-  served, so later wiki edits show up; never applied without the user). `project.refresh_indexes` writes
+  served, so later wiki edits show up; pairs a project's narrator-database version already merges are skipped, the rest are
+  never applied without the user; versions, built from the wiki, bring merges into projects: see «Narrator database versions»). `project.refresh_indexes` writes
   `narrator_index.json` (id → projects) for the wiki's «پروژه‌های ICM».
 
 What to keep in mind when reading a result:
@@ -807,6 +820,7 @@ Everything another person (or chat) needs to change the wizard safely. Read "The
 | `jobs.py`, `worker.py` | SQLite queue; one worker process (sets `PYTHONHASHSEED=0`) |
 | `api.py` | FastAPI router (`make_router(get_user)`), validation, permissions, compute-input/result, helper claim |
 | `cache.py`, `cli.py`, `evaluate.py`, `viewer.py`, `devserver.py` | git sync, commands, search evaluation, results page, local dev server |
+| `narrator_versions.py` | narrator database versions: `available()`, `get(name)`, `default_name()`; reads `narrators_versions/<name>.sqlite` (`ICM_NARRATOR_VERSIONS_DIR`, default `<data>/narrators_versions`; `ICM_NARRATOR_VERSION_DEFAULT`, default `v1m`, used only when its file exists, else `raw`) |
 | `suggest.py` | step 4 suggestions from the databases (titles, glued words, non-names, relatives, same person, no isnad) |
 | `static/` | `icm.html/css/js` (the wizard, vanilla JS, Persian RTL), `tree.js/css` (the transmission tree of steps 5 and 6), `results.js/css` (step 6 and the standalone page), `model_worker.js`, `model.zip`, `viewer.css/js` (the standalone page's frame) |
 | `build/` | laptop-only builders: `kg_extract`, `noor_relations`, `termdf`, `books_meta`, `hadithai`, `model_zip` |
@@ -840,6 +854,10 @@ previous stage plus the decisions it depends on. In the cache:
   stochastic: the same inputs reproduce only with `PYTHONHASHSEED=0` (the worker, helper and Pyodide workers set it).
 * **Change the UI:** `icm/static/icm.js` / `icm.css` / `icm.html`. No build step. Text goes in with `textContent`/`el()`
   only, never `innerHTML` (names and matns come from the corpus). Test with the dev server below.
+* **Rebuild a narrator database version** (after wiki edits or a policy change): on the server
+  `cd ~/ebadollah/icm && NARWIKI_DB=~/ebadollah/user/narwiki/wiki.sqlite ~/.venv-ebad/bin/python -m narwiki version build v1m --out ~/ebadollah/data/icm/narrators_versions`,
+  then `sudo systemctl restart icm-worker ebadollah-web`. On the laptop use the default paths, then `deploy/sync-icm-data.sh --yes`
+  (it uploads `narrators_versions/`). Projects on that version recompute identify onwards on their next run.
 * **Deploy:** push to GitHub, `git -C ~/ebadollah/icm pull --ff-only` on the server, restart `icm-worker` and `ebadollah-web`.
   Changes to `web/icm_routes.py`, nginx or the unit are site-side; see `deploy/README.md`.
 
@@ -984,7 +1002,52 @@ until it is installed every API call answers 503.
 
 **ICM side.** `narwiki.lookup` (standard library only) is what ICM imports: `available()` and
 `persons_for(["noor:12", "kg:5"]) -> {"noor:12": {"person_id", "name", "also": [other ids]}}` (read-only, follows
-merges, `{}` on any error). Wiki merges reach ICM projects only as suggestions each project accepts.
+merges, `{}` on any error). Wiki merges reach a project through a *narrator database version* (below), built from the wiki and chosen on step 2; the live wiki itself is only consulted for suggestions.
+
+### Narrator database versions
+
+ICM does not read the live wiki to decide which ids are one person: a project uses a **version**, a read-only SQLite
+snapshot built from the wiki by a policy file. `raw` (built in, no file) merges nothing. A version is the unit that
+changes when merge rules change; the project records which one it used.
+
+**Policy** (`narwiki/policies/<name>.json`; unknown keys are refused). The real `v1m`:
+
+```
+{"name": "v1m", "label_fa": "نسخه‌ی ۱ ادغام‌شده", "description_fa": "...",
+ "wiki_merges": "all",                              // all | approved | none: the merges already made in the wiki
+ "noor_kg": {"kinds": ["link_kg", "name_chrono"],   // suggestion kinds that may join a Noor and a KG id
+             "confidence": ["high"], "min_ctx": 1,  // evidence: confidence, shared isnad neighbours
+             "max_death_gap": 10, "require_dated_or_ctx2": true, "matching": "one_to_one"},
+ "dup": {"kinds": ["noor_dup", "kg_dup"], "require_same_name_key": true,
+         "max_death_gap": 5, "min_shared_if_undated": 2},          // duplicates of one person in one database
+ "dirayah": {"suggested_same_id_and_name": true, "max_name_conflict": false}}   // Dirayat al-Noor 3
+```
+
+**Builder rules** (`narwiki/version.py`). It starts from the wiki's persons (seed rows, the 2,981 certain Noor–Dirayah
+joins, wiki merges per `wiki_merges`; with `approved`, a merge not yet reviewed is un-applied; dismissed suggestions never
+merge). Then it takes the policy's `merge_suggestion` rows whose evidence passes the thresholds, duplicates first and
+cross-source pairs after, each in score order, and accepts an edge only if the two groups share no source kind
+(one-to-one: a group holding a KG id refuses a second KG claim, likewise Noor and Dirayah). Refused pairs and pairs
+below threshold go to the `conflict` table with the reason. Dirayah ids with the same number and a matching name are
+joined as `dirayah_same_id`. Each group's canonical id is `noor:<min>`, else `kg:<min>` (what ICM calls the person).
+Tables: `meta` (name, label, description, built, wiki_state, counts, eval, policy), `person`, `ext`, `edge` (with
+evidence), `conflict`. `eval` is measured when the file is built: rule counts, conflicts by reason, the Noor–KG
+death-year agreement and the Dirayah verification.
+
+**Measured, `v1m`** (laptop wiki): 2,981 certain Dirayah joins, 636 Noor–KG merges, 156 KG duplicates, 2,261 Dirayah
+same-id-and-name joins (59,795 groups for 65,829 external ids; 782 persons hold at least two Noor/KG ids). Of the 636 Noor–KG pairs 155 have
+death years in both databases, and 149 of them agree within 3 years (152 within 10). Four candidate pairs were lost to the
+one-to-one rule; 1,664 more fall below the thresholds.
+
+```
+python3 -m narwiki version build v1m [--db WIKI] [--out DIR]   # writes <DIR>/v1m.sqlite (default external/icm/narrators_versions/), evaluates it
+python3 -m narwiki version list [--out DIR]                    # the meta of each built version
+python3 -m narwiki version eval FILE                           # recompute the precision figures
+```
+
+Merges inside a version are fixed in its file; changing a rule means editing the policy and rebuilding (a rebuilt file has a
+new `wiki_state`, so projects recompute). ICM reads versions through `icm/narrator_versions.py`
+(`available()`, `get(name)`, `default_name()`; `Version.canon/members/edges/key`). Tests: `tests/test_narwiki_version.py`.
 
 **Deploy** (`deploy/`; the package is in the same `~/ebadollah/icm` checkout, so `git pull --ff-only` deploys code):
 

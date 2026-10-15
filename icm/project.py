@@ -23,9 +23,9 @@ from typing import Dict, List, Optional
 
 from hadith_phylogeny.report import finite
 
-from . import config
+from . import config, narrator_versions
 
-STEPS = ("search", "selection", "identities", "phylogeny", "parts")      # steps with decisions ("parts" last: run ids keep their first four numbers)
+STEPS = ("search", "selection", "identities", "phylogeny", "parts", "narrators")      # steps with decisions (newer ones last: run ids keep their leading numbers)
 WIZARD = ("seed", "search", "selection", "alignment", "identities", "phylogeny", "analysis", "done")
 
 
@@ -139,6 +139,17 @@ def add_decision(pid: str, step: str, payload: dict, user: str, note: str = "") 
     return n
 
 
+def narrator_version(pid: str) -> narrator_versions.Version:
+    """The project's narrator database version: its ``narrators`` decision, else the configured default (``raw``
+    when that file is absent). A decided version whose file has gone falls back to raw, logged."""
+    name = (decision(pid, "narrators") or {}).get("name") or narrator_versions.default_name()
+    try:
+        return narrator_versions.get(name)
+    except KeyError:
+        log(pid, "identify", f"narrator database version {name!r} is not available; using raw", "warn")
+        return narrator_versions.RAW
+
+
 # --- stage files and runs -----------------------------------------------------------------------
 def stage_path(pid: str, stage: str, hash_: str) -> str:
     return os.path.join(pdir(pid), "stages", stage, f"{hash_}.json")
@@ -156,8 +167,8 @@ def stage_put(pid: str, stage: str, hash_: str, obj: dict) -> None:
 
 def run_id(vers: Dict[str, int], stage_hashes: Dict[str, str]) -> str:
     nums = [vers.get(s, 0) for s in STEPS]
-    if not nums[-1]:                                    # no "parts" decision: the run id of before that step existed
-        nums = nums[:-1]
+    while len(nums) > 4 and not nums[-1]:               # trailing steps without a decision ("parts", "narrators"): the four-number run id from before they existed
+        nums.pop()
     return ".".join(f"{n:04d}" for n in nums) + "-" + h(sorted(stage_hashes.items()))[:6]
 
 

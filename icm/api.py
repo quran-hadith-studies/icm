@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, export, identity, jobs, narrator_info, project, serve, viewer
+from . import config, corpus, export, identity, jobs, narrator_info, narrator_versions, project, serve, viewer
 from . import graph as graph_mod
 from .text import norm
 
@@ -193,11 +193,22 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             d.pop("_r")
         return out[:limit]
 
+    @r.get("/api/narrator-versions")
+    def narrator_version_list():
+        """The narrator database versions a project may use (step 2): ``raw`` and every built version, with their precision figures."""
+        return narrator_versions.available()
+
+    def _version(name: Optional[str]) -> narrator_versions.Version:
+        try:
+            return narrator_versions.get(name)
+        except KeyError:
+            raise HTTPException(400, "unknown narrator database version")
+
     @r.get("/api/project/{pid}")
     def project_info(pid: str):
         p = _project(pid)
         vers = project.versions(pid)
-        return dict(project=p, versions=vers, runs=project.runs(pid), job=jobs.active(pid),
+        return dict(project=p, narrator_version=(project.decision(pid, "narrators") or {}).get("name") or narrator_versions.default_name(), versions=vers, runs=project.runs(pid), job=jobs.active(pid),
                     last_job=(jobs.for_project(pid, 1) or [None])[0], log=(project.read(os.path.join(project.pdir(pid), "log.json"), []))[-30:],
                     decisions={s: [dict(version=n, **{k: d.get(k) for k in ("user", "created", "note")})
                                    for n in range(1, vers[s] + 1) for d in [project.decision(pid, s, n) or {}]] for s in project.STEPS})
@@ -253,28 +264,39 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         return out
 
     @r.get("/api/narrator/{nid}")
-    def narrator(nid: str):
+    def narrator(nid: str, version: Optional[str] = None):
         out = narrator_info.card(nid)
+        V = _version(version)
+        mem = V.members(nid) if ID_RE.match(nid) else []
+        if mem:                                          # the ids the version treats as this person, with the rule that joined each
+            out["merged"] = dict(version=V.name, members=mem, edges=V.edges(m["id"] for m in mem))
         w = wiki_persons([nid]).get(nid)
         if w:
             out["wiki"] = w                              # the person's page in the narrator wiki
         return out
 
     @r.get("/api/narrators/deaths")
-    def narrator_deaths(ids: str = ""):
+    def narrator_deaths(ids: str = "", version: Optional[str] = None):
         """Death dates the databases give, for ``ids`` = comma-separated noor:/kg: ids (the step-4 page)."""
         nids = [i for i in ids.split(",") if ID_RE.match(i)][:3000]
-        return graph_mod.known_deaths(nids)
+        return graph_mod.known_deaths(nids, _version(version))
 
     @r.get("/api/narrators")
-    def narrators(q: str, death: Optional[int] = None):
-        """Narrators of both databases whose name matches ``q`` (the step-4 search)."""
+    def narrators(q: str, death: Optional[int] = None, version: Optional[str] = None):
+        """Narrators of both databases whose name matches ``q`` (the step-4 search). With a narrator database
+        ``version``, ids it treats as one person are one row (the best match, under the group's id, ``also`` the others)."""
+        V = _version(version)
         q = (q or "").strip()[:80]
         if len(norm(q)) < 2:
             return []
         out = [dict(c, db="noor") for c in identity.noor_candidates(q, k=15)]
         out += [dict(c, db="kg") for c in identity.kg_candidates(q, death, k=15)]
         out.sort(key=lambda d: -d["score"])
+        if not V.raw:
+            db = {c["id"]: c["db"] for c in out}
+            out = identity.collapse(out, V)
+            for c in out:
+                c["db"] = db.get(c["id"], c["db"])
         wiki = wiki_persons([c["id"] for c in out])
         if wiki:                    # one row per person of the narrator wiki; the other ids of that person go with it
             seen, keep = set(), []
@@ -435,6 +457,11 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             return out
         if step == "parts":
             return _validate_parts(pl, pid)
+        if step == "narrators":
+            name = pl.get("version")
+            if not (isinstance(name, str) and any(v["name"] == name for v in narrator_versions.available())):
+                raise HTTPException(400, "unknown narrator database version")
+            return dict(name=name)                       # not "version": add_decision stamps that key with the decision number
         if step == "phylogeny":
             dates = pl.get("dates", {})
             edits = pl.get("chain_edits", {})

@@ -4,7 +4,8 @@
 
 Noor ids: the narrator row (grade, madhhab, tabaqa), every fact with its source, the clause it
 came from and the matching pattern, the rijal entries the id is linked to (high/medium), and its
-most frequent teachers and students. KG ids: the narrator row, scholars' judgements, and the
+most frequent teachers and students. Which KG ids are the same person is the narrator database version's
+business (``narrator_versions``; the API adds ``merged``), not this card's. KG ids: the narrator row, scholars' judgements, and the
 frequent teachers and students in the KG's chains.
 """
 from __future__ import annotations
@@ -45,9 +46,6 @@ def _noor(rid: int, entry_chars: int) -> dict:
                                      "where a.student=? and a.n_exact>=2 order by a.n_exact desc limit 8", rid)
     out["students"] = _neighbours(c, "select a.student as o, a.n_exact as n, r.name from adjacency a join ravi r on r.ravi_id=a.student "
                                      "where a.teacher=? and a.n_exact>=2 order by a.n_exact desc limit 8", rid)
-    kg = [dict(id=f"kg:{x['target_id']}", confidence=x["confidence"]) for x in c.execute(
-        "select target_id, confidence from link where ravi_id=? and target_kind='kg' and confidence in ('high','medium')", (rid,))]
-    out["same_person"] = kg
     c.close()
     return out
 

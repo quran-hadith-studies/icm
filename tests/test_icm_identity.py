@@ -1,6 +1,32 @@
-import os, sys
+import os, shutil, sqlite3, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from icm import identity
+from icm import config, identity, narrator_versions
+
+
+def _version(d, name, groups):
+    """Write a version file (the schema ``narwiki version build`` writes) into ``d`` and open it.
+    groups: [(canon id, [member ids])]; a member's kind is the part before the colon."""
+    old, config.NARRATOR_VERSIONS_DIR = config.NARRATOR_VERSIONS_DIR, d
+    c = sqlite3.connect(os.path.join(d, f"{name}.sqlite"))
+    c.executescript("""create table meta(k text primary key, v text);
+        create table person(id integer primary key, canon text, name text, n_ext integer);
+        create table ext(kind text, ext_id integer, person_id integer, rule text, score real, primary key(kind, ext_id));
+        create table edge(a text, b text, rule text, score real, evidence_json text);
+        create table conflict(a text, b text, rule text, score real, reason text)""")
+    c.executemany("insert into meta values (?,?)", [("name", name), ("label_fa", "آزمایشی"), ("built", "2026-10-15"),
+                                                    ("wiki_state", "s1"), ("counts_json", "{}"), ("eval_json", "{}")])
+    for k, (canon, members) in enumerate(groups, 1):
+        c.execute("insert into person values (?,?,?,?)", (k, canon, canon, len(members)))
+        for m in members:
+            kind, _, i = m.partition(":")
+            c.execute("insert into ext values (?,?,?,?,?)", (kind, int(i), k, "seed" if m == canon else "noor_kg", 1.0))
+        if len(members) > 1:
+            c.execute("insert into edge values (?,?,?,?,?)", (members[0], members[1], "noor_kg", 0.9, '{"ctx": 2}'))
+    c.commit(); c.close()
+    try:
+        return narrator_versions.get(name)
+    finally:
+        config.NARRATOR_VERSIONS_DIR = old
 
 
 def _el(i, name, cands, kind="name"):
@@ -106,14 +132,172 @@ def test_free_merges_and_splits():
     assert nid[("w:2#t", 1)] == ("split:1", "chosen")            # split off the source's own link
     assert r["nodes"]["split:1"]["names"][0] == "زيد آخر" and r["nodes"]["split:1"]["label"] == "زيد آخر"
     assert identity._union([["name:x", "split:2"], ["split:2", "rel:a:1"]]) == {"name:x": "split:2", "rel:a:1": "split:2"}
-    saved = identity._same_person
-    identity._same_person = lambda ids: {"kg:3151": "noor:2607"}
-    try:                                                         # kg:3151 is noor:2607 for the database; the user merges it with 2608
+    d = tempfile.mkdtemp(prefix="icmver_")
+    try:                                                         # kg:3151 is noor:2607 for the version; the user merges it with 2608
+        V = _version(d, "t1", [("noor:2607", ["noor:2607", "kg:3151"])])
         r = identity.resolve(dict(chains=_chains(), cards=cards), dict(choices={}, merges=[["kg:3151", "noor:2608"]],
-                                                                       overrides={"w:1#t|0": "kg:3151"}))
+                                                                       overrides={"w:1#t|0": "kg:3151"}), V)
         assert r["chains"][0]["elems"][0]["nid"] == "noor:2607" and r["alias"]["noor:2608"] == "noor:2607"
     finally:
-        identity._same_person = saved
+        shutil.rmtree(d)
+
+
+def test_version_file_maps_members_and_tolerates_a_missing_dir():
+    d = tempfile.mkdtemp(prefix="icmver_")
+    try:
+        V = _version(d, "t1", [("noor:2607", ["noor:2607", "kg:3151"]), ("kg:9", ["kg:9", "dirayah:4"])])
+        assert V.name == "t1" and V.key == ["t1", "s1"] and V.meta["label_fa"] == "آزمایشی"
+        assert V.canon(["kg:3151", "noor:2607", "kg:9", "noor:1"]) == {"kg:3151": "noor:2607", "noor:2607": "noor:2607"}   # kg:9 + dirayah is no two-id group
+        assert [m["id"] for m in V.members("kg:3151")] == ["noor:2607", "kg:3151"] and V.members("noor:1") == []
+        assert V.edges(["kg:3151"])[0]["evidence"] == {"ctx": 2}
+        old, config.NARRATOR_VERSIONS_DIR = config.NARRATOR_VERSIONS_DIR, d
+        try:
+            assert [v["name"] for v in narrator_versions.available()] == ["raw", "t1"]
+            config.NARRATOR_VERSION_DEFAULT = "t1"
+            assert narrator_versions.default_name() == "t1"
+            config.NARRATOR_VERSION_DEFAULT = "nope"
+            assert narrator_versions.default_name() == "raw"
+        finally:
+            config.NARRATOR_VERSIONS_DIR, config.NARRATOR_VERSION_DEFAULT = old, "v1m"
+        config.NARRATOR_VERSIONS_DIR = os.path.join(d, "absent")
+        assert [v["name"] for v in narrator_versions.available()] == ["raw"]
+        for bad in ("nope", "../x"):
+            try:
+                narrator_versions.get(bad); assert False
+            except KeyError:
+                pass
+        raw = narrator_versions.get("raw")
+        assert raw.key == ["raw", ""] and raw.canon(["kg:3151"]) == {} and raw.members("noor:2607") == []
+    finally:
+        config.NARRATOR_VERSIONS_DIR = old
+        shutil.rmtree(d)
+
+
+def _collapsed(V):
+    ch = _chains()
+    identity._collapse_chains(ch, V)
+    return ch
+
+
+def test_candidates_collapse_to_the_canon_id_with_the_others_in_also():
+    d = tempfile.mkdtemp(prefix="icmver_")
+    try:
+        V = _version(d, "t1", [("noor:2607", ["noor:2607", "kg:3151"])])
+        ch = _collapsed(V)
+        c = ch[0]["elems"][0]["cands"]
+        assert [x["id"] for x in c] == ["noor:2607"] and c[0]["also"] == ["kg:3151"]
+        assert c[0]["score"] == 1.66                                   # the best of the two, under the group's id
+        cards = identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"})
+        assert [x["id"] for x in cards["shia:زید بن علی"]["candidates"]] == ["noor:2607", "noor:2608"]
+        raw = _chains()
+        identity._collapse_chains(raw, narrator_versions.RAW)
+        assert [x["id"] for x in raw[0]["elems"][0]["cands"]] == ["kg:3151", "noor:2607"] and "also" not in raw[0]["elems"][0]["cands"][0]
+        e = dict(i=0, name="x", raw="x", term=None, kind="name", exact="kg:3151", cands=[dict(id="kg:3151", score=9.0, label="x", exact=True)])
+        identity._collapse_chains([dict(elems=[e])], V)
+        assert e["exact"] == "noor:2607" and e["exact_src"] == "kg:3151" and e["cands"][0]["id"] == "noor:2607"
+    finally:
+        shutil.rmtree(d)
+
+
+def test_resolve_merges_kg_into_noor_and_nodes_carry_ext():
+    d = tempfile.mkdtemp(prefix="icmver_")
+    try:
+        V = _version(d, "t1", [("noor:2607", ["noor:2607", "kg:3151"])])
+        ch = _chains()
+        cards = identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"})
+        dec = dict(choices={}, overrides={"w:1#t|0": "kg:3151"}, dates={"kg:3151": [100, 110]})
+        r = identity.resolve(dict(chains=ch, cards=cards), dec, V)
+        assert r["chains"][0]["elems"][0]["nid"] == "noor:2607" and r["alias"]["kg:3151"] == "noor:2607"
+        assert r["nodes"]["noor:2607"]["ext"] == ["noor:2607", "kg:3151"] and r["nodes"]["noor:2607"]["n"] == 2
+        ch0 = _chains()
+        r0 = identity.resolve(dict(chains=ch0, cards=identity.make_cards(ch0, {"w:1": "shia", "w:2": "shia"})), dec)      # raw: apart
+        assert r0["chains"][0]["elems"][0]["nid"] == "kg:3151" and r0["nodes"]["kg:3151"]["ext"] == ["kg:3151"]
+        assert r0["nodes"]["noor:2607"]["ext"] == ["noor:2607"] and r0["same_person"] == {}
+    finally:
+        shutil.rmtree(d)
+
+
+def test_graph_gathers_facts_over_every_id_of_a_merged_node():
+    from icm import corpus, graph
+    if not (os.path.exists(config.NARRATORS_DB) and os.path.exists(config.KG_DB)):
+        return
+    d = tempfile.mkdtemp(prefix="icmver_")
+    try:
+        V = _version(d, "t1", [("noor:2607", ["noor:2607", "kg:3151"])])
+        ch = _chains()
+        cards = identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"})
+        r = identity.resolve(dict(chains=ch, cards=cards), dict(choices={}, overrides={"w:1#t|0": "kg:3151"}), V)
+        A = dict(witnesses=[dict(wid="w:1"), dict(wid="w:2")], X={"w:1": [0], "w:2": [1]}, units=[], seed="w:1")
+        n = graph.run(A, r)["nodes"]["noor:2607"]
+        assert n["ids"] == {"noor": 2607, "kg": 3151} and n["date_source"] == "noor" and n["rank"]      # Noor's death first; the KG adds its rank
+        assert graph.known_deaths(["kg:3151"], V)["kg:3151"]["source"] == "noor"
+        assert graph.known_deaths(["kg:3151"])["kg:3151"]["source"] == "hadith-kg"
+    finally:
+        shutil.rmtree(d)
+
+
+class _FakeDbs:
+    """Stand-ins for the narrator database link table and the KG, so suggestions run without the corpora."""
+    def __enter__(self):
+        from icm import suggest
+        self.suggest, self.saved = suggest, (identity._nconn, identity.noor_index, identity.corpus.conn, suggest.known_deaths)
+
+        def nconn():
+            c = sqlite3.connect(":memory:")
+            c.execute("create table link(ravi_id int, target_kind text, target_id int, confidence text, score real)")
+            c.execute("insert into link values (2607, 'kg', 3151, 'high', 0.9)")
+            return c
+
+        def kgconn(name):
+            c = sqlite3.connect(":memory:")
+            c.execute("create table rawis(id int, name text)")
+            c.execute("insert into rawis values (3151, 'زيد')")
+            return c
+        identity._nconn = nconn
+        identity.noor_index = lambda: dict(ravis={2607: dict(name="زيد بن علي الشهيد", n=1, toks=[], alts=[])})
+        identity.corpus.conn = kgconn
+        suggest.known_deaths = lambda ids, version=None: {}
+        return self
+
+    def __exit__(self, *a):
+        identity._nconn, identity.noor_index, identity.corpus.conn, self.suggest.known_deaths = self.saved
+
+
+def test_raw_offers_the_pair_as_a_suggestion_and_a_version_that_merges_it_does_not():
+    from icm import suggest
+    d = tempfile.mkdtemp(prefix="icmver_")
+    try:
+        V = _version(d, "t1", [("noor:2607", ["noor:2607", "kg:3151"])])
+        with _FakeDbs():
+            ch = _chains()
+            I = dict(chains=ch, cards=identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"}), flags=[])
+            got = [s for s in suggest.suggest(I) if s["kind"] == "same_person"]
+            assert [s["proposal"]["pair"] for s in got] == [["noor:2607", "kg:3151"]]
+            assert "زیاد" in got[0]["evidence"] and got[0]["confidence"] == "high"      # the link's confidence is named
+            ch = _collapsed(V)
+            I = dict(chains=ch, cards=identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"}), flags=[])
+            assert [s for s in suggest.suggest(I, V) if s["kind"] == "same_person"] == []
+            # the version holds the pair, but a stage computed under it is asked with an older raw card: still skipped
+            ch = _chains()
+            I = dict(chains=ch, cards=identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"}), flags=[])
+            assert [s for s in suggest.suggest(I, V) if s["kind"] == "same_person"] == []
+    finally:
+        shutil.rmtree(d)
+
+
+def test_wiki_same_person_skips_pairs_the_version_merged():
+    from icm import suggest
+    d = tempfile.mkdtemp(prefix="icmver_")
+    try:
+        V = _version(d, "t1", [("noor:2607", ["noor:2607", "kg:3151"])])
+        ch = _chains()
+        I = dict(chains=ch, cards=identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"}), flags=[])
+        persons = lambda ids: {i: dict(person_id=5, name="زيد", also=[]) for i in ids if i in ("noor:2607", "kg:3151")}
+        with _FakeDbs():
+            assert [s["proposal"]["pair"] for s in suggest.wiki_same_person(I, persons)] == [["noor:2607", "kg:3151"]]
+            assert suggest.wiki_same_person(I, persons, V) == []
+    finally:
+        shutil.rmtree(d)
 
 
 def _sug_ident(elems, trad="shia", source="text"):

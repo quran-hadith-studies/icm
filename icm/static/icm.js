@@ -141,7 +141,7 @@ async function render() {
   clearTimeout(timer);
   ME = await api('/me').catch(() => ME);
   const who = document.getElementById('who');
-  who.replaceChildren(STATIC ? el('span', { class: 'small' }, `نسخه‌ی ذخیره‌شده (${fa(STATIC.generated)})، فقط خواندنی`)
+  who.replaceChildren(STATIC ? el('span', { class: 'small' }, `نسخه‌ی ذخیره‌شده (${fa(STATIC.generated)})، فقط خواندنی${STATIC.narrator_version ? ' · پایگاه راویان: ' + (STATIC.narrator_version.label_fa || (STATIC.narrator_version.name === 'raw' ? 'خام' : STATIC.narrator_version.name)) : ''}`)
     : ME.user ? `${ME.user}${ME.admin ? ' (مدیر)' : ''}` : el('a', { href: '/account/login?next=' + encodeURIComponent(location.pathname) }, 'ورود'));
   const r = route();
   try { r.pid ? await project(r.pid, r.run) : await home(); }
@@ -186,6 +186,7 @@ function hadithRow(h) {
 /* ---------- project ---------- */
 let P = null;
 async function project(pid, run) {
+  NV = null;
   P = await api('/project/' + pid);
   const p = P.project, readonly = !!run, runId = run || p.current_run || 'current';
   const can = ME.user && (ME.user === p.owner || ME.admin) && !readonly;
@@ -244,9 +245,24 @@ function statusBox(box, p, pid) {
     err ? el('div', { class: 'small', style: 'color:var(--bad)' }, err) : null,
     p.status === 'failed' && ME.user && (ME.user === p.owner || ME.admin) ? el('button', { onclick: async () => { await post(`/project/${pid}/rerun`, {}); reload(pid); } }, 'اجرای دوباره') : null,
     el('details', { class: 'small' }, el('summary', { class: 'muted' }, `تصمیم‌ها و گزارش اجرا (${fa(P.runs.length)} اجرا، هیچ نسخه‌ای پاک نمی‌شود)`),
-      ...Object.entries(P.decisions).map(([s, list]) => el('div', {}, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی' }[s] + ': ', list.length ? list.map(d => `v${fa(d.version)} (${d.user})`).join('، ') : '—')),
+      ...Object.entries(P.decisions).map(([s, list]) => el('div', {}, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی', narrators: 'پایگاه راویان' }[s] + ': ', list.length ? list.map(d => `v${fa(d.version)} (${d.user})`).join('، ') : '—')),
       el('div', { class: 'log' }, P.log.slice().reverse().map(l => el('div', {}, `${l.ts.slice(11, 19)} ${l.stage}: ${l.msg}`))))].filter(Boolean));
 }
+
+/* the narrator database versions (step 2); an exported page has no such endpoint */
+const narratorVersions = () => api('/narrator-versions').catch(() => []);
+const verLine = v => {
+  const e = v.eval || {}, d = e.noor_kg_death, parts = [];
+  if (v.built) parts.push('ساخته‌شده ' + v.built.slice(0, 10));
+  if (v.name !== 'raw') parts.push(`${fa(v.n_groups)} شخص چندشناسه`);
+  if (d && d.n_checked) parts.push(`وفات جفت‌های نور و گراف دانش: ${fa(d.n_agree_3)} از ${fa(d.n_checked)} در ۳ سال هم‌خوان`);
+  if (e.conflicts && e.conflicts.one_to_one != null) parts.push(`${fa(e.conflicts.one_to_one)} تعارض یک‌به‌یک`);
+  return parts.join(' · ');
+};
+const verLabel = v => v.label_fa || v.name;
+const runVer = I => (I && I.narrator_version && I.narrator_version.name) || null;
+const verQ = I => { const n = runVer(I); return n ? '&version=' + encodeURIComponent(n) : ''; };
+let NV = null;              // the narrator version of the run on screen (step 4); the narrator card asks for it
 
 const panels = {
   async seed(main, c) {
@@ -315,6 +331,7 @@ const panels = {
           el('p', {}, el('b', {}, 'شباهت: '), '«از حدیث مبدأ» = چند درصد واژه‌های حدیث مبدأ در این متن پیدا شد؛ «از این متن» = چند درصد این متن با حدیث مبدأ منطبق شد. اولی پایین یعنی بخش‌هایی نیامده؛ دومی پایین یعنی این متن افزوده دارد.'),
           el('p', {}, el('b', {}, 'بخش‌ها: '), 'یک خانه برای هر بخش حدیث مبدأ به رنگ همان بخش: ', strip([{ clause: 0, state: 'present', cov: 1 }], S), ' کامل (≥۸۰٪ واژه‌ها)، ', strip([{ clause: 0, state: 'partial', cov: .5 }], S), ' بخشی (۴۰–۸۰٪)، ', strip([{ clause: 0, state: 'changed', cov: 0 }], S), ' دگرگون (واژه‌های جایگزین)، ', strip([{ clause: 0, state: 'absent', cov: 0 }], S), ' نیامده.'),
           el('p', {}, el('b', {}, 'متن: '), 'جای هر بخش در متن نامزد به رنگ همان بخش است؛ متن بی‌رنگ در حدیث مبدأ نیست (افزوده‌ی این روایت).'));
+    const VERS = await narratorVersions();
     main.replaceChildren(
       card(['حدیث مبدأ و بخش‌هایش', partsHelp()], help('step2.search'), hadithBlock(S.seed, true),
         el('table', {}, el('tr', {}, el('th', {}, 'بخش'), el('th', { title: 'بخش‌های تیک‌خورده در دور نخست جستجو پرسیده می‌شوند' }, 'در جستجو', helpOf('تیک «در جستجو» برای چیست؟', el('p', {}, 'فقط برای یافتن نامزدها. هر بخش تیک‌خورده جداگانه در پیکره پرسیده می‌شود. اگر بخشی بسیار رایج باشد (مثل «قال رسول الله») و نامزدهای بی‌ربط بیاورد، تیکش را بردارید، یا اگر فقط حدیث‌هایی را می‌خواهید که بخش خاصی را دارند، فقط آن را نگه دارید؛ سپس «جستجوی دوباره» را بزنید.'),
@@ -334,6 +351,7 @@ const panels = {
           reload(c.pid);
         } }, 'جستجوی دوباره با بخش‌های تیک‌خورده')) : null,
         S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
+      narratorsBox(c, VERS),
       card(['نامزدها: حدیث‌هایی که بخشی از حدیث مبدأ را دارند', searchHelp], help('step2.candidates'),
         el('p', { class: 'muted small' }, 'هر نامزد بخش‌به‌بخش با حدیث مبدأ سنجیده شد (بی‌توجه به ترتیب بخش‌ها) و سامانه دسته‌ای پیشنهاد کرد. شاهدهایی که تیک می‌زنید ورودی مرحله‌های بعدند: هم‌ترازی متن‌ها، خواندن سندها و ساخت شجره. چهار دسته‌ی نخست از پیش تیک خورده‌اند؛ تصمیم با شماست.'),
         el('div', { class: 'toolbar' }, ...chips, el('input', { type: 'text', placeholder: 'پالایش با نام کتاب یا کلمه', oninput: ev => { filter = ev.target.value; draw(); } }), count,
@@ -505,6 +523,7 @@ const panels = {
   async identities(main, c) {
     const [I, A, S, dec, phd] = await Promise.all([stage(c.pid, c.runId, 'identify'), stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search'),
       api(`/project/${c.pid}/decision/identities`), api(`/project/${c.pid}/decision/phylogeny`)]);
+    NV = runVer(I);
     /* dates entered on step 5 before they moved here are carried over (those keyed by a person id) */
     const oldDates = Object.fromEntries(Object.entries(phd.dates || {}).filter(([k]) => /^(noor|kg):\d+$/.test(k)));
     const saved = { choices: dec.choices || {}, overrides: dec.overrides || {}, dates: { ...oldDates, ...(dec.dates || {}) },
@@ -566,7 +585,7 @@ const panels = {
     const fetchDeaths = async ids => {
       ids = [...new Set(ids)].filter(i => /^(noor|kg):\d+$/.test(i) && !asked.has(i)); if (!ids.length) return false;
       ids.forEach(i => asked.add(i));
-      for (let k = 0; k < ids.length; k += 150) Object.assign(known, await api('/narrators/deaths?ids=' + ids.slice(k, k + 150).join(',')).catch(() => ({})));
+      for (let k = 0; k < ids.length; k += 150) Object.assign(known, await api('/narrators/deaths?ids=' + ids.slice(k, k + 150).join(',') + verQ(I)).catch(() => ({})));
       return true;
     };
     const dateKey = (ch, e, s) => s.id && /^(noor|kg|split):\d+$/.test(s.id) ? s.id : `occ:${ch.aid}|${e.i}`;
@@ -791,10 +810,11 @@ const panels = {
         el('span', { class: 'small muted' }, `هم‌خوانی نام ${pct(k.cov || 0)}${k.ctx != null ? ' · هم‌نشین ' + fa(k.ctx) : ''} · ${fa(k.n || 0)} روایت`), el('span', { class: 'small muted' }, meta(k)),
         k.reason ? el('span', { class: 'small muted' }, k.reason) : null, k.via ? el('span', { class: 'small', style: 'color:var(--accent)' }, VIA[k.via]) : null,
         cd.default === k.id && !relOnly(cd) ? el('span', { class: 'small', style: 'color:var(--good)' }, 'انتخاب خودکار') : null,
+        k.also && k.also.length ? k.also.map(o => el('span', { class: 'chip', dir: 'ltr', title: 'همان شخص در پایگاه دیگر' }, o)) : null,
         el('button', { class: 'small', onclick: ev => { ev.preventDefault(); narratorCard(k.id); } }, 'کارت راوی')]);
       const cands = relOnly(cd) ? [...e.cands] : [...cd.candidates]; e.cands.forEach(k => { if (!cands.some(x => x.id === k.id)) cands.push(k); });
       const go3 = (q3) => { sq = q3; sbusy = true; sres = null; drawEd();
-        api('/narrators?q=' + encodeURIComponent(q3)).then(r => { sres = r; }, err => { sres = { error: err.message }; }).finally(() => { sbusy = false; drawEd(); }); };
+        api('/narrators?q=' + encodeURIComponent(q3) + verQ(I)).then(r => { sres = r; }, err => { sres = { error: err.message }; }).finally(() => { sbusy = false; drawEd(); }); };
       const sIn = el('input', { type: 'text', value: sq, placeholder: 'نام راوی', class: 'ar', oninput: ev => { sq = ev.target.value; }, onkeydown: ev => { if (ev.key === 'Enter') go3(sq.trim()); } });
       fill(part3, 
         el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, relOnly(cd) ? cname({ ...cd, name: e.raw || e.name }) : e.raw || e.name)),
@@ -869,7 +889,7 @@ const panels = {
       ['relative', 'نسبت‌ها (پدر، جد…)', '«عن أبيه»، «عن جده»: پدر یا جدِ راوی پیشین. پدر امامان از جدول امامان، دیگران از سندهای نور که برای همان راوی همین نسبت را به نام آورده‌اند. این پیشنهاد تنها وقتی نشان داده می‌شود که راوی پیشین همان کسی باشد که پیشنهاد بر او استوار است.'],
       ['not_a_name', 'عبارت‌هایی که نام نیستند', 'واژه‌ی سند («اقول»، «واخبرنا»، «الحافظ») یا آغاز متن («لما ثقل») که نام راوی خوانده شده است. با پذیرش، این جا از سند بیرون می‌رود.'],
       ['hidden_junk', 'واژه‌های میان نام‌های نور', 'نور میان دو راوی واژه‌هایی چون «فقد اخبرنی به» را نگه می‌دارد؛ برنامه آن‌ها را دوباره خوانده تا راویان پنهان را بیابد و گاهی واژه‌ای را نام خوانده است.'],
-      ['same_person', 'یک شخص با دو شناسه', 'یک راوی گاهی هم در نور و هم در گراف دانش آمده است. پیوندهای مطمئن پایگاه راویان خودکار یکی می‌شوند؛ اینجا پیوندهای کم‌اطمینان، جفت‌هایی با نام هم‌خوان و سال وفات نزدیک، و شناسه‌هایی که پایگاه راویان ویکی‌مانند (ebadollah.ir/narrator) یک شخص می‌داند آمده‌اند.'],
+      ['same_person', 'یک شخص با دو شناسه', 'یک راوی گاهی هم در نور و هم در گراف دانش آمده است. در پایگاه «خام» هیچ‌چیز خودکار یکی نمی‌شود و پیوندها و جفت‌های هم‌نام با وفات نزدیک همه پیشنهادند. در یک پایگاه ادغام‌شده، جفت‌های همان نسخه از پیش یکی شده‌اند و بقیه (کم‌اطمینان‌تر یا ردشده) و شناسه‌هایی که پایگاه راویان ویکی‌مانند (ebadollah.ir/narrator) یک شخص می‌داند پیشنهاد می‌مانند.'],
       ['witness_without_chain', 'شاهدهای بی‌سند', 'سند این شاهدها جز گردآورنده کسی را نام نمی‌برد. در شجره هر کدام طریقی جداگانه از خودِ گردآورنده می‌شود؛ برای پرسش مبدأ بهتر است در مرحله‌ی ۲ کنار گذاشته شوند.']];
     const CONF = { high: 'زیاد', medium: 'متوسط', low: 'کم' };
     const OPFA = { choice: 'پذیرش', drop: 'حذف از سند', merge: 'یکی کردن', exclude: 'کنار گذاشتن شاهد' };
@@ -966,6 +986,8 @@ const panels = {
             el('li', {}, el('b', {}, 'پیشنهادها: '), 'آنچه پایگاه‌ها درباره‌ی نام‌های مانده می‌گویند (بخش «پیشنهادها»)؛ هیچ‌کدام بی‌پذیرش شما به کار نمی‌رود. انتخاب‌های خودکار نیز آنجا یک‌به‌یک برای بازبینی آمده‌اند.'),
             el('li', {}, el('b', {}, 'حذف از سند: '), 'جایی که واژه‌ی سند یا تکه‌ای از متن نام خوانده شده است؛ در شجره از سند بیرون می‌ماند.'))], { modal: true })],
         help('step4.overview'),
+        el('p', { class: 'small' }, 'پایگاه راویان: ', el('b', {}, I.narrator_version ? (I.narrator_version.label_fa || (I.narrator_version.name === 'raw' ? 'خام (بدون ادغام)' : I.narrator_version.name)) : 'خام (نسخه‌ی پیش از پایگاه‌ها)'), ' ',
+          el('a', { href: BASE + stepUrl(c.pid, null, 'selection'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'selection')); } }, '(تغییر در مرحله‌ی ۲)')),
         el('p', { class: 'muted small' }, 'یک حدیث را در بخش ۱ برگزینید؛ سندش در بخش ۲ می‌آید. یک نام را بزنید؛ در بخش ۳ نخست همه‌ی جاهای دیگر آن نام در سندهای دیگر (هر کدام با متن کامل حدیث) می‌آید و سپس گزینه‌ها، جستجو، یکی کردن و جدا کردن.'),
         oldRun && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند: «عن أبيه / عن جده» یک نام شمرده می‌شد (و در همه‌ی سندها امام باقر گرفته می‌شد)، و برخی نام‌ها به راوی نادرست می‌خوردند (مثلاً «علی بن ابراهیم» به محمد بن یحیی). برنامه‌ی تازه هر نسبت را در سند خودش و از روی سندهای نور تعیین می‌کند. ',
           c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
@@ -1464,13 +1486,38 @@ function candRow(x, S, sel, can, upd) {
       x.matn_len > x.matn.length ? el('div', { class: 'small muted' }, `… (${fa(x.matn_len)} نویسه، ${fa(x.matn.length)} نخست نمایش داده شد)`) : null,
       fullDetails(x.wid, null, 'سند و متن کامل')));
 }
+/* step 2: which narrator database (raw or a merged version) steps 4-6 are computed with */
+function narratorsBox(c, VERS) {
+  if (!VERS.length) return el('span');
+  const cur = (P && P.narrator_version) || (STATIC && STATIC.narrator_version && STATIC.narrator_version.name) || 'raw';
+  const sel = el('select', {}, VERS.map(v => el('option', { value: v.name, selected: v.name === cur }, `${verLabel(v)}${v.built ? ' — ' + v.built.slice(0, 10) : ''}${v.name !== 'raw' ? ' — ' + fa(v.n_groups) + ' شخص ادغام‌شده' : ''}`)));
+  const desc = el('p', { class: 'small' }), line = el('p', { class: 'small muted' });
+  const show = () => { const v = VERS.find(x => x.name === sel.value) || VERS[0]; desc.textContent = v.description_fa || ''; line.textContent = verLine(v); };
+  sel.addEventListener('change', show); show();
+  return card(['پایگاه راویان', help('step2.narrators')],
+    el('p', { class: 'muted small' }, 'راوی‌ای که هم در نور و هم در گراف دانش (و درایة النور) آمده دو شناسه دارد. پایگاهِ برگزیده می‌گوید کدام شناسه‌ها یک شخص‌اند؛ در پایگاه «خام» هیچ‌چیز ادغام نمی‌شود و همه‌ی پیوندها فقط پیشنهادند.'),
+    el('div', { class: 'toolbar' }, sel, c.can ? el('button', { onclick: async () => {
+      if (sel.value === cur) return;
+      await post(`/project/${c.pid}/decide/narrators`, { payload: { version: sel.value } }); reload(c.pid);
+    } }, 'اعمال') : null), desc, line,
+    el('p', { class: 'small muted' }, 'با تغییر پایگاه، مرحله‌های ۴ تا ۶ برای پایگاه تازه از نو محاسبه می‌شوند؛ اجراهای پیشین (با پایگاه پیشین) همچنان در «نسخه» قابل دیدن‌اند. تصمیم‌های شما درباره‌ی راویان می‌مانند.'));
+}
 async function narratorCard(id) {
-  const n = await api('/narrator/' + encodeURIComponent(id));
+  const vname = NV || (P && P.narrator_version) || null;
+  const n = await api('/narrator/' + encodeURIComponent(id) + (vname ? '?version=' + encodeURIComponent(vname) : '')).catch(e => (e.status === 400 ? api('/narrator/' + encodeURIComponent(id)) : Promise.reject(e)));
   const kv = (k, v) => v != null && v !== '' ? [el('dt', {}, k), el('dd', {}, typeof v === 'object' ? JSON.stringify(v) : String(v))] : [];
   const box = el('div', {}, el('h2', { class: 'ar' }, n.name || id), el('div', { class: 'small muted', dir: 'ltr' }, id),
     n.wiki ? el('p', { class: 'small' }, el('a', { href: `${SITE}/narrator/p/${n.wiki.person_id}`, target: '_blank' }, 'صفحه‌ی این شخص در پایگاه راویان ↗'),
       n.wiki.also && n.wiki.also.length ? el('span', { class: 'muted' }, ' — شناسه‌های دیگر همین شخص: ', el('span', { dir: 'ltr' }, n.wiki.also.join('، '))) : null) : null,
     help('narrator.card'));
+  if (n.merged && n.merged.members && n.merged.members.length > 1) {
+    const edges = n.merged.edges || [];
+    box.append(el('h3', {}, `شناسه‌هایی که پایگاه «${n.merged.version}» همین شخص می‌داند`), el('table', {}, n.merged.members.map(m => {
+      const e = edges.find(x => x.a === m.id || x.b === m.id);
+      return el('tr', {}, el('td', { dir: 'ltr' }, m.id), el('td', { class: 'small' }, m.rule || ''), el('td', { class: 'small muted' }, m.score != null ? fa(Math.round(m.score * 100) / 100) : ''),
+        el('td', { class: 'small muted', dir: 'ltr' }, e ? `${e.a} ↔ ${e.b}` : ''));
+    })));
+  }
   if (n.kind === 'name-only') { box.append(el('p', {}, n.note)); return modal(box); }
   box.append(el('dl', { class: 'kv' }, ...(n.kind === 'noor'
     ? [...kv('مذهب', n.mazhab), ...kv('درجه', n.grade), ...kv('کنیه', n.kunya), ...kv('لقب', Array.isArray(n.laqab) ? n.laqab.map(l => l && l.text || l).join('، ') : n.laqab), ...kv('طبقه', n.tabaqa && n.tabaqa.map(t => t.text || t).join('، ')), ...kv('جمع‌بندی', n.eval_summary), ...kv('تعداد روایت', n.n_slots)]

@@ -14,7 +14,7 @@ def test_decisions_are_append_only():
     d = _tmp()
     try:
         p = project.create("v02:1", "u")
-        assert project.versions(p["pid"]) == dict(search=0, selection=0, identities=0, phylogeny=0, parts=0)
+        assert project.versions(p["pid"]) == dict(search=0, selection=0, identities=0, phylogeny=0, parts=0, narrators=0)
         n1 = project.add_decision(p["pid"], "selection", dict(selected=["v02:1", "v02:2"]), "u")
         n2 = project.add_decision(p["pid"], "selection", dict(selected=["v02:1"]), "u", "removed one")
         assert (n1, n2) == (1, 2)
@@ -23,6 +23,17 @@ def test_decisions_are_append_only():
         assert project.decision(p["pid"], "selection")["note"] == "removed one"
     finally:
         shutil.rmtree(d)
+
+
+def test_run_id_keeps_its_old_shape_until_a_newer_step_is_decided():
+    hs = {"search": "a"}
+    v = dict(search=1, selection=2, identities=0, phylogeny=0, parts=0, narrators=0)
+    old = project.run_id(v, hs)
+    assert old.startswith("0001.0002.0000.0000-")                 # four numbers: neither parts nor narrators decided
+    assert project.run_id(dict(v, parts=3), hs).startswith("0001.0002.0000.0000.0003-")
+    assert project.run_id(dict(v, narrators=1), hs).startswith("0001.0002.0000.0000.0000.0001-")
+    assert project.run_id(dict(v, parts=3, narrators=1), hs).startswith("0001.0002.0000.0000.0003.0001-")
+    assert project.run_id(dict(v, parts=3), hs).split("-")[1] == old.split("-")[1]      # only the numbers differ
 
 
 def test_stage_files_are_content_addressed_and_never_overwritten():

@@ -1,4 +1,4 @@
-import os, sys, tempfile, shutil
+import os, sqlite3, sys, tempfile, shutil
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["ICM_OPEN"] = "0"                         # these tests check the user rules, which open mode switches off
 try:
@@ -8,8 +8,6 @@ except ImportError:                                  # the model code itself nee
     print("fastapi not installed: skipped"); sys.exit(0)
 from icm import config, project, jobs
 
-if not os.path.exists(config.V02_DB):
-    print("corpus not present: skipped"); sys.exit(0)
 from icm.api import make_router
 
 USERS = {"alice": dict(username="alice", is_admin=False), "bob": dict(username="bob", is_admin=False),
@@ -24,6 +22,51 @@ def app():
     a = FastAPI()
     a.include_router(make_router(lambda req: USERS.get(req.headers.get("x-user", ""))))
     return a, d
+
+
+def _version_file(d, name="t1"):
+    c = sqlite3.connect(os.path.join(d, f"{name}.sqlite"))
+    c.executescript("""create table meta(k text primary key, v text);
+        create table person(id integer primary key, canon text, name text, n_ext integer);
+        create table ext(kind text, ext_id integer, person_id integer, rule text, score real, primary key(kind, ext_id));
+        create table edge(a text, b text, rule text, score real, evidence_json text);
+        create table conflict(a text, b text, rule text, score real, reason text)""")
+    c.executemany("insert into meta values (?,?)", [("label_fa", "آزمایشی"), ("built", "2026-10-15"), ("wiki_state", "s1")])
+    c.execute("insert into person values (1, 'noor:2607', 'x', 2)")
+    c.executemany("insert into ext values (?,?,1,'noor_kg',0.9)", [("noor", 2607), ("kg", 3151)])
+    c.execute("insert into edge values ('noor:2607', 'kg:3151', 'noor_kg', 0.9, '{}')")
+    c.commit(); c.close()
+
+
+def test_narrator_versions_endpoint_and_decision_validation():
+    a, d = app()
+    old = config.NARRATOR_VERSIONS_DIR, config.NARRATOR_VERSION_DEFAULT
+    config.NARRATOR_VERSIONS_DIR, config.NARRATOR_VERSION_DEFAULT = os.path.join(d, "versions"), "t1"
+    try:
+        c = TestClient(a)
+        assert [v["name"] for v in c.get("/icm/api/narrator-versions").json()] == ["raw"]      # no directory: only raw
+        os.makedirs(config.NARRATOR_VERSIONS_DIR)
+        _version_file(config.NARRATOR_VERSIONS_DIR)
+        got = c.get("/icm/api/narrator-versions").json()
+        assert [v["name"] for v in got] == ["raw", "t1"] and got[1]["built"] == "2026-10-15" and got[1]["n_groups"] == 1
+        p = project.create("v02:1", "alice")
+        pid = p["pid"]
+        info = c.get(f"/icm/api/project/{pid}").json()
+        assert info["narrator_version"] == "t1"                                                   # no decision: the default
+        for bad in ({"version": "nope"}, {"version": "../t1"}, {"version": 3}, {}):
+            assert c.post(f"/icm/api/project/{pid}/decide/narrators", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
+        assert c.post(f"/icm/api/project/{pid}/decide/narrators", json={"payload": {"version": "raw"}}, headers=H("bob")).status_code == 403
+        assert c.post(f"/icm/api/project/{pid}/decide/narrators", json={"payload": {"version": "raw"}}, headers=H("alice")).status_code == 200
+        assert project.decision(pid, "narrators")["name"] == "raw"
+        assert c.get(f"/icm/api/project/{pid}").json()["narrator_version"] == "raw"
+        assert c.get("/icm/api/narrator/noor:1", params={"version": "nope"}).status_code in (400, 404)
+    finally:
+        config.NARRATOR_VERSIONS_DIR, config.NARRATOR_VERSION_DEFAULT = old
+        shutil.rmtree(d)
+
+
+if not os.path.exists(config.V02_DB):
+    print("corpus not present: skipped"); sys.exit(0)
 
 
 def test_permissions_and_validation():
