@@ -29,7 +29,7 @@ from . import graph as graph_mod
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
-ASSETS = ("icm.js", "icm.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
+ASSETS = ("icm.js", "base.js", "base.css", "icm.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
           "model_worker.js", "model.zip")
 ID_RE = re.compile(r"^(noor|kg):\d+$")
 SPLIT_RE = re.compile(r"^split:\d{1,6}$")
@@ -148,6 +148,12 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(404)
         return FileResponse(os.path.join(STATIC, name), headers={"Cache-Control": "no-cache"})
 
+    @r.get("/static/fonts/{name}")
+    def static_font(name: str):
+        if name not in os.listdir(os.path.join(STATIC, "fonts")):
+            raise HTTPException(404)
+        return FileResponse(os.path.join(STATIC, "fonts", name), headers={"Cache-Control": "public, max-age=2592000"})
+
     # -- read ------------------------------------------------------------------------------------
     @r.get("/api/me")
     def me(request: Request):
@@ -156,7 +162,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
 
     @r.get("/api/index")
     def index():
-        return project.read(os.path.join(config.CACHE_DIR, "index.json"), dict(projects=[]))
+        idx = project.read(os.path.join(config.CACHE_DIR, "index.json"), dict(projects=[]))
+        # projects made before titles were readable carry their seed id as the title: name them from the hadith
+        return dict(idx, projects=[dict(p, title=project.hadith_label(p["seed"])) if p.get("title") == p.get("seed") else p for p in idx.get("projects", [])])
 
     @r.get("/api/hadith/{wid}/projects")
     def hadith_projects(wid: str):
@@ -218,6 +226,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     def project_info(pid: str):
         p = _project(pid)
         vers = project.versions(pid)
+        p = dict(p, label=(project.hadith_label(p["seed"]) if p.get("title") == p.get("seed") else p.get("title")))
         return dict(project=p, narrator_version=(project.decision(pid, "narrators") or {}).get("name") or narrator_versions.default_name(), versions=vers, runs=project.runs(pid), job=jobs.active(pid),
                     last_job=(jobs.for_project(pid, 1) or [None])[0], log=(project.read(os.path.join(project.pdir(pid), "log.json"), []))[-30:],
                     decisions={s: [dict(version=n, **{k: d.get(k) for k in ("user", "created", "note")})

@@ -12,6 +12,7 @@ between two runs point at the same stage file, so changing an identity never rec
 from __future__ import annotations
 
 import contextlib
+import functools
 import fcntl
 import hashlib
 import json
@@ -78,9 +79,25 @@ def now() -> str:
 
 
 # --- projects -----------------------------------------------------------------------------------
+@functools.lru_cache(maxsize=512)
+def hadith_label(seed: str, words: int = 7) -> str:
+    """A readable name for a project: the book and the first words of the seed's text (falls back to the id)."""
+    try:
+        from . import corpus
+        r = corpus.get(seed)
+        if r:
+            txt = re.sub(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]", "", r.get("matn") or "")
+            w = txt.split()
+            head = " ".join(w[:words]) + ("…" if len(w) > words else "")
+            return " — ".join(x for x in (r.get("title"), head) if x) or seed
+    except Exception:
+        pass
+    return seed
+
+
 def create(seed: str, owner: str, title: Optional[str] = None) -> dict:
     pid = h(seed, owner, time.time())[:10]
-    p = dict(pid=pid, title=title or seed, seed=seed, owner=owner, created=now(), updated=now(),
+    p = dict(pid=pid, title=title or hadith_label(seed), seed=seed, owner=owner, created=now(), updated=now(),
              status="running", step="search", current_run=None)
     with lock(pid):
         atomic_write(os.path.join(pdir(pid), "project.json"), p)
@@ -207,7 +224,7 @@ def log(pid: str, stage: str, msg: str, level: str = "info") -> None:
 def refresh_indexes() -> None:
     """index.json (all projects) and hadith_index.json (hadith -> projects that contain it)."""
     projs = list_projects()
-    idx = [dict(pid=p["pid"], title=p["title"], seed=p["seed"], owner=p["owner"], status=p["status"],
+    idx = [dict(pid=p["pid"], title=(hadith_label(p["seed"]) if p["title"] == p["seed"] else p["title"]), seed=p["seed"], owner=p["owner"], status=p["status"],
                 step=p["step"], updated=p["updated"], current_run=p.get("current_run")) for p in projs]
     hidx: Dict[str, list] = {}
     for p in projs:

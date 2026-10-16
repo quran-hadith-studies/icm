@@ -36,6 +36,7 @@ from . import config, store, version
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 ASSETS = ("narwiki.js", "narwiki.css", "narwiki.html")
+SHARED = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "icm", "static")   # base.css and the fonts are shared with the ICM wizard
 EXT_RE = re.compile(r"^[a-z_]{2,20}:[\w.-]{1,40}$")
 _init_lock = threading.Lock()
 _inited: set = set()
@@ -404,8 +405,8 @@ def merge_preview(c, a: int, b: int) -> dict:
 
 
 def export_html(data: dict, base: str) -> str:
-    css = open(os.path.join(STATIC, "narwiki.css"), encoding="utf-8").read()
-    js = open(os.path.join(STATIC, "narwiki.js"), encoding="utf-8").read()
+    css = open(os.path.join(SHARED, "base.css"), encoding="utf-8").read() + open(os.path.join(STATIC, "narwiki.css"), encoding="utf-8").read()
+    js = open(os.path.join(STATIC, "narwiki.js"), encoding="utf-8").read() + "\n" + open(os.path.join(SHARED, "base.js"), encoding="utf-8").read()
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\!--")
     name = data["person"]["person"]["display_name"]
     esc = lambda s: (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
@@ -456,7 +457,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
     # -- pages -----------------------------------------------------------------------------------
     def page() -> HTMLResponse:
         # Cloudflare caches /static for hours whatever our Cache-Control says: version the URLs instead
-        v = "%x" % max(int(os.path.getmtime(os.path.join(STATIC, f))) for f in ASSETS)
+        v = "%x" % max([int(os.path.getmtime(os.path.join(STATIC, f))) for f in ASSETS] + [int(os.path.getmtime(os.path.join(SHARED, f))) for f in ("base.css", "base.js")])
         html = open(os.path.join(STATIC, "narwiki.html"), encoding="utf-8").read().replace("__BASE__", prefix).replace("__V__", v)
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
@@ -473,9 +474,17 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
 
     @r.get("/static/{name}")
     def static(name: str):
+        if name in ("base.css", "base.js"):
+            return FileResponse(os.path.join(SHARED, name), headers={"Cache-Control": "no-cache"})
         if name not in os.listdir(STATIC):
             raise HTTPException(404)
         return FileResponse(os.path.join(STATIC, name), headers={"Cache-Control": "no-cache"})
+
+    @r.get("/static/fonts/{name}")
+    def static_font(name: str):
+        if name not in os.listdir(os.path.join(SHARED, "fonts")):
+            raise HTTPException(404)
+        return FileResponse(os.path.join(SHARED, "fonts", name), headers={"Cache-Control": "public, max-age=2592000"})
 
     # -- read ------------------------------------------------------------------------------------
     @r.get("/api/me")

@@ -1,27 +1,29 @@
 /* The standalone results page: page colours and base controls; the results themselves are results.css and tree.css
    (shared with step 6 of the wizard, whose colour names they use: --fg --muted --card --bg). */
 :root{
-  --ink:#1b1f28; --ink-soft:#566074; --ink-faint:#8a92a4;
+  --ink:#1b1f28; --ink-soft:#566074; --ink-faint:#586377;
   --paper:#f5f4f0; --surface:#fffefb; --line:#dcd8cf;
-  --accent:#3b4a9c; --accent-soft:#e7e9f5;
-  --warm:#9a5b2a; --good:#2f6f4f; --warn:#9a7a12; --bad:#9c3b3b;
+  --accent:#3b5bdb; --accent-soft:#e8edff; --on-accent:#fff;
+  --warm:#9a5b2a; --good:#1d6b45; --warn:#8a5a0b; --bad:#b02a1c;
   --font-ui:"Vazirmatn",Tahoma,system-ui,sans-serif;
   --font-ar:"Noto Naskh Arabic","Geeza Pro","Traditional Arabic",serif;
   --fg:var(--ink); --muted:var(--ink-faint); --card:var(--surface); --bg:var(--paper); --arabic:var(--ink);
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --ink:#e8e6e1; --ink-soft:#a7aebd; --ink-faint:#8b93a6;
+  --ink:#e8e6e1; --ink-soft:#a7aebd; --ink-faint:#9aa3b5;
   --paper:#15171c; --surface:#1d2029; --line:#30343f;
   --accent:#8c9bef; --accent-soft:#252b46;
-  --warm:#d79a62; --good:#6cc096; --warn:#d8bb5c; --bad:#e08a8a;
+  --warm:#d79a62; --good:#6cc096; --warn:#d8bb5c; --bad:#e8908a; --on-accent:#0f1226;
   color-scheme:dark}}
 :root[data-theme="dark"]{
-  --ink:#e8e6e1; --ink-soft:#a7aebd; --ink-faint:#8b93a6;
+  --ink:#e8e6e1; --ink-soft:#a7aebd; --ink-faint:#9aa3b5;
   --paper:#15171c; --surface:#1d2029; --line:#30343f;
   --accent:#8c9bef; --accent-soft:#252b46;
-  --warm:#d79a62; --good:#6cc096; --warn:#d8bb5c; --bad:#e08a8a;
+  --warm:#d79a62; --good:#6cc096; --warn:#d8bb5c; --bad:#e8908a; --on-accent:#0f1226;
   color-scheme:dark}
 *{box-sizing:border-box}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-ui);font-size:14px;line-height:1.75}
 .wrap{max-width:1320px;margin:0 auto;padding-inline:16px;padding-block:0 48px}
 header.top{padding-block:14px 4px}

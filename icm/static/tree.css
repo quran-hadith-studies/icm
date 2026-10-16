@@ -3,8 +3,8 @@
 .tree .gtools .toolbar{margin:4px 0;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
 .tree .gq{min-width:200px}
 .gwrap{overflow:auto;max-height:72vh;min-height:240px;border:1px solid var(--line);border-radius:8px;background:var(--card);direction:rtl}
-.fchip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:99px;padding:1px 10px 1px 8px;cursor:pointer;opacity:.55;font-size:12px}
-.fchip.on{opacity:1;background:var(--accent-soft)}.fchip input{margin:0}
+.fchip{display:inline-flex;align-items:center;gap:4px;border:1px dashed var(--line);border-radius:99px;padding:1px 10px 1px 8px;cursor:pointer;color:var(--muted);font-size:12px}
+.fchip.on{color:var(--fg);border-style:solid;background:var(--accent-soft)}.fchip input{margin:0}
 .fchip i{display:inline-block;width:10px;height:10px;border-radius:50%}.fchip i.und{border:2px dashed var(--muted);width:7px;height:7px}
 .gsvg{display:block}
 .gsvg .band{fill:var(--bg);opacity:.6}

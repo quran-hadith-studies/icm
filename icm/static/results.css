@@ -68,7 +68,7 @@
 /* the reconstructed text (recon.js) */
 .rc{display:flex;flex-direction:column;gap:6px;margin:6px 0}
 .rc-cl{display:flex;gap:10px;align-items:baseline;border-inline-start:4px solid hsl(var(--h) 60% 50%);padding-inline-start:8px}
-.rc-cl.off{opacity:.55}.rc-cl.off .rc-tx{text-decoration:line-through}
+.rc-cl.off{border-inline-style:dashed}.rc-cl.off .rc-tx{text-decoration:line-through;opacity:.7}
 .rc-n{flex:none;font-size:11.5px;color:var(--muted);min-width:76px}
 .rc-tx{font-family:var(--font-ar,'Noto Naskh Arabic','BLotus',serif);font-size:19px;line-height:2.1;color:var(--arabic,var(--fg))}
 .rc-t{border-radius:3px;padding:0 2px}
@@ -84,3 +84,5 @@
 .rv .chainx .ep{font-size:10.5px;color:var(--muted);direction:ltr}.rv .chainx .ep.weak{color:var(--warn);font-weight:700}
 .rv .chainx .unkl{display:inline-block;padding:0 6px;border:1px dashed var(--muted);border-radius:6px;color:var(--muted)}
 .rv .matntext mark,.fulltext mark{background:color-mix(in srgb,var(--warn) 35%,transparent);color:inherit;border-radius:2px}
+
+.rc-legend .rc-t{color:var(--fg)}

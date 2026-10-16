@@ -67,17 +67,32 @@ function el(tag, attrs, ...kids) {
     if (v === false || v == null) continue;
     if (k === 'class') e.className = v;
     else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else if (k === 'dir' || k === 'title' || k === 'href' || k === 'type' || k === 'value' || k === 'placeholder' || k === 'name' || k === 'src' || k === 'target' || k === 'style' || k === 'colspan' || k === 'rowspan') e.setAttribute(k, v);
+    else if (/^(aria-|data-)/.test(k) || k === 'role' || k === 'tabindex' || k === 'dir' || k === 'title' || k === 'href' || k === 'type' || k === 'value' || k === 'placeholder' || k === 'name' || k === 'src' || k === 'target' || k === 'style' || k === 'colspan' || k === 'rowspan') e.setAttribute(k, v);
     else if (v === true) e.setAttribute(k, '');
     else e[k] = v;
   }
   for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(String(c)));
   return e;
 }
+/* the server's messages are English; the page shows Persian */
+const ERR_FA = [[/^no such project/i, 'چنین پروژه‌ای نیست.'], [/^login required/i, 'برای این کار وارد شوید.'], [/^missing X-ICM/i, 'درخواست نامعتبر است.'],
+  [/^only the owner or an admin/i, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند آن را تغییر دهد.'], [/not waiting for a computation|no longer waits/i, 'این پروژه اکنون منتظر محاسبه نیست.'],
+  [/^stage files are missing/i, 'فایل‌های این مرحله پیدا نشد.'], [/^no analysis in this run/i, 'در این اجرا تحلیلی نیست.'], [/^no such run/i, 'چنین اجرایی نیست.'],
+  [/^stage not available/i, 'این مرحله در این اجرا نیست.'], [/^no such text/i, 'چنین متنی در این اجرا نیست.'], [/^unknown seed hadith/i, 'حدیث مبدأ شناخته نشد.'],
+  [/^you have (\d+) unfinished/i, (m) => `شما ${fa(m[1])} پروژه‌ی ناتمام دارید؛ نخست یکی را به پایان ببرید.`], [/^unknown narrator database version/i, 'پایگاه راویان ناشناخته است.'],
+  [/^the graph changed/i, 'شجره تغییر کرده است؛ شجره‌ی روی صفحه را دوباره تأیید کنید.'], [/^the search has not run yet/i, 'جستجو هنوز اجرا نشده است.'],
+  [/^unknown preset|^unknown compute mode/i, 'گزینه‌ی نامعتبر.'], [/^not found$/i, 'پیدا نشد.'], [/^bad id/i, 'شناسه‌ی نامعتبر.'],
+  [/^the result is not consistent/i, 'نتیجه با شجره‌ی این پروژه نمی‌خواند.']];
+function faErr(m) {
+  m = String(m || '');
+  if (/[\u0600-\u06FF]/.test(m)) return m;
+  for (const [re, t] of ERR_FA) { const x = re.exec(m); if (x) return typeof t === 'function' ? t(x) : t; }
+  return 'کارگزار پذیرفت نکرد: ' + m;
+}
 async function api(path, opts) {
   if (STATIC) return staticApi(path);
   const r = await fetch(API + path, opts);
-  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (_) {} const err = new Error(m); err.status = r.status; throw err; }
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (_) {} const err = new Error(faErr(typeof m === 'string' ? m : JSON.stringify(m))); err.status = r.status; throw err; }
   return r.json();
 }
 /* the API of an exported page: the answers are in the page */
@@ -122,6 +137,9 @@ const FLAG_FA = {
   unknown_witness: 'شاهد انتخاب‌شده در نتایج جستجو نیست.', part_unused: 'یکی از اصلاح‌های فرازبندی به بخش یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.', no_chain: 'برای این شاهد سندی خوانده نشد.' };
 const flagText = f => FLAG_FA[f.kind] ? (f.kind === 'chronology' ? FLAG_FA[f.kind] + ' — ' + f.message : FLAG_FA[f.kind]) : f.message;
 let ME = { user: null, admin: false }, timer = null;
+const SITE_TITLE = 'تحلیل منبع حدیث';
+const setTitle = (...parts) => { document.title = [...parts.filter(Boolean), SITE_TITLE].join(' — '); };
+const PSTEP = { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', analysis: 'تحلیل', done: 'پایان' };
 
 function route() {
   const m = here().slice(BASE.length).split('/').filter(Boolean);
@@ -139,24 +157,25 @@ window.addEventListener('popstate', render);
 /* ---------- top level ---------- */
 async function render() {
   clearTimeout(timer);
+  setTitle();
   ME = await api('/me').catch(() => ME);
   const who = document.getElementById('who');
   who.replaceChildren(STATIC ? el('span', { class: 'small' }, `نسخه‌ی ذخیره‌شده (${fa(STATIC.generated)})، فقط خواندنی${STATIC.narrator_version ? ' · پایگاه راویان: ' + (STATIC.narrator_version.label_fa || (STATIC.narrator_version.name === 'raw' ? 'خام' : STATIC.narrator_version.name)) : ''}`)
     : ME.user ? `${ME.user}${ME.admin ? ' (مدیر)' : ''}` : el('a', { href: '/account/login?next=' + encodeURIComponent(location.pathname) }, 'ورود'));
   const r = route();
   try { r.pid ? await project(r.pid, r.run) : await home(); }
-  catch (e) { $app.replaceChildren(el('div', { class: 'card' }, 'خطا: ' + e.message)); }
+  catch (e) { setTitle(e.status === 404 ? 'پیدا نشد' : 'خطا'); $app.replaceChildren(el('div', { class: 'card err', role: 'alert' }, 'خطا: ' + e.message, ' ', el('a', { href: BASE || '/' , onclick: ev => { ev.preventDefault(); go('/'); } }, 'بازگشت به فهرست پروژه‌ها'))); }
 }
 
 /* ---------- home ---------- */
 async function home() {
   const idx = await api('/index');
-  const q = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث، نشانی /h/i/… یا چند کلمه از متن', id: 'q' });
+  const q = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث، نشانی /h/i/… یا چند کلمه از متن', id: 'q', 'aria-label': 'جستجوی حدیث مبدأ' });
   const out = el('div');
   const go_ = async () => {
     out.replaceChildren(el('p', { class: 'muted' }, 'در حال جستجو…'));
     const rs = await api('/search?limit=60&q=' + encodeURIComponent(q.value));
-    out.replaceChildren(rs.length ? el('table', {}, rs.map(h => hadithRow(h))) : el('p', { class: 'muted' }, 'چیزی پیدا نشد.'));
+    out.replaceChildren(rs.length ? el('div', { class: 'tscroll' }, el('table', {}, el('tbody', {}, rs.map(h => hadithRow(h))))) : el('p', { class: 'muted' }, 'چیزی پیدا نشد.'));
   };
   q.addEventListener('keydown', e => { if (e.key === 'Enter') go_(); });
   const pre = new URLSearchParams(query()).get('seed');
@@ -166,11 +185,11 @@ async function home() {
       el('p', { class: 'muted' }, 'یک حدیث را انتخاب کنید؛ سامانه خانواده‌ی آن را می‌یابد، شما شاهدها و راویان را تأیید می‌کنید و در پایان قدیمی‌ترین منبع قابل‌بازیابی برآورد می‌شود.'),
       el('div', { class: 'toolbar' }, q, el('button', { class: 'primary', onclick: go_ }, 'جستجو')), out),
     el('div', { class: 'card' }, el('h2', {}, 'پروژه‌ها'),
-      idx.projects.length ? el('table', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی'].map(t => el('th', {}, t))),
+      idx.projects.length ? el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی'].map(t => el('th', {}, t)))), el('tbody', {},
         idx.projects.map(p => el('tr', {}, el('td', {}, el('a', { href: `${BASE}/p/${p.pid}`, onclick: ev => { ev.preventDefault(); go('/p/' + p.pid); } }, p.title)),
-          el('td', { dir: 'ltr' }, p.seed), el('td', {}, p.owner), el('td', {}, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status)),
-          el('td', {}, (STEPS.find(s => s[0] === p.step) || [0, p.step])[1]), el('td', { class: 'small muted', dir: 'ltr' }, p.updated.replace('T', ' ').slice(0, 16)))))
-        : el('p', { class: 'muted' }, 'هنوز پروژه‌ای نیست.')));
+          el('td', { dir: 'ltr', class: 'small' }, p.seed), el('td', {}, p.owner), el('td', {}, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status)),
+          el('td', {}, PSTEP[p.step] || (STEPS.find(s => s[0] === p.step) || [0, p.step])[1]), el('td', { class: 'small muted', dir: 'ltr' }, p.updated.replace('T', ' ').slice(0, 16)))))))
+        : el('p', { class: 'empty-state' }, 'هنوز پروژه‌ای نیست؛ از بالا یک حدیث را جستجو کنید.')));
 }
 function hadithRow(h) {
   return el('tr', {},
@@ -189,6 +208,7 @@ async function project(pid, run) {
   NV = null;
   P = await api('/project/' + pid);
   const p = P.project, readonly = !!run, runId = run || p.current_run || 'current';
+  const pname = p.label || p.title;
   const can = ME.user && (ME.user === p.owner || ME.admin) && !readonly;
   const cur = run ? 'analysis' : ({ search: 'selection', selection: 'selection', identities: 'identities', phylogeny: 'phylogeny', analysis: 'analysis', done: 'analysis' }[p.step] || 'selection');
   const after = ['identities', 'phylogeny', 'analysis', 'done'];
@@ -204,22 +224,26 @@ async function project(pid, run) {
           step = k; setUrl(BASE + stepUrl(pid, run, k), true); tabs.forEach(e => e.classList.toggle('cur', e.dataset.k === k)); draw(); } }, t)
     : el('div', { class: 'step off', title: 'هنوز به این مرحله نرسیده‌اید' }, t));
   tabs.forEach((e, i) => e.dataset.k = SHOWN[i][0]);
-  const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('select', { onchange: ev => go(stepUrl(pid, ev.target.value === 'current' ? null : ev.target.value, step)) },
+  const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('select', { 'aria-label': 'نسخه‌ی اجرا', onchange: ev => go(stepUrl(pid, ev.target.value === 'current' ? null : ev.target.value, step)) },
     el('option', { value: 'current' }, 'نسخه‌ی کنونی'), P.runs.slice().reverse().map(r => el('option', { value: r.run, selected: r.run === run }, `${r.run} — ${r.created.replace('T', ' ').slice(0, 16)}`)));
   /* one self-contained HTML file of this step or of the whole project (export.py) */
-  const exportSel = STATIC ? null : el('select', { class: 'small', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت', onchange: ev => {
-    const v = ev.target.value; ev.target.value = '';
-    if (v) location.href = `${API}/project/${pid}/runs/${runId}/export/${v === 'step' ? step : 'all'}.html`;
-  } }, el('option', { value: '' }, 'دانلود HTML…'), el('option', { value: 'step' }, 'این مرحله'), el('option', { value: 'all' }, 'کل پروژه (همه‌ی مرحله‌ها)'));
+  /* one self-contained HTML file of this step or of the whole project (export.py) */
+  const dlStep = el('a', { class: 'btn small', download: '', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت' }, 'دانلود HTML این مرحله');
+  const dlAll = el('a', { class: 'btn small', download: '', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت' }, 'دانلود کل پروژه');
+  const setDl = () => { dlStep.href = `${API}/project/${pid}/runs/${runId}/export/${step}.html`; dlAll.href = `${API}/project/${pid}/runs/${runId}/export/all.html`; };
+  const exportSel = STATIC ? null : el('span', { class: 'toolbar', style: 'margin:0' }, dlStep, dlAll);
+  setDl();
   const status = el('div'), main = el('div');
   $app.replaceChildren(
     el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin:0' },
-      el('h2', { style: 'margin:0' }, p.title), el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status),
+      el('h1', { style: 'margin:0;font-size:18px' }, pname), el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status),
       el('span', { class: 'muted small' }, 'سازنده: ' + p.owner), el('span', { class: 'grow' }), 'نسخه: ', runSel,
       readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null, exportSel, exportSel ? info(() => help('export', true)) : null), status),
     el('nav', { class: 'steps' }, tabs), main);
   statusBox(status, p, pid);
   const draw = async () => {
+    setTitle(pname, (STEPS.find(x => x[0] === step) || [0, ''])[1].replace(/^[۰-۹]+\s*/, ''));
+    if (typeof setDl === 'function') setDl();
     main.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
     try { await panels[step](main, { pid, p, runId, can, readonly }); }
     catch (e) { main.replaceChildren(el('div', { class: 'card' }, e.status === 404 ? 'این مرحله هنوز آماده نیست.' : 'خطا: ' + e.message)); }
@@ -333,7 +357,7 @@ const panels = {
           el('p', {}, el('b', {}, 'متن: '), 'جای هر بخش در متن نامزد به رنگ همان بخش است؛ متن بی‌رنگ در حدیث مبدأ نیست (افزوده‌ی این روایت).'));
     const VERS = await narratorVersions();
     main.replaceChildren(
-      card(['حدیث مبدأ و بخش‌هایش', partsHelp()], help('step2.search'), hadithBlock(S.seed, true),
+      card(['حدیث مبدأ و بخش‌هایش', partsHelp()], help('step2.search'), el('details', { class: 'fullt' }, el('summary', { class: 'small' }, 'متن حدیث مبدأ'), hadithBlock(S.seed, true)),
         el('table', {}, el('tr', {}, el('th', {}, 'بخش'), el('th', { title: 'بخش‌های تیک‌خورده در دور نخست جستجو پرسیده می‌شوند' }, 'در جستجو', helpOf('تیک «در جستجو» برای چیست؟', el('p', {}, 'فقط برای یافتن نامزدها. هر بخش تیک‌خورده جداگانه در پیکره پرسیده می‌شود. اگر بخشی بسیار رایج باشد (مثل «قال رسول الله») و نامزدهای بی‌ربط بیاورد، تیکش را بردارید، یا اگر فقط حدیث‌هایی را می‌خواهید که بخش خاصی را دارند، فقط آن را نگه دارید؛ سپس «جستجوی دوباره» را بزنید.'),
           el('p', {}, 'این تیک روی مرحله‌ی بعد اثری ندارد: مقایسه‌ی هر نامزد با حدیث مبدأ و هم‌ترازی همیشه با همه‌ی بخش‌ها انجام می‌شود. آنچه به مرحله‌ی بعد می‌رود، شاهدهایی است که پایین‌تر تیک می‌زنید.'))), el('th', {}, 'متن بخش'), el('th', {}, 'در شاهدهای انتخاب‌شده'), el('th', {}, 'پرسش‌های جستجو')),
           S.clauses.map(cl => { const qs = queriesOf(cl.i);
@@ -358,7 +382,7 @@ const panels = {
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.add(x.wid)); draw(); } }, 'تیک همه‌ی نمایش‌داده‌ها') : null,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک نمایش‌داده‌ها') : null),
         list,
-        el('div', { class: 'toolbar' }, c.can ? el('button', { class: 'primary', disabled: !sel.size, onclick: async () => {
+        el('div', { class: 'toolbar actionbar' }, c.can ? el('button', { class: 'primary', disabled: !sel.size, onclick: async () => {
           await post(`/project/${c.pid}/decide/selection`, { payload: { selected: [...sel] } }); reload(c.pid);
         } }, 'تأیید انتخاب و ادامه') : el('span', { class: 'muted' }, ME.user ? 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.' : 'برای تصمیم‌گیری وارد شوید.'),
           el('span', { class: 'small muted' }, `اجرای جستجو ${fa(S.seconds)} ثانیه؛ دورهای گسترش: ${fa(S.rounds.length)}`))));
@@ -497,7 +521,7 @@ const panels = {
             el('li', {}, 'خانه‌ی خالی پیش از نخستین یا پس از واپسین واژه‌ی یک شاهد یعنی متن آن شاهد آنجا کوتاه‌تر است؛ این «افتادگی» شمرده نمی‌شود. شاهدی که با «وساق الحدیث / بنحوه…» خلاصه شده، برای بخش‌هایی که نیاورده «نامعلوم» است.'),
             el('li', {}, 'شماره‌های کوچک بالای ستون‌ها واحدهای تغییرند (جدول پایین)؛ با زدن هر کدام، ستون‌ها و شاهدهای هر حالت نشان داده می‌شوند.')))], help('step3.alignment'),
         el('p', { class: 'muted small' }, `${fa(W.length)} شاهد (حدیث مبدأ و شاهدهایی که در مرحله‌ی ۲ انتخاب شدند)، ${fa(A.clauses.length)} بخش. هر ردیف یک شاهد است و از راست به چپ مثل متن خوانده می‌شود؛ هر ستون یک جایگاه واژه. رنگ هر گروه ستون همان رنگ بخش در مرحله‌ی ۲ است. نام کتاب را بزنید تا متن کامل آن را ببینید.`),
-        old && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است (پیش از درست شدن جابه‌جایی برخی ردیف‌ها و هم‌ستون شدن عددها). ',
+        old && !c.readonly ? el('div', { class: 'help warnbox' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است (پیش از درست شدن جابه‌جایی برخی ردیف‌ها و هم‌ستون شدن عددها). ',
           c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
           el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند؛ اجرای کنونی پاک نمی‌شود.')) : null,
         tools, pickBox, body),
@@ -866,7 +890,7 @@ const panels = {
           el('span', { class: 'small muted' }, 'یک سال یا یک بازه؛ با «تأیید راویان» ذخیره می‌شود.'))];
     };
 
-    const status = el('div', { class: 'small' }), save = el('div', { class: 'toolbar' }), listSum = el('div', { class: 'small muted' });
+    const status = el('div', { class: 'small' }), save = el('div', { class: 'toolbar actionbar' }), listSum = el('div', { class: 'small muted' });
     const drawStatus = () => {
       const n = counts();
       fill(status, `${fa(Object.keys(cards).length)} نام برای تصمیم: ${fa(n.auto)} خودکار، ${fa(n.user)} انتخاب کاربر، ${fa(n.und)} بی‌تصمیم. `,
@@ -956,7 +980,8 @@ const panels = {
         SUG.filter(([k]) => by[k]).map(([k, title, help]) => {
           const rows = by[k].filter(sg => showDismissed || !dismissed.has(sg.id) || applied(sg)), nOpen = rows.filter(sg => !applied(sg) && !dismissed.has(sg.id)).length;
           const d = el('details', { class: 'sugd', open: sugOpen.has(k) }, el('summary', {}, title, ' ', el('span', { class: 'chip ' + (nOpen ? 'medium' : 'auto') }, nOpen ? fa(nOpen) + ' باز' : '✓'),
-            el('span', { class: 'small muted' }, ` از ${fa(by[k].length)}`), info(help)),
+            el('span', { class: 'small muted' }, ` از ${fa(by[k].length)}`)),
+            el('p', { class: 'small muted' }, info(help, { title: 'راهنمای این گروه' }), ' این گروه چیست؟'),
             c.can && nOpen > 1 && k !== 'witness_without_chain' && k !== 'same_person' ? el('div', { class: 'toolbar small' },
               el('button', { class: 'small', onclick: () => { rows.filter(sg => !applied(sg) && !dismissed.has(sg.id) && sg.confidence !== 'low').forEach(sg => {
                 const pp = sg.proposal; if (pp.op === 'choice') { const [, e2] = splitOcc(sg.occ); extraLabel[pp.id] = pp.label; const cd2 = cards[sg.card || e2.card]; choices[cd2.key] = pp.id; delete overrides[sg.occ]; }
@@ -989,10 +1014,10 @@ const panels = {
         el('p', { class: 'small' }, 'پایگاه راویان: ', el('b', {}, I.narrator_version ? (I.narrator_version.label_fa || (I.narrator_version.name === 'raw' ? 'خام (بدون ادغام)' : I.narrator_version.name)) : 'خام (نسخه‌ی پیش از پایگاه‌ها)'), ' ',
           el('a', { href: BASE + stepUrl(c.pid, null, 'selection'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'selection')); } }, '(تغییر در مرحله‌ی ۲)')),
         el('p', { class: 'muted small' }, 'یک حدیث را در بخش ۱ برگزینید؛ سندش در بخش ۲ می‌آید. یک نام را بزنید؛ در بخش ۳ نخست همه‌ی جاهای دیگر آن نام در سندهای دیگر (هر کدام با متن کامل حدیث) می‌آید و سپس گزینه‌ها، جستجو، یکی کردن و جدا کردن.'),
-        oldRun && !c.readonly ? el('div', { class: 'help', style: 'border-color:var(--warn)' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند: «عن أبيه / عن جده» یک نام شمرده می‌شد (و در همه‌ی سندها امام باقر گرفته می‌شد)، و برخی نام‌ها به راوی نادرست می‌خوردند (مثلاً «علی بن ابراهیم» به محمد بن یحیی). برنامه‌ی تازه هر نسبت را در سند خودش و از روی سندهای نور تعیین می‌کند. ',
+        oldRun && !c.readonly ? el('div', { class: 'help warnbox' }, 'نامزدهای این اجرا با نسخه‌ی پیشینِ برنامه ساخته شده‌اند: «عن أبيه / عن جده» یک نام شمرده می‌شد (و در همه‌ی سندها امام باقر گرفته می‌شد)، و برخی نام‌ها به راوی نادرست می‌خوردند (مثلاً «علی بن ابراهیم» به محمد بن یحیی). برنامه‌ی تازه هر نسبت را در سند خودش و از روی سندهای نور تعیین می‌کند. ',
           c.can ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reload(c.pid); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
           el('span', { class: 'small muted' }, ' انتخاب‌های ذخیره‌شده می‌مانند؛ شجره دوباره ساخته می‌شود و باید دوباره تأیید شود.')) : null,
-        status, legend, save,
+        status, legend,
         I.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, `${wtitle(f.ref)}: ${flagText(f)}`))),
       card(['پیشنهادها از پایگاه‌ها', info('برای نام‌هایی که منبع به راوی پیوند نداده، آنچه پایگاه‌ها (نور، گراف دانش، پایگاه راویان) می‌گویند. هر پیشنهاد با دلیلش آمده است؛ هیچ‌کدام بی‌پذیرش شما به کار نمی‌رود.')], help('step4.suggestions'), sugBox),
       el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۱. حدیث‌ها'), seg,
@@ -1000,9 +1025,11 @@ const panels = {
           el('label', { class: 'small' }, el('input', { type: 'checkbox', onchange: ev => { onlyUndated = ev.target.checked; drawList(); } }), ' فقط با راوی بی‌تاریخ'),
           el('input', { type: 'text', placeholder: 'پالایش با نام راوی یا کتاب', oninput: ev => { q = ev.target.value.trim(); drawList(); } })),
         help('step4.list'), listSum, listBox),
-      part2, part3);
+      part2, part3, save);
+    let auto = false;
+    if (!cur) { cur = order.find(w => hstate(w).st === 'und') || order[0] || null; auto = !!cur; }
     draw();
-    if (cur) (pick ? part3 : part2).scrollIntoView({ block: 'start' });
+    if (cur && !auto) (pick ? part3 : part2).scrollIntoView({ block: 'start' });
     if (await fetchDeaths(I.chains.flatMap(ch => ch.elems.map(e => stateOf(ch, e).id)).filter(Boolean))) draw();
   },
 
@@ -1019,8 +1046,8 @@ const panels = {
       seedUnconf ? ['بریدن حدیث مبدأ به بخش‌ها (', toStep('selection', 'مرحله‌ی ۲'), ')', unconf.length ? '، و ' : ''] : null,
       unconf.length ? [`${fa(unconf.length)} از ${fa(A5.clauses.length)} بخش در شاهدها (`, toStep('alignment', 'مرحله‌ی ۳'), ')'] : null,
       '. تحلیل با پیشنهادهای خودکار همان‌ها انجام می‌شود.') : null;
-    const preset = el('select', {}, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
-    const computeSel = el('select', {}, ...[['browser', 'در مرورگر من (سریع، موازی)'], ['helper', 'رایانه‌ی کمکی مدیر'], ['server', 'روی سرور (کند، نزدیک یک ساعت)']].map(([v, t]) => el('option', { value: v, selected: (dec.compute || 'browser') === v }, t)));
+    const preset = el('select', { 'aria-label': 'دقت اجرا' }, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
+    const computeSel = el('select', { 'aria-label': 'جای محاسبه' }, ...[['browser', 'در مرورگر من (سریع، موازی)'], ['helper', 'رایانه‌ی کمکی مدیر'], ['server', 'روی سرور (کند، نزدیک یک ساعت)']].map(([v, t]) => el('option', { value: v, selected: (dec.compute || 'browser') === v }, t)));
     const undated = Object.entries(G.nodes).filter(([n, i]) => (!i.date_source || i.date_source === 'interpolated') && !/^anon:/.test(n) && !/^(موضع |اسم مبهم|من ذكره)/.test(i.name || ''));
     /* links into step 4: a hadith, or a name at one of its places */
     const wtitle = {}; G.attestations.forEach(a => { wtitle[a.wid] = a.collection; });
@@ -1199,7 +1226,7 @@ function fullDetails(wid, hl, label, state, key) {
 }
 /* (i): a small round button next to a title or a control; its help opens beside it (long help in the modal) */
 function info(content, opts = {}) {
-  return el('button', { class: 'info', type: 'button', title: opts.title || 'راهنما', onclick: ev => {
+  return el('button', { class: 'info', type: 'button', title: opts.title || 'راهنما', 'aria-label': opts.title || 'راهنما', 'aria-haspopup': 'dialog', onclick: ev => {
     ev.preventDefault(); ev.stopPropagation();
     const body = typeof content === 'function' ? content() : content;
     if (opts.modal) { closePop(); modal(el('div', { class: 'helpbox' }, body)); } else popover(ev.currentTarget, body);
@@ -1508,7 +1535,7 @@ function setPref(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
 function candRow(x, S, sel, can, upd) {
   const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', user: 'افزوده‌ی کاربر' };
   return el('tr', { class: sel.has(x.wid) ? 'on' : '' },
-    el('td', {}, el('input', { type: 'checkbox', checked: sel.has(x.wid), disabled: !can, onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); ev.target.closest('tr').classList.toggle('on', ev.target.checked); upd(); } })),
+    el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این شاهد: ' + (x.title || x.book || x.wid), checked: sel.has(x.wid), disabled: !can, onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); ev.target.closest('tr').classList.toggle('on', ev.target.checked); upd(); } })),
     el('td', {}, el('span', { class: 'chip ' + x.suggested }, CLS[x.suggested]), x.score.reordered ? el('div', { class: 'small muted' }, 'ترتیب بخش‌ها فرق دارد') : null,
       x.reference ? el('div', { class: 'small', style: 'color:var(--warn)', title: 'مدخلی از الدرر السنیة بی‌سند: نقل یا داوری عالمی متأخر درباره‌ی حدیثی از کتابی دیگر، نه روایتی مستقل. از پیش تیک نمی‌خورد؛ اگر لازم است خودتان تیک بزنید.' }, 'ارجاع بی‌سند (الدرر)') : null),
     el('td', {}, el('b', {}, x.title || x.book), el('div', { class: 'small muted' }, [x.author, x.tradition === 'sunni' ? 'سنی' : 'شیعه', x.vol ? 'ج ' + fa(x.vol) : '', x.page ? 'ص ' + fa(x.page) : ''].filter(Boolean).join(' · ')),
@@ -1525,7 +1552,7 @@ function candRow(x, S, sel, can, upd) {
 function narratorsBox(c, VERS) {
   if (!VERS.length) return el('span');
   const cur = (P && P.narrator_version) || (STATIC && STATIC.narrator_version && STATIC.narrator_version.name) || 'raw';
-  const sel = el('select', {}, VERS.map(v => el('option', { value: v.name, selected: v.name === cur }, `${verLabel(v)}${v.built ? ' — ' + v.built.slice(0, 10) : ''}${v.name !== 'raw' ? ' — ' + fa(v.n_groups) + ' شخص ادغام‌شده' : ''}`)));
+  const sel = el('select', { 'aria-label': 'پایگاه راویان' }, VERS.map(v => el('option', { value: v.name, selected: v.name === cur }, `${verLabel(v)}${v.built ? ' — ' + v.built.slice(0, 10) : ''}${v.name !== 'raw' ? ' — ' + fa(v.n_groups) + ' شخص ادغام‌شده' : ''}`)));
   const desc = el('p', { class: 'small' }), line = el('p', { class: 'small muted' });
   const show = () => { const v = VERS.find(x => x.name === sel.value) || VERS[0]; desc.textContent = v.description_fa || ''; line.textContent = verLine(v); };
   sel.addEventListener('change', show); show();

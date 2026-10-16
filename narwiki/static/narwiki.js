@@ -30,7 +30,7 @@ function el(tag, attrs, ...kids) {
     if (v === false || v == null) continue;
     if (k === 'class') e.className = v;
     else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else if (['dir', 'title', 'href', 'type', 'value', 'placeholder', 'name', 'target', 'style', 'colspan', 'for', 'id', 'min', 'max', 'rel', 'download'].includes(k)) e.setAttribute(k, v);
+    else if (/^(aria-|data-)/.test(k) || ['role', 'tabindex', 'dir', 'title', 'href', 'type', 'value', 'placeholder', 'name', 'target', 'style', 'colspan', 'for', 'id', 'min', 'max', 'rel', 'download'].includes(k)) e.setAttribute(k, v);
     else if (v === true) e.setAttribute(k, '');
     else e[k] = v;
   }
@@ -38,10 +38,24 @@ function el(tag, attrs, ...kids) {
   return e;
 }
 const fill = (node, ...kids) => node.replaceChildren(...kids.flat(3).filter(x => x != null && x !== false));
+/* the server's messages are English; the page shows Persian */
+const ERR_FA = [[/^no such person/i, 'چنین راوی‌ای نیست.'], [/^login required/i, 'برای این کار وارد شوید.'], [/^missing X-NARWIKI/i, 'درخواست نامعتبر است.'],
+  [/^only an admin/i, 'فقط مدیر می‌تواند این کار را بکند.'], [/not installed yet/i, 'پایگاه داده‌ی ویکی هنوز روی کارگزار نصب نشده است.'],
+  [/^unknown version/i, 'نسخه‌ی راویان ناشناخته است.'], [/^unknown id/i, 'شناسه‌ی ناشناخته.'], [/^id not in this version/i, 'این شناسه در این نسخه نیست.'],
+  [/^no person carries this id/i, 'هنوز هیچ راوی‌ای این شناسه را ندارد.'], [/^only active persons can be merged/i, 'فقط راویان فعال را می‌توان ادغام کرد.'],
+  [/^the raw version merges nothing/i, 'نسخه‌ی raw ادغامی ندارد و تصمیمی در آن ثبت نمی‌شود.'], [/^this version has no policy file/i, 'این نسخه فایل قاعده ندارد و بازساخته نمی‌شود.'],
+  [/^rebuild failed/i, 'ساخت دوباره‌ی نسخه شکست خورد و تصمیم برگردانده شد.'], [/^(JSON|a, b|keep must|ext must|fields must|display_name|id must|decision must|src must|bad |a and b)/i, 'ورودی نامعتبر است.'],
+  [/^not found$/i, 'پیدا نشد.']];
+function faErr(m) {
+  m = String(m || '');
+  if (/[\u0600-\u06FF]/.test(m)) return m;
+  for (const [re, t] of ERR_FA) if (re.test(m)) return t;
+  return 'کارگزار پذیرفت نکرد: ' + m;
+}
 async function api(path, opts) {
   if (STATIC) return staticApi(path);
   const r = await fetch(API + path, opts);
-  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (_) {} const err = new Error(typeof m === 'string' ? m : JSON.stringify(m)); err.status = r.status; throw err; }
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (_) {} const err = new Error(faErr(typeof m === 'string' ? m : JSON.stringify(m))); err.status = r.status; throw err; }
   return r.json();
 }
 const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-NARWIKI': '1' }, body: JSON.stringify(body || {}) });
@@ -78,7 +92,7 @@ window.addEventListener('popstate', () => render());
 function help(...kids) { return el('details', { class: 'help' }, el('summary', {}, 'توضیحات'), ...kids); }
 const P = t => el('p', {}, t);
 const UL = (...items) => el('ul', {}, items.map(x => el('li', {}, x)));
-const errBox = e => el('div', { class: 'err' }, 'خطا: ' + (e && e.message || e));
+const errBox = e => el('div', { class: 'err', role: 'alert' }, 'خطا: ' + (e && e.message || e));
 const card = (title, ...kids) => el('div', { class: 'card' }, title ? el('h2', {}, title) : null, ...kids);
 function busy(btn, fn) {
   return async ev => {
@@ -102,14 +116,18 @@ const WHAT_FA = { display_name: 'نام نمایشی', status: 'وضعیت', mer
 const PSTAT_FA = { active: 'فعال', merged: 'ادغام‌شده', deleted: 'حذف‌شده' };
 const extKind = x => String(x).split(':')[0];
 const extChip = x => el('span', { class: 'chip ' + extKind(x), title: KIND_FA[extKind(x)] || extKind(x) }, (KIND_FA[extKind(x)] || extKind(x)) + ' ' + fa(String(x).split(':').slice(1).join(':')));
+const SUBSRC_FA = { fixed: 'ثابت', facts: 'واقعیت‌های استخراج‌شده', najashi: 'نجاشی', tusi: 'طوسی', fihrist: 'فهرست طوسی' };
 function srcLabel(s) {
   if (!s) return '';
   const [a, b] = s.split('/');
   const base = a === 'user' ? 'ویرایش کاربر' : (KIND_FA[a] || a);
-  return b ? `${base} (${b})` : base;
+  return b ? `${base} (${SUBSRC_FA[b] || b})` : base;
 }
 const srcChip = s => el('span', { class: 'chip ' + (s || '').split('/')[0], title: s }, srcLabel(s));
 const deathText = p => p.death_lo ? (p.death_hi && p.death_hi !== p.death_lo ? `د. ${fa(p.death_lo)}–${fa(p.death_hi)}` : `د. ${fa(p.death_lo)}`) : '';
+const SITE_TITLE = 'ویکی راویان';
+const setTitle = (...parts) => { document.title = [...parts.filter(Boolean), SITE_TITLE].join(' — '); };
+const PAGE_TITLE = { home: 'جستجوی راویان', suggestions: 'پیشنهادهای ادغام', queue: 'صف بازبینی', merge: 'ادغام دستی', new: 'راوی تازه' };
 const fmtTs = t => t ? fa(t.replace('T', ' ').replace('Z', '')) : '';
 
 
@@ -133,13 +151,11 @@ function versionBar() {
   const opts = [el('option', { value: '' }, 'بدون نسخه (ویکی کلاسیک)')];
   const list = VERSIONS || [];
   for (const v of list) {
-    const bits = [v.label_fa || v.name, `(${v.name})`];
-    if (v.name === 'raw') bits.push('— فقط‌خواندنی'); else {
-      if (v.built) bits.push('— ' + fa(String(v.built).slice(0, 10)));
-      if (v.n_groups != null) bits.push(`— ${fa(v.n_groups)} گروه`);
-      bits.push(`— ${fa(v.n_decisions || 0)} تصمیم`);
-    }
-    opts.push(el('option', { value: v.name }, bits.join(' ')));
+    const bits = [v.name === 'raw' ? 'خام (raw)' : (v.label_fa || v.name)];
+    if (v.name === 'raw') bits.push('فقط‌خواندنی'); else if (v.n_decisions) bits.push(`${fa(v.n_decisions)} تصمیم`);
+    const o = el('option', { value: v.name }, bits.join(' · '));
+    o.title = [v.label_fa || v.name, `(${v.name})`, v.built ? fa(String(v.built).slice(0, 10)) : '', v.n_groups != null ? `${fa(v.n_groups)} گروه` : '', `${fa(v.n_decisions || 0)} تصمیم`].filter(Boolean).join(' · ');
+    opts.push(o);
   }
   if (VER && !list.some(v => v.name === VER)) opts.push(el('option', { value: VER }, VER));
   const s = el('select', { id: 'vselect', title: 'نسخه‌ی راویان', onchange: ev => setVersion(ev.target.value) }, ...opts);
@@ -171,6 +187,7 @@ async function render() {
   if (who) fill(who, STATIC ? 'نسخه‌ی ذخیره‌شده' : ME.user ? `${ME.user}${ME.admin ? ' (مدیر)' : ''}` : el('a', { href: '/account/login?next=' + encodeURIComponent(location.pathname) }, 'ورود'));
   const r = route();
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === r.page));
+  setTitle(PAGE_TITLE[r.page]);
   fill($app, el('p', { class: 'muted' }, 'در حال بارگذاری…'));
   try {
     if (!STATIC && ME.installed === false) throw new Error('پایگاه داده‌ی ویکی هنوز روی کارگزار نصب نشده است.');
@@ -178,7 +195,7 @@ async function render() {
     const f = pages[r.page];
     if (!f) throw new Error('این صفحه وجود ندارد');
     await f(r.id);
-  } catch (e) { fill($app, errBox(e)); }
+  } catch (e) { setTitle(e.status === 404 ? 'پیدا نشد' : 'خطا'); fill($app, errBox(e), el('p', {}, link('/', 'بازگشت به جستجو'))); }
 }
 
 /* ---------- home: search ---------- */
@@ -195,9 +212,9 @@ const HOME_HELP = () => help(
 async function home() {
   const qs = new URLSearchParams(location.search);
   const q = el('input', { type: 'search', placeholder: 'نام راوی، noor:… / kg:… یا شماره‌ی شخص', value: qs.get('q') || '', class: 'wide' });
-  const kind = el('select', {}, [['', 'همه‌ی پایگاه‌ها'], ['noor', 'در نور'], ['kg', 'در گراف دانش'], ['dirayah', 'در درایة النور'], ['both', 'در نور و گراف (ادغام‌شده)'], ['noor_only', 'فقط نور'], ['kg_only', 'فقط گراف دانش'], ['wiki', 'فقط ویکی']].map(([v, t]) => el('option', { value: v }, t)));
+  const kind = el('select', { 'aria-label': 'پایگاه راوی' }, [['', 'همه‌ی پایگاه‌ها'], ['noor', 'در نور'], ['kg', 'در گراف دانش'], ['dirayah', 'در درایة النور'], ['both', 'در نور و گراف (ادغام‌شده)'], ['noor_only', 'فقط نور'], ['kg_only', 'فقط گراف دانش'], ['wiki', 'فقط ویکی']].map(([v, t]) => el('option', { value: v }, t)));
   kind.value = qs.get('kind') || '';
-  const dated = el('select', {}, [['', 'با یا بی تاریخ'], ['1', 'دارای تاریخ وفات'], ['0', 'بی تاریخ وفات']].map(([v, t]) => el('option', { value: v }, t)));
+  const dated = el('select', { 'aria-label': 'تاریخ وفات' }, [['', 'با یا بی تاریخ'], ['1', 'دارای تاریخ وفات'], ['0', 'بی تاریخ وفات']].map(([v, t]) => el('option', { value: v }, t)));
   dated.value = qs.get('dated') || '';
   const sugg = el('input', { type: 'checkbox', checked: qs.get('sugg') === '1' });
   const out = el('div');
@@ -257,6 +274,7 @@ const PERSON_HELP = () => help(
 async function person(id) {
   const d = await api('/person/' + id + (VER ? '?version=' + encodeURIComponent(VER) : ''));
   const p = d.person;
+  setTitle(p.display_name + (p.ext.length ? ' (' + p.ext.filter(x => !x.startsWith('wiki:')).slice(0, 2).join('، ') + ')' : ''));
   if (!STATIC && p.id !== id) history.replaceState({}, '', url('/p/' + p.id));
   const head = el('div', { class: 'card' },
     el('h1', {}, p.display_name, ' ', el('span', { class: 'small muted' }, '#' + fa(p.id))),
@@ -288,14 +306,20 @@ async function person(id) {
       : el('p', { class: 'muted small' }, 'این راوی در هیچ پروژه‌ی تحلیل منبع (ICM) نیامده است (یا فهرست پروژه‌ها هنوز ساخته نشده).')),
     hadithCard(p, d.counts));
 }
+function provCell(f) {
+  return el('div', { class: 'prov' }, srcChip(f.source), f.ext_kind ? [' ', el('bdi', { dir: 'ltr' }, `${f.ext_kind}:${f.ext_id}`)] : '',
+    f.source === 'user' ? ` — ${f.rev_user || ''} ${fmtTs(f.rev_ts)}` : '', f.rev_kind && f.rev_kind !== 'seed' ? [' ', el('span', { class: 'chip ' + f.rev_review }, REVIEW_FA[f.rev_review] || f.rev_review)] : null,
+    f.revision_id ? [' ', el('span', { class: 'small muted' }, 'نسخه #' + fa(f.revision_id))] : null);
+}
+/* one row per (property, value): the same value from several sources is one row with every source under it */
 function fieldsTable(fields) {
   if (!fields.length) return el('p', { class: 'muted' }, 'مقداری نیست.');
-  return el('div', { class: 'tscroll' }, el('table', {}, el('tbody', {}, fields.map(f => el('tr', {},
-    el('td', { class: 'muted', style: 'width:150px' }, FIELD_FA[f.field] || f.field),
-    el('td', {}, el('span', { class: ['name', 'alias', 'kunya', 'laqab', 'nisba'].includes(f.field) ? 'ar' : '' }, f.field.startsWith('death') ? fa(f.value) : f.value)),
-    el('td', { class: 'prov' }, srcChip(f.source), f.ext_kind ? ` ${f.ext_kind}:${f.ext_id}` : '',
-      f.source === 'user' ? ` — ${f.rev_user || ''} ${fmtTs(f.rev_ts)}` : '', f.rev_kind && f.rev_kind !== 'seed' ? [' ', el('span', { class: 'chip ' + f.rev_review }, REVIEW_FA[f.rev_review] || f.rev_review)] : null,
-      f.revision_id ? [' ', el('span', { class: 'small muted' }, 'نسخه #' + fa(f.revision_id))] : null))))));
+  const groups = new Map();
+  for (const f of fields) { const k = f.field + '\u0000' + f.value; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(f); }
+  return el('div', { class: 'tscroll' }, el('table', { class: 'ftab' }, el('tbody', {}, [...groups.values()].map(fs => { const f = fs[0]; return el('tr', {},
+    el('td', { class: 'muted fl' }, FIELD_FA[f.field] || f.field),
+    el('td', { class: 'fvv' }, el('span', { class: ['name', 'alias', 'kunya', 'laqab', 'nisba'].includes(f.field) ? 'ar' : '' }, f.field.startsWith('death') ? fa(f.value) : f.value)),
+    el('td', {}, fs.map(provCell))); }))));
 }
 function kv(pairs) {
   return el('dl', { class: 'kv' }, pairs.filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length)).map(([k, v]) => [el('dt', {}, k), el('dd', {}, v)]));
@@ -417,6 +441,32 @@ function pbox(s, side) {
     el('div', {}, p.ext.filter(x => !x.startsWith('wiki:')).map(extChip)),
     el('div', { class: 'small' }, [deathText(p), p.mazhab, p.grade, p.n_narr ? fa(p.n_narr) + ' روایت' : ''].filter(Boolean).join(' · ')));
 }
+/* the backend's own wording of how a suggestion was found, in Persian */
+function methodFa(m) {
+  m = String(m || '');
+  if (/^narrators\/link_sunni\.py link_kg/.test(m)) return 'پیوند پیشین پایگاه راویان میان نور و گراف دانش';
+  if (/^name \+ chronology/.test(m)) return 'شباهت نام، زمان و بافت سند میان نور و گراف دانش';
+  if (/^narrators\/dirayah\.py/.test(m)) return 'سندهای مشترک نور و درایة النور';
+  if (/^same /.test(m)) return 'راویان هم‌نام در یک پایگاه';
+  return m;
+}
+function noteFa(n) {
+  n = String(n || '');
+  const m = /^from (\w+):(\d+)(?:, certain link to (\w+):(\d+) \((\d+) shared isnad places\))?\s*$/.exec(n);
+  if (!m) return n;
+  return `از ${KIND_FA[m[1]] || m[1]} ${fa(m[2])}` + (m[3] ? `؛ پیوند قطعی با ${KIND_FA[m[3]] || m[3]} ${fa(m[4])} (${fa(m[5])} جای مشترک در سندها)` : '');
+}
+function warnFa(w) {
+  let m;
+  if ((m = /^death dates differ by (\d+) years/.exec(w))) return `سال وفات‌ها ${fa(m[1])} سال فاصله دارند`;
+  if ((m = /^both have ids in the same database: (.*)$/.exec(w))) return `هر دو راوی در یک پایگاه شناسه دارند: ${m[1].split(', ').map(x => (KIND_FA[x] || x)).join('، ')}`;
+  return w;
+}
+function briefOf(s) {
+  const e = s.evidence || {};
+  return [SUG_FA[s.kind] || s.kind, e.confidence ? 'اطمینان ' + (CONF_FA[e.confidence] || e.confidence) : '', 'امتیاز ' + fa(s.score), e.death_gap != null ? `فاصله‌ی وفات ${fa(e.death_gap)} سال` : '', e.n_aligned ? `${fa(e.n_aligned)} جای مشترک در سندها` : '']
+    .filter(Boolean).join(' · ') + ' — شواهد';
+}
 function evidence(s) {
   const e = s.evidence || {};
   const rows = [];
@@ -444,8 +494,8 @@ function evidence(s) {
     for (const side of ['a', 'b']) if (e[side]) rows.push(el('li', { class: 'small' }, e[side].id + ': ', el('span', { class: 'ar' }, e[side].name || ''), ' ',
       [e[side].nickname, e[side].mazhab, e[side].grade, e[side].rank, e[side].death ? 'وفات ' + fa([].concat(e[side].death).join('–')) : '', e[side].n_slots ? fa(Math.round(e[side].n_slots)) + ' جایگاه' : '', e[side].riwaya_qty ? fa(e[side].riwaya_qty) + ' روایت' : ''].filter(Boolean).join(' · ')));
   }
-  return el('div', { class: 'ev' }, el('div', { class: 'small muted' }, e.method || ''), el('ul', {}, rows),
-    el('details', { class: 'small' }, el('summary', { class: 'muted' }, 'همه‌ی شواهد (JSON)'), el('pre', { class: 'json' }, JSON.stringify(e, null, 1))));
+  return el('div', { class: 'ev' }, el('div', { class: 'small muted' }, methodFa(e.method)), el('ul', {}, rows),
+    el('details', { class: 'small' }, el('summary', { class: 'muted' }, 'همه‌ی شواهد (JSON، برای بررسی فنی)'), el('pre', { class: 'json' }, JSON.stringify(e, null, 1))));
 }
 function sugBox(s, after, here) {
   const acts = el('div', { class: 'toolbar' });
@@ -471,7 +521,7 @@ function sugBox(s, after, here) {
       el('span', { class: 'small muted' }, `امتیاز ${fa(s.score)} · پیشنهاد #${fa(s.id)}`), s.same_now ? el('span', { class: 'small good' }, 'این دو اکنون یک شخص‌اند.') : null,
       s.decided_by ? el('span', { class: 'small muted' }, `${s.decided_by} ${fmtTs(s.decided_ts)}`) : null),
     el('div', { class: 'pair' }, pbox(s, 'a'), el('div', { class: 'mid' }, '⟷'), pbox(s, 'b')),
-    evidence(s), acts);
+    el('details', { class: 'evd' }, el('summary', { class: 'small' }, briefOf(s)), evidence(s)), acts);
 }
 async function decide(s, decision, keep) {
   const note = decision === 'dismissed' ? (prompt('چرا یکی نیستند؟ (اختیاری)') || '') : '';
@@ -479,7 +529,7 @@ async function decide(s, decision, keep) {
   if (decision === 'accepted' && r.person) toast(`ادغام شد؛ شخص #${fa(r.person)}`);
   return r;
 }
-function toast(t) { const d = el('div', { class: 'ok', style: 'position:fixed;bottom:12px;inset-inline-start:12px;z-index:60' }, t); document.body.append(d); setTimeout(() => d.remove(), 3500); }
+function toast(t) { const d = el('div', { class: 'ok toast', role: 'status' }, t); document.body.append(d); setTimeout(() => d.remove(), 3500); }
 
 const SUG_HELP = () => help(
   P('این‌ها جفت‌هایی از راویان‌اند که برنامه گمان می‌کند یک نفر باشند. هیچ‌کدام خودکار ادغام نشده است؛ تصمیم با شماست. پنج گونه پیشنهاد هست:'),
@@ -490,12 +540,36 @@ const SUG_HELP = () => help(
   P('«یکی‌اند» دو شخص را ادغام می‌کند: شخصی که نگه می‌دارید شماره و نام نمایشی‌اش می‌ماند، همه‌ی شناسه‌ها و مقدارهای دیگری (با منبعشان) به آن منتقل می‌شود، و شخص دیگر «ادغام‌شده» علامت می‌خورد (پیوندهای قدیمی به آن، به شخص نگه‌داشته می‌روند). ادغام یک نسخه در تاریخچه و یک مورد در صف بازبینی می‌سازد و با «بازگردانی» برمی‌گردد. «یکی نیستند» فقط پیشنهاد را می‌بندد (و با اجرای دوباره‌ی جستجوی شباهت، دیگر پیشنهاد نمی‌شود)؛ می‌توانید آن را دوباره باز کنید.'),
   P('ادغام در ویکی، تصمیم پروژه‌های ICM را عوض نمی‌کند: در مرحله‌ی ۴ هر پروژه فقط به صورت پیشنهاد دیده می‌شود.'));
 
+/* a suggestion card that, once decided, folds to one line without reloading the list */
+function sugHolder(s, onDone) {
+  const holder = el('div', { class: 'sugh', tabindex: 0, 'aria-label': `پیشنهاد ${fa(s.id)}` });
+  const after = () => {
+    const next = holder.nextElementSibling;
+    holder.replaceChildren(el('div', { class: 'sug done small', role: 'status' }, `✓ تصمیم پیشنهاد #${fa(s.id)} ثبت شد.`));
+    holder.removeAttribute('tabindex');
+    if (onDone) onDone();
+    if (next && next.classList.contains('sugh')) next.focus();
+  };
+  holder.append(sugBox(s, after));
+  return holder;
+}
+function sugKeys(root) {
+  root.addEventListener('keydown', ev => {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.target.closest('input,textarea,select,summary,button')) return;
+    const cards = [...root.querySelectorAll('.sugh[tabindex]')], i = cards.findIndex(c => c.contains(ev.target) || c === ev.target);
+    const go1 = n => { if (cards[n]) { ev.preventDefault(); cards[n].focus(); cards[n].scrollIntoView({ block: 'center' }); } };
+    if (ev.key === 'j') go1(i < 0 ? 0 : i + 1); else if (ev.key === 'k') go1(i < 0 ? 0 : i - 1);
+    else if (i >= 0 && ev.key === 'a') { const b = cards[i].querySelector('button.primary'); if (b) { ev.preventDefault(); b.click(); } }
+    else if (i >= 0 && ev.key === 'd') { const b = cards[i].querySelector('button.danger'); if (b) { ev.preventDefault(); b.click(); } }
+    else if (i >= 0 && ev.key === 'Enter' && ev.target === cards[i]) { const d = cards[i].querySelector('details.evd'); if (d) { ev.preventDefault(); d.open = !d.open; } }
+  });
+}
 async function suggestionsPage() {
   if (VER) return vSuggestionsPage();
   const qs = new URLSearchParams(location.search);
-  const kind = el('select', {}, [['', 'همه‌ی گونه‌ها'], ...Object.entries(SUG_FA)].map(([v, t]) => el('option', { value: v }, t)));
+  const kind = el('select', { 'aria-label': 'گونه‌ی پیشنهاد' }, [['', 'همه‌ی گونه‌ها'], ...Object.entries(SUG_FA)].map(([v, t]) => el('option', { value: v }, t)));
   kind.value = qs.get('kind') || '';
-  const status = el('select', {}, [['proposed', 'باز'], ['accepted', 'پذیرفته'], ['dismissed', 'ردشده'], ['', 'همه']].map(([v, t]) => el('option', { value: v }, t)));
+  const status = el('select', { 'aria-label': 'وضعیت پیشنهاد' }, [['proposed', 'باز'], ['accepted', 'پذیرفته'], ['dismissed', 'ردشده'], ['', 'همه']].map(([v, t]) => el('option', { value: v }, t)));
   status.value = qs.has('status') ? qs.get('status') : 'proposed';
   const out = el('div'), counts = el('div', { class: 'small muted' });
   let offset = 0;
@@ -505,10 +579,13 @@ async function suggestionsPage() {
     try {
       const r = await api(`/suggestions?kind=${kind.value}&status=${status.value}&offset=${offset}&limit=20`);
       fill(counts, Object.entries(SUG_FA).map(([k, t]) => `${t}: ${fa(r.counts[k + '|proposed'] || 0)} باز، ${fa(r.counts[k + '|accepted'] || 0)} پذیرفته، ${fa(r.counts[k + '|dismissed'] || 0)} رد`).join(' — '));
-      fill(out, el('div', { class: 'small muted' }, `${fa(r.total)} پیشنهاد، به ترتیب امتیاز`), r.items.map(s => sugBox(s, run)), pager(r.total, offset, 20, o => { offset = o; run(); window.scrollTo(0, 0); }));
+      fill(out, el('div', { class: 'small muted' }, `${fa(r.total)} پیشنهاد، به ترتیب امتیاز. میان‌بُرها (کارت را با Tab یا j / k برگزینید): a پذیرفتن (نگه داشتن راوی نخست)، d رد پیشنهاد، Enter شواهد.`),
+        r.items.map(s => sugHolder(s, refreshCounts)), pager(r.total, offset, 20, o => { offset = o; run(); window.scrollTo(0, 0); }));
     } catch (e) { fill(out, errBox(e)); }
   };
   kind.onchange = status.onchange = () => { offset = 0; run(); };
+  const refreshCounts = async () => { try { const r = await api(`/suggestions?kind=${kind.value}&status=${status.value}&offset=0&limit=1`); fill(counts, Object.entries(SUG_FA).map(([k, t]) => `${t}: ${fa(r.counts[k + '|proposed'] || 0)} باز، ${fa(r.counts[k + '|accepted'] || 0)} پذیرفته، ${fa(r.counts[k + '|dismissed'] || 0)} رد`).join(' — ')); } catch (_) {} };
+  sugKeys(out);
   fill($app, el('h1', {}, 'پیشنهادهای ادغام'), SUG_HELP(), card(null, el('div', { class: 'toolbar' }, kind, status), counts), out);
   await run();
 }
@@ -545,7 +622,7 @@ function vsugBox(s, onChange) {
         s.a_ext && s.b_ext ? el('span', { class: 'small muted' }, `${s.a_ext} ⟷ ${s.b_ext}`) : null),
       s.decision ? vDecisionRow(s.decision, () => { s.decision = null; onChange(true); }) : null,
       el('div', { class: 'pair' }, pbox(s, 'a'), el('div', { class: 'mid' }, '⟷'), pbox(s, 'b')),
-      evidence(s), acts, form, result));
+      el('details', { class: 'evd' }, el('summary', { class: 'small' }, briefOf(s)), evidence(s)), acts, form, result));
   };
   async function send(decision, note) {
     const r = await post(vApi('/decide'), { a: s.a_ext, b: s.b_ext, decision, note, kind: s.kind });
@@ -574,10 +651,10 @@ const WARN_FA = { manual_reject_ignored: 'این دو شناسه در خودِ �
   manual_reject_transitive: 'این دو شناسه از راه ادغام‌های دیگر در این نسخه هنوز با هم‌اند؛ فقط یالِ مستقیم برداشته شد (برای جدا شدن، جفت دیگر زنجیره را هم رد کنید).' };
 async function vSuggestionsPage() {
   const qs = new URLSearchParams(location.search);
-  const kind = el('select', {}, [['', 'همه‌ی گونه‌ها'], ...Object.entries(SUG_FA)].map(([v, t]) => el('option', { value: v }, t)));
+  const kind = el('select', { 'aria-label': 'گونه‌ی پیشنهاد' }, [['', 'همه‌ی گونه‌ها'], ...Object.entries(SUG_FA)].map(([v, t]) => el('option', { value: v }, t)));
   kind.value = qs.get('kind') || '';
   const STAT = [['proposed', 'پیشنهادی'], ['merged', 'ادغام‌شده'], ['rejected', 'ردشده'], ['all', 'همه']];
-  const status = el('select', {}, STAT.map(([v, t]) => el('option', { value: v }, t)));
+  const status = el('select', { 'aria-label': 'وضعیت پیشنهاد' }, STAT.map(([v, t]) => el('option', { value: v }, t)));
   status.value = STAT.some(x => x[0] === qs.get('status')) ? qs.get('status') : 'proposed';
   const out = el('div');
   let offset = 0;
@@ -618,13 +695,14 @@ const EDIT_HELP = () => help(
 async function edit(id) {
   const d = await api('/person/' + id);
   const p = d.person;
-  const dn = el('input', { type: 'text', value: p.display_name, class: 'wide' });
+  setTitle('ویرایش: ' + p.display_name);
+  const dn = el('input', { type: 'text', value: p.display_name, class: 'wide', 'aria-label': 'نام نمایشی' });
   const retire = new Set();
   const rows = el('div');
   const addRow = () => {
-    const f = el('select', {}, FIELDS.map(k => el('option', { value: k }, FIELD_FA[k])));
-    const v = el('input', { type: 'text', class: 'wide', placeholder: 'مقدار' });
-    const row = el('div', { class: 'erow' }, f, v, el('button', { type: 'button', onclick: () => row.remove() }, '×'));
+    const f = el('select', { 'aria-label': 'ویژگی' }, FIELDS.map(k => el('option', { value: k }, FIELD_FA[k])));
+    const v = el('input', { type: 'text', class: 'wide', placeholder: 'مقدار', 'aria-label': 'مقدار' });
+    const row = el('div', { class: 'erow' }, f, v, el('button', { type: 'button', 'aria-label': 'برداشتن این ردیف', onclick: () => row.remove() }, '×'));
     row._get = () => [f.value, v.value.trim()];
     rows.append(row);
   };
@@ -642,7 +720,7 @@ async function edit(id) {
     card('نام نمایشی', dn),
     card('مقدارهای کنونی', el('p', { class: 'small muted' }, 'تیک = کنار گذاشتن این مقدار'),
       el('table', {}, el('tbody', {}, p.fields.map(f => el('tr', {},
-        el('td', {}, el('input', { type: 'checkbox', onchange: ev => ev.target.checked ? retire.add(f.id) : retire.delete(f.id) })),
+        el('td', {}, el('input', { type: 'checkbox', 'aria-label': `کنار گذاشتن: ${FIELD_FA[f.field] || f.field} — ${f.value}`, onchange: ev => ev.target.checked ? retire.add(f.id) : retire.delete(f.id) })),
         el('td', { class: 'muted' }, FIELD_FA[f.field] || f.field), el('td', {}, f.value), el('td', { class: 'prov' }, srcChip(f.source), f.ext_kind ? ` ${f.ext_kind}:${f.ext_id}` : '')))))),
     card('افزودن مقدار', rows, el('button', { type: 'button', onclick: addRow }, '+ مقدار دیگر')),
     card('یادداشت', note, el('div', { class: 'toolbar' }, save, link('/p/' + p.id, el('span', { class: 'btn' }, 'انصراف')))));
@@ -653,10 +731,10 @@ async function newPage() {
   const dn = el('input', { type: 'text', class: 'wide', placeholder: 'نام راوی' });
   const rows = el('div');
   const addRow = (k) => {
-    const f = el('select', {}, FIELDS.map(x => el('option', { value: x }, FIELD_FA[x])));
+    const f = el('select', { 'aria-label': 'ویژگی' }, FIELDS.map(x => el('option', { value: x }, FIELD_FA[x])));
     if (k) f.value = k;
-    const v = el('input', { type: 'text', class: 'wide' });
-    const row = el('div', { class: 'erow' }, f, v, el('button', { type: 'button', onclick: () => row.remove() }, '×'));
+    const v = el('input', { type: 'text', class: 'wide', 'aria-label': 'مقدار' });
+    const row = el('div', { class: 'erow' }, f, v, el('button', { type: 'button', 'aria-label': 'برداشتن این ردیف', onclick: () => row.remove() }, '×'));
     row._get = () => [f.value, v.value.trim()];
     rows.append(row);
   };
@@ -677,6 +755,7 @@ async function newPage() {
 async function splitPage(id) {
   const d = await api('/person/' + id);
   const p = d.person;
+  setTitle('جداسازی: ' + p.display_name);
   const ext = new Set(), fids = new Set();
   const label = el('input', { type: 'text', class: 'wide', placeholder: 'نام شخص تازه' });
   const note = el('textarea', { placeholder: 'چرا این‌ها دو نفرند؟' });
@@ -730,7 +809,7 @@ async function mergePage() {
       const ok = el('button', { class: 'primary' }, 'ادغام کن');
       ok.onclick = busy(ok, async () => { const r = await post('/merge', { a: m.a.id, b: m.b.id, keep, note: note.value }); go('/p/' + r.person); });
       fill(prev, card('پیش‌نمایش',
-        m.warnings.length ? el('div', { class: 'err' }, 'هشدار: ', m.warnings.join('؛ ')) : null,
+        m.warnings.length ? el('div', { class: 'err', role: 'alert' }, 'هشدار: ', m.warnings.map(warnFa).join('؛ ')) : null,
         el('div', { class: 'tscroll' }, el('table', { class: 'diff' },
           el('thead', {}, el('tr', {}, el('th', {}, 'ویژگی'), el('th', {}, '#' + fa(m.a.id) + ' ' + m.a.display_name), el('th', {}, '#' + fa(m.b.id) + ' ' + m.b.display_name), el('th', {}, ''))),
           el('tbody', {},
@@ -748,7 +827,7 @@ async function mergePage() {
     if (!A || !B || A.id === B.id) { fill(vbox, card('ادغام فقط در نسخه‌ی ' + VER, el('p', { class: 'muted' }, 'پس از برگزیدن دو راوی، می‌توانید آن‌ها را فقط در این نسخه ادغام کنید.'))); return; }
     const pick = p => { const xs = p.ext.filter(x => /^(noor|kg):/.test(x)); const n = xs.filter(x => x.startsWith('noor:')), g = xs.filter(x => x.startsWith('kg:')); return { xs, def: (n[0] || g[0] || ''), ambiguous: n.length > 1 || (!n.length && g.length > 1) || (xs.length > 1 && n.length === 0) }; };
     const pa = pick(A), pb = pick(B);
-    const selFor = (pp, p) => { const s = el('select', {}, pp.xs.map(x => el('option', { value: x }, x))); s.value = pp.def; return s; };
+    const selFor = (pp, p) => { const s = el('select', { 'aria-label': 'شناسه‌ی منبع ' + p.display_name }, pp.xs.map(x => el('option', { value: x }, x))); s.value = pp.def; return s; };
     const sa = selFor(pa, A), sb = selFor(pb, B);
     const note = el('input', { type: 'text', placeholder: 'یادداشت کوتاه (اختیاری)', class: 'wide' });
     const ok = el('button', { class: 'primary' }, 'ادغام فقط در این نسخه');
@@ -804,22 +883,23 @@ function revBox(rv, after, withPerson) {
       acts.append(b3);
     }
   }
-  const seedInfo = rv.kind === 'seed' ? el('div', { class: 'small muted' }, `ساخته از ${rv.after && rv.after.source || ''} با ${fa((rv.seed_fields || []).length)} مقدار: `,
+  const seedInfo = rv.kind === 'seed' ? el('div', { class: 'small muted' }, `ساخته از ${(rv.after && rv.after.source || '').replace(/^(\w+):(\d+)/, (_, k, n) => (KIND_FA[k] || k) + ' ' + fa(n))} با ${fa((rv.seed_fields || []).length)} مقدار: `,
     (rv.seed_fields || []).map(f => `${FIELD_FA[f.field] || f.field}: ${f.value}${f.status !== 'current' ? ' (کنارگذاشته)' : ''}`).join(' · ')) : null;
   return el('div', { class: 'rev' },
     el('div', { class: 'hd' }, el('b', {}, REV_FA[rv.kind] || rv.kind), el('span', { class: 'small muted' }, '#' + fa(rv.id)),
       el('span', { class: 'chip ' + rv.review_status }, REVIEW_FA[rv.review_status] || rv.review_status),
       withPerson && rv.person_id ? link('/p/' + rv.person_id, rv.person_id_name || '#' + rv.person_id) : null,
       rv.related_person ? el('span', { class: 'small' }, '↔ ', link('/p/' + rv.related_person + '/history', rv.related_person_name || '#' + rv.related_person)) : null,
-      el('span', { class: 'small muted' }, `${rv.user || ''} — ${fmtTs(rv.ts)}`),
+      el('span', { class: 'small muted' }, `${rv.user === 'seed' ? 'ساخت اولیه' : (rv.user || '')} — ${fmtTs(rv.ts)}`),
       rv.reviewed_by ? el('span', { class: 'small muted' }, `بازبین: ${rv.reviewed_by} ${fmtTs(rv.reviewed_ts)}`) : null,
       rv.reverts ? el('span', { class: 'small' }, 'بازگرداندن نسخه‌ی #' + fa(rv.reverts)) : null,
       rv.reverted_by ? el('span', { class: 'small warn' }, 'بازگردانده شد با #' + fa(rv.reverted_by)) : null),
-    rv.note ? el('div', { class: 'small' }, 'یادداشت: ', rv.note) : null,
+    rv.note ? el('div', { class: 'small' }, 'یادداشت: ', noteFa(rv.note)) : null,
     seedInfo, diffTable(rv.diff), acts);
 }
 async function historyPage(id) {
   const d = await api(`/person/${id}/history`);
+  setTitle('تاریخچه: ' + d.person.display_name);
   const draw = () => historyPage(id);
   fill($app, el('h1', {}, 'تاریخچه: ', link('/p/' + d.person.id, d.person.display_name)), help(
     P('همه‌ی نسخه‌هایی که این شخص را ساخته یا تغییر داده‌اند، تازه‌ترین در بالا. هر نسخه نشان می‌دهد چه کسی، کی و چه چیزی را تغییر داده است: جدول «پیش از / پس از» هر مقدار افزوده (سبز) یا کنارگذاشته (قرمز)، شناسه‌های منبعی که جابه‌جا شده‌اند، و تغییر نام نمایشی یا وضعیت.'),
@@ -830,9 +910,9 @@ async function historyPage(id) {
 }
 async function queuePage() {
   const qs = new URLSearchParams(location.search);
-  const status = el('select', {}, [['unreviewed', 'بازبینی‌نشده'], ['approved', 'تأییدشده'], ['rejected', 'ردشده'], ['', 'همه']].map(([v, t]) => el('option', { value: v }, t)));
+  const status = el('select', { 'aria-label': 'وضعیت بازبینی' }, [['unreviewed', 'بازبینی‌نشده'], ['approved', 'تأییدشده'], ['rejected', 'ردشده'], ['', 'همه']].map(([v, t]) => el('option', { value: v }, t)));
   status.value = qs.has('status') ? qs.get('status') : 'unreviewed';
-  const kind = el('select', {}, [['', 'همه‌ی کارها'], ...Object.entries(REV_FA).filter(([k]) => k !== 'seed')].map(([v, t]) => el('option', { value: v }, t)));
+  const kind = el('select', { 'aria-label': 'نوع کار' }, [['', 'همه‌ی کارها'], ...Object.entries(REV_FA).filter(([k]) => k !== 'seed')].map(([v, t]) => el('option', { value: v }, t)));
   kind.value = qs.get('kind') || '';
   const out = el('div');
   let offset = 0;

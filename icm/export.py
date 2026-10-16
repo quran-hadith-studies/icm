@@ -104,15 +104,16 @@ def collect(pid: str, run: str, what: str) -> dict:
 def render(pid: str, run: str, what: str) -> str:
     data = json.dumps(collect(pid, run, what), ensure_ascii=False).replace("</", "<\\/")
     page = _asset("icm.html").replace("__BASE__", "").replace("?v=__V__", "")
-    for css in ("icm.css", "tree.css", "results.css"):
+    for css in ("base.css", "icm.css", "tree.css", "results.css"):
         page = page.replace(f'<link rel="stylesheet" href="/static/{css}">', f"<style>\n{_asset(css)}\n</style>")
-    scripts = "".join(f'<script src="/static/{js}"></script>\n' for js in ("help_fa.js", "tree.js", "recon.js", "results.js", "icm.js"))
+    scripts = "".join(f'<script src="/static/{js}"></script>\n' for js in ("help_fa.js", "tree.js", "recon.js", "results.js", "icm.js", "base.js"))
     inline = (f'<script id="icm-static" type="application/json">{data}</script>\n'
               "<script>window.ICM_STATIC = JSON.parse(document.getElementById('icm-static').textContent);</script>\n"
-              + "".join(f"<script>\n{_asset(js)}\n</script>\n" for js in ("help_fa.js", "tree.js", "recon.js", "results.js", "icm.js")))
+              + "".join(f"<script>\n{_asset(js)}\n</script>\n" for js in ("help_fa.js", "tree.js", "recon.js", "results.js", "icm.js", "base.js")))
     if scripts not in page:
         raise RuntimeError("icm.html no longer lists the scripts export.py expects")
     page = page.replace(scripts, inline)
     page = page.replace("url('/q-static/", f"url('{SITE}/q-static/")             # the site's Lotus font (optional offline)
     page = page.replace('href="/h"', f'href="{SITE}/h"').replace('<a class="brand" href="">', f'<a class="brand" href="{SITE}/icm">')
+    page = page.replace('<a class="nav" href="">', f'<a class="nav" href="{SITE}/icm">').replace('href="/narrator"', f'href="{SITE}/narrator"')
     return page
