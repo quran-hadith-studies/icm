@@ -108,3 +108,20 @@ if __name__ == "__main__":
             except Exception as e:
                 fails += 1; print("FAIL", name, repr(e))
     sys.exit(1 if fails else 0)
+
+
+def test_reading_to_and_hearing_from_is_a_transmission_phrase_not_part_of_the_name():
+    # «قرأتُ علی أبو محمد»: the narrator is «أبو محمد»; «قرأتُ علی» (I read to him) is the wording of the transmission
+    for t, term, name in (("قرأتُ علی أبو محمد", "قرات علی", "ابو محمد"), ("سمعت من أبي محمد", "سمعت من", "ابی محمد"),
+                          ("كتب إلي أبو جعفر", "کتب الی", "ابو جعفر"), ("حدثنا قرئ على محمد بن يحيى", "قری علی", "محمد بن یحیی")):
+        p = parse(t)
+        assert [(e["term"], e["name"]) for e in p["elems"]] == [(term, name)], p["elems"]
+    p = parse("قرأت على أبي عبد الله عليه السلام")                       # the Imam is found once «على» no longer leads the name
+    assert [e["name"] for e in p["elems"]] == ["ابی عبد الله"] and p["speaker"]["kind"] == "imam"
+
+
+def test_a_pronoun_after_the_phrase_is_no_narrator_and_ali_the_narrator_stays():
+    assert names("أخبرنا أحمد قراءة عليه") == ["احمد"]                  # «قراءة عليه» used to give a second narrator «عليه»
+    assert names("قال قرأت على") == []                                    # Noor slot terms: no phantom narrator «علی»
+    assert names("قرأت على علي بن موسى") == ["علی بن موسی"]               # «على» then the name «علي بن موسى»
+    assert names("قرأت علي بن موسى") == ["علی بن موسی"]                   # «علي بن» is a name, not a preposition

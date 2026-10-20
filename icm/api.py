@@ -550,9 +550,34 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         if not (isinstance(confirmed, dict) and len(confirmed) <= 300 and all(
                 key_ok(k) and isinstance(v, list) and len(v) <= 2000 and all(isinstance(w, str) and WID_RE.match(w) for w in v) for k, v in confirmed.items())):
             raise HTTPException(400, "confirmed must map a part key to the witnesses it was checked in")
-        return dict(seed=None if seed == auto else seed, seed_confirmed=conf,
-                    extras_added=[dict(wid=a["wid"], span=a["span"]) for a in added], extras_dropped=sorted(set(dropped)),
-                    slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
+        tok_ok = lambda t: isinstance(t, str) and 2 < len(t) <= 200 and "#" in t and t.rsplit("#", 1)[1].isdigit()   # "<word>#<nth time in the row>"
+        words, ucls = pl.get("words", {}) or {}, pl.get("unit_cls", {}) or {}
+        edit_ok = lambda x: x == "add" or (isinstance(x, dict) and set(x) == {"to"} and isinstance(x["to"], list) and len(x["to"]) == 2
+                                           and isinstance(x["to"][0], str) and WID_RE.match(x["to"][0]) and tok_ok(x["to"][1]))
+        if not (isinstance(words, dict) and len(words) <= 300 and all(
+                key_ok(k) and isinstance(v, dict) and len(v) <= 500 and all(
+                    isinstance(w, str) and WID_RE.match(w) and isinstance(m, dict) and len(m) <= 200
+                    and all(tok_ok(t) and edit_ok(x) for t, x in m.items()) for w, m in v.items()) for k, v in words.items())
+                and sum(len(m) for v in words.values() for m in v.values()) <= 6000):
+            raise HTTPException(400, "words must map a part key to {wid: {<word>#<n>: add | {to: [wid, <word>#<n>]}}}")
+        if not (isinstance(ucls, dict) and len(ucls) <= 300 and all(
+                key_ok(k) and isinstance(v, dict) and len(v) <= 200 and all(
+                    isinstance(t, str) and 0 < len(t) <= 300 and x in ("addition", "omission") for t, x in v.items()) for k, v in ucls.items())):
+            raise HTTPException(400, "unit_cls must map a part key to {<words of the unit>: addition | omission}")
+        renames = pl.get("renames", {}) or {}
+        if not (isinstance(renames, dict) and len(renames) <= 2000 and all(
+                isinstance(k, str) and PLACE_RE.match(k) and isinstance(v, dict) and isinstance(v.get("name"), str) and 0 < len(v["name"].strip()) <= 200
+                and isinstance(v.get("term", ""), str) and len(v.get("term", "")) <= 200 for k, v in renames.items())):
+            raise HTTPException(400, "renames must map a place <aid>|<i> to {name, term}")
+        out = dict(seed=None if seed == auto else seed, seed_confirmed=conf,
+                   extras_added=[dict(wid=a["wid"], span=a["span"]) for a in added], extras_dropped=sorted(set(dropped)),
+                   slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
+        for key, val in (("words", {k: {w: m for w, m in v.items() if m} for k, v in words.items()}), ("unit_cls", ucls),
+                         ("renames", {k: dict(name=v["name"].strip(), term=v.get("term", "").strip()) for k, v in renames.items()})):
+            val = {k: v for k, v in val.items() if v}
+            if val:                                         # only then, so older decisions and their stage keys stay as they were
+                out[key] = val
+        return out
 
     return r
 

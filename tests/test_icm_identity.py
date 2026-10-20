@@ -372,3 +372,21 @@ if __name__ == "__main__":
                 import traceback; traceback.print_exc()
                 fails += 1; print("FAIL", name, repr(e))
     sys.exit(1 if fails else 0)
+
+
+def test_renames_set_where_a_name_begins_and_ends_in_one_place():
+    ch = _chains()
+    coll = ch[0]["elems"][0]
+    a, b = ch[1]["elems"]                                      # «فلان», «زید بن علی»
+    a.update(name="علی ابو محمد", raw="علی ابو محمد", term="قرات", hai={"link": "x"}, alts=["x"])
+    b["exact"] = "noor:2607"
+    n = identity.apply_renames(ch, {"w:2#t|0": dict(name="أبو  محمد", term="قرأت علی"),
+                                    "w:2#t|1": dict(name="x", term="y"),                      # the source fixed this one
+                                    "w:1#t|0": dict(name="زید", term=""),
+                                    "nobody|0": dict(name="z", term="")})                     # no such place
+    assert n == 2
+    assert (a["name"], a["raw"], a["term"], a["renamed"], a["i"]) == ("ابو محمد", "ابو محمد", "قرات علی", True, 0)   # the place keeps its index
+    assert "hai" not in a and "alts" not in a
+    assert b["name"] == "زید بن علی" and not b.get("renamed")
+    assert (coll["kind"], coll["name"], coll["term"]) == ("collector", "زید", None)
+    assert identity.apply_renames(ch, None) == 0

@@ -263,6 +263,18 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
                                             span=[v[0] - w["w0"], v[1] - w["w0"]], tokens=list(toks),
                                             aligned=r["aligned_b"], user=True)
 
+    # --- the user's word corrections: part key -> wid -> {word key -> edit} (a copy's wid names its representative) ----
+    word_edits: Dict[str, Dict[str, dict]] = {}
+    for k, by_wid in (parts.get("words") or {}).items():
+        for wid, m in by_wid.items():
+            w = wit_by.get(wid)
+            if k not in known_keys or w is None:
+                flags.append(dict(kind="word_unused", ref=f"{k}|{wid}", message="a word correction for a part or witness not in this alignment"))
+                continue
+            fix = lambda ed: dict(to=[(wit_by.get(ed["to"][0]) or {"wid": ed["to"][0]})["wid"], ed["to"][1]]) if ed != "add" else ed
+            word_edits.setdefault(k, {}).setdefault(w["wid"], {}).update({t: fix(ed) for t, ed in m.items()})
+    unit_cls = parts.get("unit_cls") or {}
+
     units: List[dict] = []
     grids: List[dict] = []
     dropped_orth = 0
@@ -282,11 +294,16 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         # grid + column units inside the clause
         holders = [w["wid"] for w in wits if pres[w["wid"]] == 1]
         num_toks = _number_tokens(c, segs, wits)
-        grid, col_units, orth = _clause_grid(c, holders, segs, wits, skip_tokens=num_toks)
+        info: dict = dict(flags=flags, user_cells=[])
+        grid, col_units, orth = _clause_grid(c, holders, segs, wits, skip_tokens=num_toks, edits=word_edits.get(c["key"]), info=info)
         units.extend(_number_units(c, segs, wits, grid, seed))
         dropped_orth += orth
-        grids.append(dict(clause=ci, kind=c["kind"], text=c["text"], witnesses=holders, columns=grid))
+        grids.append(dict(clause=ci, kind=c["kind"], text=c["text"], witnesses=holders, columns=grid, user_cells=info["user_cells"]))
         units.extend(col_units)
+        for u in units:                                   # the user's addition / omission label of a presence unit
+            lab = (unit_cls.get(c["key"]) or {}).get(u.get("ukey")) if u["kind"] == "presence" and u["clause"] == ci else None
+            if lab:
+                u.update(cls=lab, cls_user=True)
 
     # --- keep the most informative units -----------------------------------------------------------
     for u in units:
@@ -361,7 +378,7 @@ def _binary_unit(uid: str, text: str, states: Dict[str, int], kind: str, ci: int
     share = sum(known) / max(len(known), 1)
     return dict(name=f"{uid}:{' '.join(text.split()[:4])}", kind="presence", unit_kind=kind, clause=ci,
                 cls="omission" if share >= 0.25 else "addition", n_states=2, labels=["absent", "present"],
-                states=dict(states), cols=cols)
+                states=dict(states), cols=cols, ukey=text, cls_user=False)
 
 
 def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
@@ -425,8 +442,90 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
     return dict(clauses=keep, private=private)
 
 
-def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset()) -> Tuple[List[dict], List[dict], int]:
-    """Multiple alignment of the segments of one clause and the units found in it."""
+def row_keys(cols: Sequence[dict], w: str) -> List[Tuple[int, str]]:
+    """A witness's words in a grid in order, each with its column and its key ``"<word>#<n>"`` (the n-th time the word is
+    in that row): what the user's word corrections (``parts.words``) call a word, as columns move between runs."""
+    seen: Counter = Counter()
+    out = []
+    for j, col in enumerate(cols):
+        t = col.get(w)
+        if t is not None:
+            seen[t] += 1
+            out.append((j, f"{t}#{seen[t]}"))
+    return out
+
+
+def _apply_word_edits(cols: List[dict], edits: Dict[str, dict], flags: List[dict], ref: str) -> Tuple[List[dict], List[list], List[int]]:
+    """The user's per-word corrections of an automatic alignment (``edits``: wid -> {word key -> edit}).
+
+    ``"add"``: the word is an addition: it leaves the column it was aligned in (opposite another witness's word) and stands
+    alone, in a column right behind (shared with another witness's added column holding the same word).
+    ``{"to": [wid, key]}``: the word is a variant of the word that witness has: it moves into that word's column.
+    The order of a witness's words never changes (a ``to`` target must lie between its neighbours), so keys stay valid.
+    An edit that no longer fits (word gone, column taken, order) is skipped with a ``word_unused`` flag.
+    Returns the columns, the cells touched ([column, wid]) and the columns made for added words."""
+    cols = [dict(c) for c in cols]
+    gone: List[dict] = []                                  # kept so that id() of a removed column is not reused
+    touched: set = set()
+    added: set = set()
+
+    def find(w: str, key: str) -> Optional[int]:
+        return next((j for j, k in row_keys(cols, w) if k == key), None)
+
+    def unused(w, key, why):
+        flags.append(dict(kind="word_unused", ref=f"{ref}|{w}|{key}", message=f"a correction of a word that no longer fits this alignment ({why})"))
+
+    todo = sorted((0 if x == "add" else 1, w, key) for w, m in edits.items() for key, x in m.items())
+    for _, w, key in todo:
+        x = edits[w][key]
+        j = find(w, key)
+        if j is None:
+            unused(w, key, "the word is not in this witness's row")
+            continue
+        tok = cols[j][w]
+        if x == "add":
+            if len(cols[j]) == 1:                          # alone already
+                added.add(id(cols[j]))
+                touched.add((id(cols[j]), w))
+                continue
+            del cols[j][w]
+            k = j + 1
+            while k < len(cols) and id(cols[k]) in added and w not in cols[k]:
+                if len(cluster_tokens(list(cols[k].values()) + [tok])) == 1:
+                    cols[k][w] = tok
+                    touched.add((id(cols[k]), w))
+                    break
+                k += 1
+            else:
+                new = {w: tok}
+                cols.insert(j + 1, new)
+                added.add(id(new))
+                touched.add((id(new), w))
+            continue
+        ref_w, ref_key = x["to"]
+        rj = find(ref_w, ref_key) if ref_w != w else None
+        if rj is None:
+            unused(w, key, "the word to match is not there")
+            continue
+        if rj == j:                                        # already there: the user confirms the automatic place
+            touched.add((id(cols[j]), w))
+            continue
+        others = [jj for jj, k in row_keys(cols, w) if k != key]
+        if w in cols[rj] or not (max([jj for jj in others if jj < j], default=-1) < rj < min([jj for jj in others if jj > j], default=len(cols))):
+            unused(w, key, "the column is taken or would reorder the words")
+            continue
+        del cols[j][w]
+        cols[rj][w] = tok
+        touched.add((id(cols[rj]), w))
+        if not cols[j]:
+            gone.append(cols.pop(j))
+    cells = [[j, w] for j, col in enumerate(cols) for w in col if (id(col), w) in touched]
+    return cols, cells, [j for j, col in enumerate(cols) if id(col) in added]
+
+
+def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(), edits=None, info=None) -> Tuple[List[dict], List[dict], int]:
+    """Multiple alignment of the segments of one clause and the units found in it. ``edits`` are the user's word
+    corrections for this clause (``_apply_word_edits``); ``info`` receives their ``flags`` and ``user_cells``."""
     if len(holders) < 2:
         return [], [], 0
     items = [(w, join_conj(segs[(c["i"], w)]["tokens"])) for w in holders if segs[(c["i"], w)]["tokens"]]
@@ -436,6 +535,11 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
     order, cols = star_align(items, sim=word_sim, spine_first=False, merge_min=None, max_cols=3 * max(len(c["tokens"]), 6),
                              end_gap=END_GAP, refine=2, weighted_gaps=True)
     placed = set(order)
+    added_cols: List[int] = []
+    if edits:
+        cols, cells, added_cols = _apply_word_edits(cols, edits, info["flags"] if info is not None else [], c.get("key", ""))
+        if info is not None:
+            info["user_cells"] = cells
     grid = [{w: t for w, t in col.items()} for col in cols]
     units: List[dict] = []
     orth = 0
@@ -478,6 +582,8 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
             for w in holders:
                 st.setdefault(w, NA)
             u = _binary_unit(f"c{c['i']}w{block[0][0]}", words, st, "words", c["i"], [block[0][0], block[-1][0]])
+            if any(block[0][0] <= a <= block[-1][0] for a in added_cols):      # the user said these words are an addition
+                u.update(cls="addition", cls_user=True)
             units.append(u)
         block = []
     for item in pres_runs:

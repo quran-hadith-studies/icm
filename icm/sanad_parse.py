@@ -31,6 +31,8 @@ PROPHET = [norm(x) for x in _DATA["prophet"]]
 IMAM_KUNYA = [norm(x) for x in _DATA["imam_kunya"]]
 NON_NAME = {norm(x) for x in _DATA.get("non_name", [])}
 _PROCLITIC = {p + t for p in ("و", "ف") for t in TRANSMIT}
+# «قرأت على X», «سمعت من X», «كتب إلي X»: the preposition belongs to the transmission phrase, not to the name
+PREP = {norm(k): {norm(x) for x in v} for k, v in _DATA.get("transmit_prep", {}).items()}
 
 _LEAD_NO = re.compile(r"^\s*\(?\d+\)?\s*[-–ـ.:]\s*")
 _SIGLA = re.compile(r"^\s*([^\]\[،,:]{0,30})[،,]?\s*\[([^\]]{2,60})\]\s*[،,:]?\s*")
@@ -91,6 +93,10 @@ def parse(text: str) -> dict:
             cur.append(t)
     if cur:
         segs.append(dict(term=term, toks=cur))
+    for sg in segs:                  # the preposition joins the term; «علی بن …» stays a name; «… قراءة عليه» leaves nothing
+        t0 = sg["toks"]
+        if t0 and t0[0] in PREP.get(sg["term"], ()) and not (len(t0) > 1 and t0[1] in ("بن", "ابن")):
+            sg["term"], sg["toks"] = f"{sg['term']} {t0[0]}", t0[1:]
 
     elems: List[dict] = []
     speaker = None

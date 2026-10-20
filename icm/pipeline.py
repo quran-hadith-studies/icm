@@ -72,13 +72,14 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         selected = sorted(set(seldec.get("selected", [])) - {p["seed"]})
         # --- alignment + identity candidates --------------------------------------------------------
         say("align", 0.2, "aligning")
-        parts_in = {k: pdec[k] for k in ("extras_dropped", "extras_added", "slots") if pdec.get(k)}
+        parts_in = {k: pdec[k] for k in ("extras_dropped", "extras_added", "slots", "words", "unit_cls") if pdec.get(k)}
         k_align = h("align", k_search, selected, STAGE_VERSIONS["align"], *([parts_in] if parts_in else []))
         A = _get_or_run(pid, "align", k_align, lambda: align_mod.run(S, selected, parts_in), hashes)
         say("identify", 0.4, "finding the narrators")
         V = project.narrator_version(pid)
-        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key)
-        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A, V), hashes)
+        ren = pdec.get("renames") or None                         # step 4: where a name begins and ends (only then, so keys stay)
+        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([ren] if ren else []))
+        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A, V, ren), hashes)
         iddec = project.decision(pid, "identities")
         if not iddec:
             return _finish(pid, vers, hashes, "draft", "identities")
@@ -122,10 +123,11 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         raise
 
 
-def _identify(S: dict, A: dict, V: narrator_versions.Version) -> dict:
+def _identify(S: dict, A: dict, V: narrator_versions.Version, renames: Optional[dict] = None) -> dict:
     wids = [S["seed"]["wid"]] + [w["wid"] for w in A["witnesses"] if w["wid"] != S["seed"]["wid"]]
     recs = corpus.get_many(wids)
-    I = identity.build([recs[w] for w in wids if w in recs], V)
+    I = identity.build([recs[w] for w in wids if w in recs], V, renames)
+    I["renames_in"] = renames or {}
     I["suggestions"] = suggest_mod.suggest(I, V)
     I["narrator_version"] = V.info()
     return I

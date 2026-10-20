@@ -639,11 +639,31 @@ def _collapse_chains(chains: List[dict], version) -> None:
                     e["exact_src"], e["exact"] = e["exact"], c
 
 
-def build(wits: Sequence[dict], version=None) -> dict:
+def apply_renames(chains: Sequence[dict], renames: Optional[dict]) -> int:
+    """The user's reading of a place (``"<aid>|<i>"`` -> ``{name, term}``): which words are the name and which the
+    transmission phrase («قرأت على» + «أبو محمد»). The place keeps its index, so decisions made on it stay valid; a place
+    the source fixed (``exact``) is left alone. Returns how many places changed."""
+    n = 0
+    for ch in chains:
+        for e in ch["elems"]:
+            r = (renames or {}).get(f"{ch['aid']}|{e['i']}")
+            name = " ".join(norm(r.get("name", "")).split()) if r else ""
+            if not name or e.get("exact"):
+                continue
+            e.update(name=name, raw=name, term=" ".join(norm(r.get("term", "")).split()) or None, renamed=True,
+                     kind="collector" if e["kind"] == "collector" else "name")
+            for k in ("hai", "alts", "amb"):                # tied to the words the source tagged, not to these
+                e.pop(k, None)
+            n += 1
+    return n
+
+
+def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None) -> dict:
     """identities.json: chains with candidates, and the name cards to decide.
 
     ``wits`` are witness records (``corpus.get``) of the selected witnesses (copies excluded). ``version`` is a
-    ``narrator_versions.Version`` (None: raw, every id apart)."""
+    ``narrator_versions.Version`` (None: raw, every id apart). ``renames`` are the user's corrections of where a name
+    begins and ends in a place (``apply_renames``)."""
     version = version or narrator_versions.RAW
     chains: List[dict] = []
     trad = {w["wid"]: (w.get("tradition") or ("sunni" if w["corpus"] == "kg" else "shia")) for w in wits}
@@ -653,6 +673,7 @@ def build(wits: Sequence[dict], version=None) -> dict:
         if not ch:
             flags.append(dict(kind="no_chain", ref=w["wid"], message="no isnad could be read for this witness"))
         chains.extend(ch)
+    apply_renames(chains, renames)
     for ch in chains:                                  # «أبيه عليه السلام» in Noor's slots, «حدثني أبي» ...
         for e in ch["elems"]:
             if not e["exact"] and e["kind"] == "name" and relative_word(e["name"]):

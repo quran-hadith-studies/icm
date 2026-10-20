@@ -135,3 +135,57 @@ if __name__ == "__main__":
                 import traceback; traceback.print_exc()
                 fails += 1; print("FAIL", name, repr(e))
     sys.exit(1 if fails else 0)
+
+
+def _edit_fixture():
+    seed = "من كذب علي متعمدا فليتبوأ مقعده من النار"
+    w = [seed, seed,
+         "من كذب علي عمدا فليتبوأ مقعده من النار",
+         "من كذب علي عمدا فليتبوأ مقعده من النار",
+         "من كذب علي متعمدا فليتبوأ بيتا مقعده من النار",
+         "من كذب علي متعمدا فليتبوأ بيتا مقعده من النار"]
+    S, sel = _search(seed, w), [f"t:{i}" for i in range(len(w))]
+    return S, sel, align.run(S, sel)["clauses"][0]["key"]
+
+
+def test_word_marked_as_added_stands_alone_and_its_unit_is_an_addition():
+    S, sel, key = _edit_fixture()
+    base = align.run(S, sel)
+    assert [c.get("t:2") for c in base["grids"][0]["columns"]].count("عمدا") == 1
+    assert all(not u.get("cls_user") for u in base["units"])
+    # the automatic guess calls «بیتا» (in 2 of 7 witnesses) an omission: the user says it is an addition
+    assert next(u for u in base["units"] if u["ukey"] == "بیتا")["cls"] == "omission"
+    r = align.run(S, sel, {"words": {key: {"t:2": {"عمدا#1": "add"}, "t:3": {"عمدا#1": "add"}}}, "unit_cls": {key: {"بیتا": "addition"}}})
+    cols = r["grids"][0]["columns"]
+    assert {"t:2": "عمدا", "t:3": "عمدا"} in cols                                  # the two added words share one column of their own
+    assert all(c.get("t:2") != "عمدا" or len(c) == 2 for c in cols)
+    assert [list(x) for x in r["grids"][0]["user_cells"]] == [[cols.index({"t:2": "عمدا", "t:3": "عمدا"}), "t:2"], [cols.index({"t:2": "عمدا", "t:3": "عمدا"}), "t:3"]]
+    by = {u["ukey"]: u for u in r["units"] if u["kind"] == "presence"}
+    assert by["عمدا"]["cls"] == "addition" and by["عمدا"]["cls_user"] and by["عمدا"]["states"]["t:2"] == 1
+    assert by["متعمدا"]["states"]["t:2"] == 0 and not by["متعمدا"]["cls_user"]      # what it replaced is now missing there
+    assert by["بیتا"]["cls"] == "addition" and by["بیتا"]["cls_user"]
+    assert r["parts_in"]["words"] and not [f for f in r["flags"] if f["kind"] == "word_unused"]
+
+
+def test_word_edit_that_no_longer_fits_is_flagged_not_applied():
+    S, sel, key = _edit_fixture()
+    r = align.run(S, sel, {"words": {key: {"t:2": {"ghost#1": "add"}}, "s:no such part": {"t:2": {"عمدا#1": "add"}}}})
+    assert sorted(f["kind"] for f in r["flags"]) == ["word_unused", "word_unused"]
+    assert r["grids"][0]["columns"] == align.run(S, sel)["grids"][0]["columns"]
+
+
+def test_a_word_can_be_moved_into_the_column_of_the_word_it_varies():
+    cols = [{"s": "a", "w": "a"}, {"s": "b"}, {"w": "x"}, {"s": "c", "w": "c"}]
+    flags = []
+    out, cells, added = align._apply_word_edits(cols, {"w": {"x#1": {"to": ["s", "b#1"]}}}, flags, "k")
+    assert out == [{"s": "a", "w": "a"}, {"s": "b", "w": "x"}, {"s": "c", "w": "c"}] and cells == [[1, "w"]] and added == [] and not flags
+    assert cols[2] == {"w": "x"}                                                      # the input is not changed
+    # moving past a neighbour would reorder the witness's words: refused
+    flags = []
+    out, cells, _ = align._apply_word_edits([{"s": "a", "w": "b"}, {"s": "b", "w": "a"}], {"w": {"a#1": {"to": ["s", "a#1"]}}}, flags, "k")
+    assert out == [{"s": "a", "w": "b"}, {"s": "b", "w": "a"}] and cells == [] and [f["kind"] for f in flags] == ["word_unused"]
+    # «متفاوت» for a word that is already in that column: nothing moves, but the user's confirmation is shown
+    flags = []
+    out, cells, _ = align._apply_word_edits([{"s": "a", "w": "b"}], {"w": {"b#1": {"to": ["s", "a#1"]}}}, flags, "k")
+    assert out == [{"s": "a", "w": "b"}] and cells == [[0, "w"]] and not flags
+    assert align.row_keys([{"w": "a"}, {}, {"w": "a"}], "w") == [(0, "a#1"), (2, "a#2")]

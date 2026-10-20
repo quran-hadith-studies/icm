@@ -161,6 +161,26 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
         sg = A2["segments"][f"0|{w}"]
         assert sg["user"] and sg["tokens"] == ww["tokens"][0:2], sg
         assert c.get(f"/icm/api/project/{pid}/runs/current/words/v02:2").status_code == 404
+        # per-word corrections (step 3), unit labels, and name/term readings of a place (step 4) are validated and stored
+        W0, ok_place = "v02:800316143", "v02:1#t|2"
+        good = dict(body, words={key: {w: {"من#1": "add", "الله#2": {"to": [W0, "الله#1"]}}}}, unit_cls={key: {"بیتا": "addition"}},
+                    renames={ok_place: {"name": " أبو محمد ", "term": "قرأت علی"}})
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": good}, headers=H("alice")).status_code == 200
+        got = project.decision(pid, "parts")
+        assert got["words"] == good["words"] and got["unit_cls"] == good["unit_cls"] and got["renames"] == {ok_place: {"name": "أبو محمد", "term": "قرأت علی"}}
+        for bad in ({"words": {key: {w: {"nohash": "add"}}}}, {"words": {key: {w: {"من#1": "maybe"}}}}, {"words": {key: {w: {"من#1": {"to": ["bad", "الله#1"]}}}}},
+                    {"words": {key: {w: {"من#1": {"to": [W0, "الله"]}}}}}, {"words": {"bad": {w: {"من#1": "add"}}}}, {"words": [1]},
+                    {"unit_cls": {key: {"بیتا": "both"}}}, {"unit_cls": {"bad": {"بیتا": "addition"}}},
+                    {"renames": {"nobar": {"name": "x", "term": ""}}}, {"renames": {ok_place: {"name": "  ", "term": ""}}}, {"renames": {ok_place: {"name": "x", "term": 3}}}):
+            assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": dict(body, **bad)}, headers=H("alice")).status_code == 400, bad
+        assert project.decision(pid, "parts")["words"] == good["words"]                     # a refused decision stores nothing
+        pipeline.advance(pid)                                                               # the corrections reach the alignment and the narrators stage
+        A3 = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
+        assert A3["parts_in"]["words"] == good["words"] and A3["parts_in"]["unit_cls"] == good["unit_cls"]
+        assert c.get(f"/icm/api/project/{pid}/runs/current/identify").json()["renames_in"] == got["renames"]     # trimmed
+        # emptied corrections are not stored at all, so the stage keys of older projects stay as they were
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": dict(body, words={key: {w: {}}}, unit_cls={}, renames={})}, headers=H("alice")).status_code == 200
+        assert not any(k in project.decision(pid, "parts") for k in ("words", "unit_cls", "renames"))
     finally:
         shutil.rmtree(d)
 

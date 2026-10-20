@@ -150,6 +150,8 @@ details.splitd{margin:8px 0}details.splitd>summary{cursor:pointer;color:var(--ac
 table.parts td{vertical-align:middle}
 table.prow td.nm{cursor:pointer;max-width:220px}table.prow tr.on{background:var(--accent-soft)}
 .altab td.usr{box-shadow:inset 0 -3px 0 var(--accent)}
+.altab td.wusr{outline:2px dotted var(--accent);outline-offset:-3px}       /* a word the user placed (افزوده / متفاوت) */
+.altab td.clk{cursor:pointer}.altab td.clk:hover{outline:2px solid var(--accent);outline-offset:-2px}
 /* confirm bar that stays in view while a long step is scrolled */
 .actionbar{position:sticky;bottom:0;z-index:12;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;box-shadow:0 -4px 14px rgb(0 0 0 / .1)}
 .help.warnbox{border-color:var(--warn);border-style:solid}
