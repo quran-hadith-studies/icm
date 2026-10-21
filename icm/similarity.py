@@ -1,8 +1,10 @@
 """Fast pairwise matn comparison used to score search candidates.
 
 Tokens are compared through a *match key* that removes the clitics which differ between
-witnesses without changing the wording (leading و/ف, the article ال). The comparison is a
-difflib opcode alignment of key sequences; inside replaced blocks, tokens that are close in
+witnesses without changing the wording (leading و/ف, the article ال). A conjunction written
+apart ("و الصوم") is one word with the next ("والصوم"): ``conj_groups`` joins them before any
+comparison, so a bare و is never matched (or missed) as a word of its own. The comparison is a
+difflib opcode alignment of key sequences; inside replaced blocks, words that are close in
 spelling (``char_ratio >= FUZZ``) still count as matches, the others as substitutions.
 
 The star alignment of ``icm.msa`` is the production aligner for the selected witnesses
@@ -16,96 +18,133 @@ from typing import Dict, List, Sequence, Tuple
 from .msa import char_ratio
 
 FUZZ = 0.8
+CONJ = ("و", "ف")
+# closed-class words that take a conjunction prefix: «ولا» is «لا», «وان» is «ان» (a longer word such as «ولد» is not touched)
+_PARTICLES = frozenset("لا ما ان هو هی من لم لن فی له به کل لو قد هم عن بل مع کم اذ ذا".split())
 
 
 def match_key(t: str) -> str:
     if len(t) > 3 and t[0] in "وف":
+        t = t[1:]
+    elif len(t) == 3 and t[0] in "وف" and t[1:] in _PARTICLES:
         t = t[1:]
     if len(t) > 3 and t.startswith("ال"):
         t = t[2:]
     return t
 
 
+def conj_groups(toks: Sequence[str]) -> List[Tuple[int, int]]:
+    """Half-open token ranges of the words of ``toks``: a bare conjunction (و / ف written apart) belongs to the word
+    after it (repeated ones too). One left at the end belongs to nothing: it is a group of its own."""
+    out: List[Tuple[int, int]] = []
+    start = None
+    for i, t in enumerate(toks):
+        if t in CONJ:
+            if start is None:
+                start = i
+            continue
+        out.append((i if start is None else start, i + 1))
+        start = None
+    if start is not None:
+        out.append((start, len(toks)))
+    return out
+
+
+def group_keys(toks: Sequence[str], groups: Sequence[Tuple[int, int]], tag: str) -> List[str]:
+    """The match key of each group (its last token's); a conjunction left at the end gets a key nothing else has."""
+    return [f"<{tag}{k}>" if toks[g[1] - 1] in CONJ else match_key(toks[g[1] - 1]) for k, g in enumerate(groups)]
+
+
 def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
-    """Align token lists ``a`` (reference) and ``b`` (candidate).
+    """Align token lists ``a`` (reference) and ``b`` (candidate), a bare conjunction counting with the word after it.
 
     Returns counts and per-reference-token flags:
-      m           matched tokens (exact key or fuzzy)
-      s           substituted tokens strictly inside the matched span
+      m           matched tokens of a (a bare conjunction counts with its word)
+      s           substituted tokens of a strictly inside the matched span
       gap_a/gap_b tokens of a / b without partner inside the matched span
-      match_a     bool per token of a: matched
+      match_a     bool per token of a: matched (all tokens of a matched word, its conjunction too)
       sub_a       bool per token of a: substituted (aligned to a different word)
-      span_b      (j0, j1) half-open range of b between the first and last matched token
-      pairs       [(i, j)] matched positions
-      aligned_b   per token of a: the b token aligned to it (match or substitution) or None
+      span_b      (j0, j1) half-open token range of b from the first matched word to the last
+      pairs       [(i, j)] matched words, as the token index of the word itself (not of its conjunction)
+      aligned_b   per token of a: for a word's own token, the b word aligned to it (match or substitution) or None
     """
-    ka = [match_key(t) for t in a]
-    kb = [match_key(t) for t in b]
+    ga, gb = conj_groups(a), conj_groups(b)
+    ka, kb = group_keys(a, ga, "a"), group_keys(b, gb, "b")
     sm = SequenceMatcher(None, ka, kb, autojunk=False)
-    match_a = [False] * len(a)
-    sub_a = [False] * len(a)
-    pairs: List[Tuple[int, int]] = []
+    match_g = [False] * len(ga)
+    sub_g = [False] * len(ga)
+    pairs: List[Tuple[int, int]] = []          # group pairs
     sub_pairs: List[Tuple[int, int]] = []
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
             for k in range(i2 - i1):
-                match_a[i1 + k] = True
+                match_g[i1 + k] = True
                 pairs.append((i1 + k, j1 + k))
         elif tag == "replace":
             for k in range(min(i2 - i1, j2 - j1)):
                 i, j = i1 + k, j1 + k
-                if char_ratio(a[i], b[j]) >= FUZZ:
-                    match_a[i] = True
+                if ka[i][0] == "<" or kb[j][0] == "<":
+                    continue
+                if char_ratio(a[ga[i][1] - 1], b[gb[j][1] - 1]) >= FUZZ:
+                    match_g[i] = True
                     pairs.append((i, j))
                 else:
-                    sub_a[i] = True
+                    sub_g[i] = True
                     sub_pairs.append((i, j))
-    m = len(pairs)
-    if m == 0:
+    match_a = [False] * len(a)
+    sub_a = [False] * len(a)
+    for gi, (x, y) in enumerate(ga):
+        for t in range(x, y):
+            match_a[t], sub_a[t] = match_g[gi], sub_g[gi]
+    if not pairs:
         return dict(m=0, s=0, gap_a=0, gap_b=0, match_a=match_a, sub_a=sub_a, span_b=(0, 0), pairs=[],
                     aligned_b=[None] * len(a))
     i0, i1_ = pairs[0][0], pairs[-1][0]
     j0, j1_ = pairs[0][1], pairs[-1][1]
     subs = [(i, j) for i, j in sub_pairs if i0 <= i <= i1_ and j0 <= j <= j1_]
-    for i in range(len(a)):                      # substitutions outside the span are not mismatches
-        if sub_a[i] and not (i0 <= i <= i1_):
-            sub_a[i] = False
-    s = len(subs)
-    aligned_b: List = [None] * len(a)           # the candidate token aligned to each reference token
-    for i, j in pairs:
-        aligned_b[i] = b[j]
-    for i, j in sub_pairs:                      # also substitutions at the clause ends (e.g. the count word)
-        aligned_b[i] = b[j]
-    gap_a = (i1_ - i0 + 1) - m - s
-    gap_b = (j1_ - j0 + 1) - m - s
+    for gi, (x, y) in enumerate(ga):             # substitutions outside the span are not mismatches
+        if sub_g[gi] and not (i0 <= gi <= i1_):
+            for t in range(x, y):
+                sub_a[t] = False
+    n_a = lambda gs: sum(ga[i][1] - ga[i][0] for i, _ in gs)      # counts are in tokens (a bare conjunction counts with its word)
+    n_b = lambda gs: sum(gb[j][1] - gb[j][0] for _, j in gs)
+    m, s = n_a(pairs), n_a(subs)
+    aligned_b: List = [None] * len(a)           # the candidate word aligned to each reference word
+    for i, j in pairs + sub_pairs:              # (substitutions at the clause ends too, e.g. the count word)
+        aligned_b[ga[i][1] - 1] = b[gb[j][1] - 1]
+    gap_a = (ga[i1_][1] - ga[i0][0]) - m - s
+    gap_b = (gb[j1_][1] - gb[j0][0]) - n_b(pairs) - n_b(subs)
     return dict(m=m, s=s, gap_a=max(gap_a, 0), gap_b=max(gap_b, 0), match_a=match_a, sub_a=sub_a,
-                span_b=(j0, j1_ + 1), pairs=pairs, aligned_b=aligned_b)
+                span_b=(gb[j0][0], gb[j1_][1]), pairs=[(ga[i][1] - 1, gb[j][1] - 1) for i, j in pairs], aligned_b=aligned_b)
 
 
-def align_clause(a: Sequence[str], b: Sequence[str], ka_cache=None) -> Dict:
+def align_clause(a: Sequence[str], b: Sequence[str], b_groups=None) -> Dict:
     """Best local alignment of one reference clause ``a`` inside candidate tokens ``b``.
 
-    Pass 1 finds the window of ``b`` holding the most key matches (width len(a)+4), so
+    Pass 1 finds the window of ``b`` holding the most key matches (width: the clause's words + 4), so
     scattered one-word matches elsewhere in a long text do not count; pass 2 aligns the
     clause with that window. Returns ``align_pair`` fields with ``pairs``/``span_b`` in
-    candidate coordinates, or an all-zero result when nothing matches.
+    candidate coordinates, or an all-zero result when nothing matches. ``b_groups`` is
+    ``(conj_groups(b), group_keys(b, ...))`` when the caller compares many clauses with one ``b``.
     """
-    ka = [match_key(t) for t in a]
-    kb = ka_cache if ka_cache is not None else [match_key(t) for t in b]
+    ga = conj_groups(a)
+    ka = group_keys(a, ga, "a")
+    gb, kb = b_groups if b_groups is not None else (lambda g: (g, group_keys(b, g, "b")))(conj_groups(b))
     sm = SequenceMatcher(None, ka, kb, autojunk=False)
     js = sorted(blk_j + k for blk_i, blk_j, size in sm.get_matching_blocks() for k in range(size))
     if not js:
         return dict(m=0, s=0, gap_a=len(a), gap_b=0, match_a=[False] * len(a), sub_a=[False] * len(a),
                     span_b=(0, 0), pairs=[], aligned_b=[None] * len(a))
-    width = len(a) + 4
+    width = len(ga) + 4
     best, best_j, lo = 0, js[0], 0
     for hi, j in enumerate(js):
         while js[lo] <= j - width:
             lo += 1
         if hi - lo + 1 > best:
             best, best_j = hi - lo + 1, js[lo]
-    w0 = max(0, best_j - 2)
-    w1 = min(len(b), best_j + width + 2)
+    g0 = max(0, best_j - 2)
+    g1 = min(len(gb), best_j + width + 2)
+    w0, w1 = gb[g0][0], gb[g1 - 1][1]
     res = align_pair(a, b[w0:w1])
     res["pairs"] = [(i, j + w0) for i, j in res["pairs"]]
     res["span_b"] = (res["span_b"][0] + w0, res["span_b"][1] + w0)
@@ -119,7 +158,8 @@ def align_clauses(a: Sequence[str], spans: Sequence[Tuple[int, int]], b: Sequenc
     therefore located independently. Returns aggregate counts, per-clause ``parts`` and
     whether the clauses appear in a different order than in the reference.
     """
-    kb = [match_key(t) for t in b]
+    gb = conj_groups(b)
+    kb = (gb, group_keys(b, gb, "b"))
     parts, windows = [], []
     m = s = 0
     matched_b = set()

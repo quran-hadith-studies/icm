@@ -125,6 +125,58 @@ def test_user_parts_slots_extras_and_drops():
     assert any(f["kind"] == "part_unused" for f in r3["flags"])
 
 
+def test_bare_conjunction_is_part_of_the_next_word():
+    from icm.similarity import align_pair, conj_groups, match_key
+    assert conj_groups(["قال", "و", "و", "الصوم", "و"]) == [(0, 1), (1, 4), (4, 5)]
+    assert align.join_conj(["قال", "و", "و", "الصوم"]) == ["قال", "والصوم"] and align.join_conj(["قال", "و"]) == ["قال"]
+    assert match_key("ولا") == match_key("لا") == "لا" and match_key("ولد") == "ولد" and match_key("وكل".replace("ك", "ک")) == "کل"
+    a = "لیس العباده کثره الصلاه و الصوم".split()
+    # a «و» left at the end of the text matches nothing, and «و الصوم» is the same word as «الصوم» and as «والصوم»
+    r = align_pair(a, "لیس العباده کثره الصلاه ولا الصوم و".split())
+    assert r["match_a"] == [True] * 6 and r["span_b"] == (0, 6) and r["aligned_b"][-1] == "الصوم"
+    r = align_pair(a, "لیس العباده کثره الصیام و الصلاه و".split())
+    assert r["span_b"][1] == 7 - 1 and not any(r["match_a"][4:])           # the final «و» is not a word of the slot
+
+
+def test_separate_waw_does_not_make_a_column_of_its_own():
+    seed = "ليس العبادة كثرة الصلاة و الصوم، وإنما العبادة التفكر في أمر الله"
+    w = ["ليس العبادة كثرة الصلاة و الصوم وإنما العبادة التفكر في أمر الله",
+         "ليس العبادة كثرة الصلاة ولا الصوم وإنما العبادة التفكر في أمر الله",
+         "ليس العبادة كثرة الصيام و الصلاة و إنما العبادة التفكر في أمر الله",
+         "ليس العبادة كثرة الصيام و الصلاة و إنما العبادة التفكر في أمر الله"]
+    S, sel = _search(seed, w), [f"t:{i}" for i in range(4)]
+    r = align.run(S, sel)
+    for g in r["grids"]:
+        assert not [c for c in g["columns"] if set(c.values()) <= {"و", "ف"}], g["columns"]
+    assert all(not sg["tokens"] or sg["tokens"][-1] not in ("و", "ف") for sg in r["segments"].values())
+    # «ولا» is the witness's addition and its «الصوم» stands opposite the seed's «والصوم»
+    g1 = next(g for g in r["grids"] if g["text"] == "و الصوم")
+    assert g1["columns"] == [{"t:1": "ولا"}, {"t:1": "الصوم", "t:seed": "والصوم", "t:0": "الصوم"}]
+    key = next(c["key"] for c in r["clauses"] if c["text"] == "و الصوم")
+    r2 = align.run(S, sel, {"words": {key: {"t:1": {"ولا#1": "add", "الصوم#1": {"to": ["t:seed", "والصوم#1"]}}}}})
+    assert next(g for g in r2["grids"] if g["text"] == "و الصوم")["columns"] == g1["columns"]
+    assert not [f for f in r2["flags"] if f["kind"] == "word_unused"]
+
+
+def test_an_added_word_stands_in_front_when_the_next_word_moves_into_its_column():
+    # the witness has «x y» where the seed has «b»: x is the addition, y the variant of b
+    cols = [{"s": "a", "w": "a"}, {"s": "b", "w": "x"}, {"w": "y"}, {"s": "c", "w": "c"}]
+    flags = []
+    out, cells, added = align._apply_word_edits(cols, {"w": {"x#1": "add", "y#1": {"to": ["s", "b#1"]}}}, flags, "k")
+    assert out == [{"s": "a", "w": "a"}, {"w": "x"}, {"s": "b", "w": "y"}, {"s": "c", "w": "c"}] and added == [1] and cells == [[1, "w"], [2, "w"]] and not flags
+    # without such a move the word still stands behind its column
+    out, _, added = align._apply_word_edits(cols, {"w": {"x#1": "add"}}, [], "k")
+    assert out == [{"s": "a", "w": "a"}, {"s": "b"}, {"w": "x"}, {"w": "y"}, {"s": "c", "w": "c"}] and added == [2]
+    # an addition that already stands alone, behind the column its successor is due in, moves in front of that column
+    out, cells, added = align._apply_word_edits([{"s": "a", "w": "a"}, {"s": "b"}, {"w": "x"}, {"w": "y"}],
+                                                {"w": {"x#1": "add", "y#1": {"to": ["s", "b#1"]}}}, flags := [], "k")
+    assert out == [{"s": "a", "w": "a"}, {"w": "x"}, {"s": "b", "w": "y"}] and added == [1] and not flags
+    # each witness's added word stands in front of its own column
+    cols = [{"s": "b", "u": "x"}, {"u": "y"}, {"s": "b2", "v": "x"}, {"v": "y"}]
+    out, _, added = align._apply_word_edits(cols, {"u": {"x#1": "add", "y#1": {"to": ["s", "b#1"]}}, "v": {"x#1": "add", "y#1": {"to": ["s", "b2#1"]}}}, [], "k")
+    assert out == [{"u": "x"}, {"s": "b", "u": "y"}, {"v": "x"}, {"s": "b2", "v": "y"}] and added == [0, 2]
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):

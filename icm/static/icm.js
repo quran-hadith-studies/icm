@@ -1470,14 +1470,20 @@ function wordModal(cl, w, j, g, A, c, pd) {
   const key = cl.key, wid = w.wid, rk = rowKeys(g.columns, wid), mine = (rk.find(([jj]) => jj === j) || [])[1], tok = g.columns[j][wid];
   const refW = g.kind === 'seed' && wid !== A.seed ? A.seed : g.witnesses.find(x => x !== wid);
   const here = refTok(g, j, A.seed), now = (((pd.words || {})[key] || {})[wid] || {})[mine];
-  const others = rk.filter(([jj]) => jj !== j).map(([jj]) => jj);
+  const myEd = ((pd.words || {})[key] || {})[wid] || {};
+  const others = rk.filter(([jj, k]) => jj !== j && myEd[k] !== 'add').map(([jj]) => jj);       // a word the user called an addition does not bound the others: it is placed in front of or behind the column it is in
   const lo = Math.max(-1, ...others.filter(jj => jj < j)), hi = Math.min(g.columns.length, ...others.filter(jj => jj > j));
   /* the other witness's words nearby that this one has no word opposite (and that keep this witness's words in order) */
   const near = refW ? rowKeys(g.columns, refW).filter(([jj]) => jj !== j && jj > lo && jj < hi && Math.abs(jj - j) <= 3 && g.columns[jj][wid] == null) : [];
-  const save = async x => {
+  /* «افزوده است؛ واژه‌ی بعدی/پیشین به‌جای …»: the word is an addition and its neighbour in the row (the one that does not belong
+     opposite nothing: the same word as the seed's, or with no seed word opposite) takes this column. Both are saved at once. */
+  const hereKey = here == null ? null : (rowKeys(g.columns, refW).find(([jj]) => jj === j) || [])[1], at = rk.findIndex(([jj]) => jj === j);
+  const combo = hereKey && refW && mkey(tok) !== mkey(here) ? [['بعدی', rk[at + 1]], ['پیشین', rk[at - 1]]].filter(([, n]) => n && (mkey(g.columns[n[0]][wid]) === mkey(here) || g.columns[n[0]][refW] == null)) : [];
+  const save = async (x, extra) => {
     await saveParts(c.pid, d => {
       const words = JSON.parse(JSON.stringify(d.words || {})), m = ((words[key] ||= {})[wid] ||= {});
       if (x == null) delete m[mine]; else m[mine] = x;
+      Object.assign(m, extra || {});
       if (!Object.keys(m).length) delete words[key][wid];
       if (!Object.keys(words[key]).length) delete words[key];
       return { words };
@@ -1490,9 +1496,11 @@ function wordModal(cl, w, j, g, A, c, pd) {
     el('p', { class: 'small' }, here == null ? 'این واژه در جایی است که حدیث مبدأ واژه‌ای ندارد.' : here === tok ? 'این واژه با واژه‌ی همان جای حدیث مبدأ یکی است.' : `هم‌ترازی خودکار این واژه را به‌جای «${here}» گذاشته است.`,
       ' تصمیم کنونی: ', el('b', {}, nowTxt), '.'),
     el('p', { class: 'small muted' }, '«افزوده»: این شاهد واژه‌ای را افزوده است؛ در ستونی جدا می‌ایستد و (اگر ستون پیشین واژه‌ای داشت) برای این شاهد «افتاده» حساب می‌شود، و مدل شجره آن را افزایش می‌شمارد. ',
-      '«متفاوت»: همان جایگاه است و این شاهد به‌جای واژه‌ای دیگر آورده؛ واژه را به ستون آن واژه ببرید. تغییر با ذخیره ثبت می‌شود و هم‌ترازی دوباره ساخته می‌شود (مرحله‌ی ۵ دوباره تأیید می‌خواهد).'),
+      '«متفاوت»: همان جایگاه است و این شاهد به‌جای واژه‌ای دیگر آورده؛ واژه را به ستون آن واژه ببرید. اگر این شاهد دو واژه به‌جای یک واژه آورده، دکمه‌ی «افزوده است؛ واژه‌ی … به‌جای …» یکی را افزوده می‌شمارد و دیگری را به جای واژه‌ی حدیث مبدأ می‌نشاند. «و» جدا جزء واژه‌ی بعدی است. تغییر با ذخیره ثبت می‌شود و هم‌ترازی دوباره ساخته می‌شود (مرحله‌ی ۵ دوباره تأیید می‌خواهد).'),
     el('div', { class: 'toolbar' },
       el('button', { class: 'primary', disabled: now === 'add', onclick: () => save('add') }, 'افزوده است'),
+      combo.map(([nm, [jn, kn]]) => el('button', { class: 'primary', title: 'این واژه افزوده است و واژه‌ی همسایه‌اش جای آن را در ستون واژه‌ی حدیث مبدأ می‌گیرد',
+        onclick: () => save('add', { [kn]: { to: [refW, hereKey] } }) }, `افزوده است؛ واژه‌ی ${nm} «${g.columns[jn][wid]}» به‌جای «${here}»`)),
       near.map(([jj, k]) => el('button', { disabled: !!now && now.to && now.to[1] === k, onclick: () => save({ to: [refW, k] }) }, `متفاوت: به‌جای «${g.columns[jj][refW]}»`)),
       now ? el('button', { onclick: () => save(null) }, 'خودکار') : null),
     here == null && !near.length ? el('p', { class: 'small muted' }, 'واژه‌ای نزدیک نیست که بتوان این واژه را به‌جای آن شمرد.') : null));
@@ -1603,7 +1611,8 @@ function addPartModal(A, c) {
 }
 
 /* ---------- alignment helpers ---------- */
-const mkey = t => { if (t.length > 3 && 'وف'.includes(t[0])) t = t.slice(1); if (t.length > 3 && t.startsWith('ال')) t = t.slice(2); return t; };   // similarity.match_key
+const PARTICLES = new Set('لا ما ان هو هی من لم لن فی له به کل لو قد هم عن بل مع کم اذ ذا'.split(' '));
+const mkey = t => { if (t.length > 3 && 'وف'.includes(t[0])) t = t.slice(1); else if (t.length === 3 && 'وف'.includes(t[0]) && PARTICLES.has(t.slice(1))) t = t.slice(1); if (t.length > 3 && t.startsWith('ال')) t = t.slice(2); return t; };   // similarity.match_key
 function refTok(g, j, seed) {   // what a cell is compared with: the seed's word, or the column's commonest word in a part the seed lacks
   if (g.kind === 'seed') return g.columns[j][seed];
   const n = {}; Object.values(g.columns[j]).forEach(t => n[t] = (n[t] || 0) + 1);

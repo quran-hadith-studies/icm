@@ -34,7 +34,7 @@ from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .msa import char_ratio, star_align
-from .similarity import FUZZ, align_clause, align_pair, match_key
+from .similarity import FUZZ, align_clause, align_pair, conj_groups, match_key
 from .text import norm, tokens
 from narrators.arabic_numbers import parse_arabic_number
 
@@ -68,13 +68,13 @@ def _core(pairs: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
 
 
 def join_conj(toks: Sequence[str]) -> List[str]:
-    """A conjunction written apart ("و کل") is one word with the next ("وکل")."""
+    """A conjunction written apart ("و کل") is one word with the next ("وکل"); repeated ones count once and one left
+    at the end (it belongs to the next clause) is dropped."""
     out: List[str] = []
-    for t in toks:
-        if out and out[-1] in ("و", "ف"):
-            out[-1] += t
-        else:
-            out.append(t)
+    for x, y in conj_groups(toks):
+        if toks[y - 1] in ("و", "ف"):
+            continue
+        out.append(toks[x] if y - x == 1 else toks[x] + toks[y - 1])
     return out
 
 
@@ -459,7 +459,8 @@ def _apply_word_edits(cols: List[dict], edits: Dict[str, dict], flags: List[dict
     """The user's per-word corrections of an automatic alignment (``edits``: wid -> {word key -> edit}).
 
     ``"add"``: the word is an addition: it leaves the column it was aligned in (opposite another witness's word) and stands
-    alone, in a column right behind (shared with another witness's added column holding the same word).
+    alone, in a column right behind (shared with another witness's added column holding the same word), or right in
+    front when the witness's next word is to move into that very column.
     ``{"to": [wid, key]}``: the word is a variant of the word that witness has: it moves into that word's column.
     The order of a witness's words never changes (a ``to`` target must lie between its neighbours), so keys stay valid.
     An edit that no longer fits (word gone, column taken, order) is skipped with a ``word_unused`` flag.
@@ -485,20 +486,31 @@ def _apply_word_edits(cols: List[dict], edits: Dict[str, dict], flags: List[dict
         tok = cols[j][w]
         if x == "add":
             if len(cols[j]) == 1:                          # alone already
+                for k2, x2 in edits[w].items():            # ... but a later word of the witness may be due in an earlier column:
+                    if isinstance(x2, dict) and x2["to"][0] != w:       # the addition then goes in front of that column
+                        rt, jy = find(x2["to"][0], x2["to"][1]), find(w, k2)
+                        if rt is not None and jy is not None and jy > j > rt and not any(w in cols[c] for c in range(rt, j)):
+                            cols.insert(rt, cols.pop(j))
+                            j = rt
+                            break
                 added.add(id(cols[j]))
                 touched.add((id(cols[j]), w))
                 continue
+            # the word stands behind its column, unless a later word of the witness is to move into that column
+            # (the substitution «X Y» -> addition X + variant Y): then it stands in front, so the order is kept
+            into = [find(w, k2) for k2, x2 in edits[w].items() if isinstance(x2, dict) and x2["to"][0] != w and find(x2["to"][0], x2["to"][1]) == j]
+            back = not any(jj is not None and jj > j for jj in into)
             del cols[j][w]
-            k = j + 1
-            while k < len(cols) and id(cols[k]) in added and w not in cols[k]:
+            k = j + 1 if back else j - 1
+            while 0 <= k < len(cols) and id(cols[k]) in added and w not in cols[k]:
                 if len(cluster_tokens(list(cols[k].values()) + [tok])) == 1:
                     cols[k][w] = tok
                     touched.add((id(cols[k]), w))
                     break
-                k += 1
+                k += 1 if back else -1
             else:
                 new = {w: tok}
-                cols.insert(j + 1, new)
+                cols.insert(j + 1 if back else j, new)
                 added.add(id(new))
                 touched.add((id(new), w))
             continue
