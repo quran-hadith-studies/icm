@@ -707,9 +707,14 @@ What every step also offers (added 2026-10-13):
   does, so a narrator named inside the matn («… عن يحيى بن سعيد عن سعيد بن المسيب قال …») is missed, and a source's
   name boundaries can be wrong. The editor shows the whole hadith as words (`GET /api/hadith/<wid>/tokens?pid=`:
   `tokens` = `tokens(sanad) + tokens(matn)`, their raw spelling, which are transmission words, and where each place of
-  the project's chains stands, `identity.anchor_elems`, computed when served). The user clicks the first and the last
-  word of a name to add a place (the phrase before it is found automatically), clicks a coloured name to re-pick its
-  boundaries, move the start of its phrase, or remove it. Saved as `parts.chain[aid] = {span: {i: {t, a, b}}, add:
+  the project's chains stands, `identity.anchor_elems`, computed when served). One popup does all of it: the chain as a list
+  (✕ remove / restore / ↺ back to automatic, ↶ undo), and the text, where only the names are coloured. A narrator is
+  selected from the list or by its name; then a click on a word outside its name moves the nearer edge of the name
+  there, a click inside shortens it (a narrator not found in the text is located by the first word clicked);
+  a plain word clicked with nothing selected only SUGGESTS a narrator (marked, grown by clicking the words next to it) and
+  nothing changes until «افزودن» is pressed. The transmission
+  phrase in front of a name is found by itself (transmission words before it). «حذف از سند…» in step 4's part 3 opens
+  this popup with that narrator marked removed. Closing with unsaved edits asks (save / discard / go on). Saved as `parts.chain[aid] = {span: {i: {t, a, b}}, add:
   [{t, a, b}], drop: [i]}` (`identity.apply_chain_edits`, before `apply_renames`, which it overrides for the same
   place). Place ids never change: an added place is `1000 + its position in add`, for good, so every `aid|i` key of
   the identities decision stays valid; the chain is reordered by text position (a place not found in the text stays
