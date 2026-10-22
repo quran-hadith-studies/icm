@@ -118,12 +118,15 @@ async function stage(pid, run, name) {
   if (!cache.has(k)) cache.set(k, api(`/project/${pid}/runs/${run}/${name}`));
   try { return await cache.get(k); } catch (e) { cache.delete(k); throw e; }
 }
+let modalGuard = null;      // an editor with unsaved work sets it: () => true when the window may close, else it asks the user what to do
 function modal(content) {
   const m = document.getElementById('modal'); const b = document.getElementById('modal-body');
-  b.replaceChildren(content); m.hidden = false;
+  modalGuard = null; b.replaceChildren(content); m.hidden = false;
 }
-document.getElementById('modal-x').onclick = () => document.getElementById('modal').hidden = true;
-document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') e.target.hidden = true; });
+function tryCloseModal() { if (!modalGuard || modalGuard()) { modalGuard = null; document.getElementById('modal').hidden = true; } }
+window.ICMCloseModal = tryCloseModal;     // base.js calls it on Escape
+document.getElementById('modal-x').onclick = tryCloseModal;
+document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') tryCloseModal(); });
 const STATUS = { draft: 'منتظر تصمیم شما', running: 'در حال اجرا', finalized: 'نهایی', failed: 'خطا', awaiting: 'منتظر محاسبه' };
 const CLS = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت' };
 const TIER = { exact: 'قطعی', high: 'بالا', medium: 'متوسط', low: 'پایین', derived: 'استنباطی', none: 'بی‌نامزد' };
@@ -950,7 +953,9 @@ const panels = {
         if (b.dataset.i != null) clickTok(+b.dataset.i);
       };
       const changed = () => !sameJ(ed, { span: saved.span || {}, add: saved.add || [], drop: saved.drop || [] });
-      const ok = el('button', { class: 'primary', onclick: async () => {
+      let asking = false;                               // the window is being closed with unsaved edits: save / discard / go on
+      const askBox = el('div', {});
+      const save = async () => {
         if (dirty()) return alert('نخست تغییرهای این مرحله را با «تأیید راویان» ذخیره کنید؛ ویرایش سند راویان و نامزدها را دوباره می‌سازد.');
         ok.disabled = true;
         try {
@@ -965,12 +970,21 @@ const panels = {
           }, `chain ${ch.aid}`);
           reloadAt(c.pid, 'identities');
         } catch (e) { ok.disabled = false; alert(e.message); }
-      } }, 'ذخیره و محاسبه‌ی دوباره‌ی راویان');
+      };
+      const ok = el('button', { class: 'primary', onclick: save }, 'ذخیره و محاسبه‌ی دوباره‌ی راویان');
       const btn = (t, f, cls) => el('button', { type: 'button', class: 'small' + (cls ? ' ' + cls : ''), onclick: f }, t);
       const draw = () => {
         const ps = places(), ord = ordered(ps), lab = new Array(T.tokens.length).fill(null);   // the same objects, so a place's index in `ord` is its number
         ps.forEach(p => { if (!p.span) return; const k = ord.indexOf(p); for (let j = p.span.t; j < p.span.b; j++) if (!p.dropped || !lab[j]) lab[j] = { p, k, nm: j >= p.span.a }; });
         const n = Math.min(T.tokens.length, Math.max(shown, ...ps.filter(p => p.span).map(p => p.span.b + 20), pend ? pend.b + 20 : 0));
+        /* the words between two narrators that follow each other in the chain (and before the first one) are the link between them: a lighter shade of the
+           phrase colour. Not across a narrator that is not in the text, and only in the sanad: there the words between could be anything. */
+        const gap = new Array(T.tokens.length).fill(false), real = ord.filter(p => !p.coll);
+        real.forEach((p, k) => {
+          if (!p.span) return;
+          const from = k === 0 ? 0 : real[k - 1].span ? real[k - 1].span.b : null;
+          if (from != null) for (let j = from; j < Math.min(p.span.t, T.n_sanad); j++) if (!lab[j]) gap[j] = true;
+        });
         const kids = [];
         for (let j = 0; j < n; j++) {
           if (j === T.n_sanad) kids.push(' ', el('span', { class: 'seg', title: 'از این جا متن حدیث آغاز می‌شود' }, T.n_sanad ? 'متن' : 'متن (بی‌سند)'), ' ');
@@ -978,9 +992,9 @@ const panels = {
           const L = lab[j], cls = ['tok'];
           if (L) { cls.push(L.nm ? 'nm' : 'tm'); if (L.p.dropped) cls.push('dropped'); if (L.p.idDrop) cls.push('iddrop'); if (L.p.i === sel) cls.push('cur'); }
           else if (pend && j >= pend.t && j < pend.b) cls.push(j >= pend.a ? 'nm' : 'tm', 'cur');
-          else cls.push('out');
+          else cls.push(gap[j] ? 'gap' : 'out');
           if (anchor === j) cls.push('anc');
-          kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(L ? (L.k < 0 ? 0 : L.k) : ord.length)}`, title: L ? (L.nm ? 'نام: ' : 'لفظ نقل: ') + nameOf(L.p) : '' },
+          kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(L ? (L.k < 0 ? 0 : L.k) : ord.length)}`, title: L ? (L.nm ? 'نام: ' : 'لفظ نقل: ') + nameOf(L.p) : gap[j] && !(pend && j >= pend.t && j < pend.b) ? 'میان دو راوی' : '' },
             L && L.nm && j === L.p.span.a && !L.p.dropped ? el('sup', { class: 'pnum' }, fa(L.k + 1)) : null, T.words[j]));
         }
         if (n < T.tokens.length) kids.push(' ', el('button', { type: 'button', class: 'small more' }, `… ${fa(T.tokens.length - n)} واژه‌ی دیگر`));
@@ -1005,9 +1019,12 @@ const panels = {
             if (s.user) tb.push(btn('بازگشت به خودکار', () => { delete ed.span[s.i]; draw(); }));
             tb.push(btn('حذف راوی', () => { if (s.added && s.i - ADD0 >= nSaved) ed.add.splice(s.i - ADD0, 1); else ed.drop.push(s.i); sel = null; draw(); }, 'danger'));
           }
-          tb.push(btn('بستن', () => { sel = null; draw(); }));
+          tb.push(btn('لغو انتخاب', () => { sel = null; draw(); }));
         } else tb = [el('span', { class: 'muted' }, 'برای افزودن راوی، نخستین و واپسین واژه‌ی نامش را بزنید (در سند یا در متن)؛ برای ویرایش یا حذف، روی نامی رنگی بزنید.')];
         fill(bar, ...tb);
+        fill(askBox, asking ? el('div', { class: 'help warnbox' }, el('b', {}, 'تغییرهای ذخیره‌نشده دارید. پیش از بستن ذخیره شوند؟'),
+          el('div', { class: 'toolbar' }, btn('ذخیره و بستن', save, 'primary'), btn('دور انداختن تغییرها و بستن', closeModal, 'danger'),
+            btn('ادامه‌ی ویرایش', () => { asking = false; draw(); }))) : null);
         msg.textContent = note;
         const un = ps.filter(p => (!p.span || p.removed) && !p.coll);
         fill(unanch, un.length ? [el('div', { class: 'small muted' }, un.some(p => !p.removed) ? 'در متن پیدا نشد (این جا فقط حذف‌شدنی؛ نام و لفظ نقلشان را در بخش ۳ تغییر دهید) یا پیش‌تر حذف شده:' : 'پیش‌تر حذف شده (با زدن، بازگرداندنی):'),
@@ -1019,9 +1036,10 @@ const panels = {
         ok.disabled = !changed() || mode === 'confirm' || anchor !== null;
       };
       modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'ویرایش سند: ', el('span', { class: 'ar' }, wtitle(ch.wid))), help('step4.chainedit'),
-        el('div', { class: 'small muted' }, 'واژه‌های رنگی راویان سندند: پررنگ نام، کم‌رنگ لفظ نقل، شماره جایگاه در سند. ویرایش پس از ذخیره نامزدهای راویان را از نو می‌سازد؛ انتخاب‌های پیشین بر جای خود می‌مانند.'),
-        bar, msg, box, unanch, prev,
-        el('div', { class: 'toolbar' }, ok, el('button', { type: 'button', onclick: closeModal }, 'بستن'), chainPending ? el('span', { class: 'small muted' }, 'ویرایش پیشین این مرحله هنوز در حال محاسبه است.') : null)));
+        el('div', { class: 'small muted' }, 'واژه‌های رنگی راویان سندند: پررنگ نام (هر راوی یک رنگ)، کرم لفظ نقل، کرمِ کم‌رنگ‌تر واژه‌های میان دو راوی، شماره جایگاه در سند. ویرایش پس از ذخیره نامزدهای راویان را از نو می‌سازد؛ انتخاب‌های پیشین بر جای خود می‌مانند.'),
+        askBox, bar, msg, box, unanch, prev,
+        el('div', { class: 'toolbar' }, ok, el('button', { type: 'button', onclick: tryCloseModal }, 'بستن'), chainPending ? el('span', { class: 'small muted' }, 'ویرایش پیشین این مرحله هنوز در حال محاسبه است.') : null)));
+      modalGuard = () => { if (!changed()) return true; asking = true; draw(); askBox.scrollIntoView({ block: 'nearest' }); return false; };
       draw();
     };
     const drawEd = () => {
@@ -1510,7 +1528,7 @@ async function saveParts(pid, patch, note) {
 }
 /* after a segmentation decision: stay on the step (the project's own step may be another one) */
 function reloadAt(pid, step) { cache.clear(); closeModal(); setUrl(BASE + stepUrl(pid, null, step), true); render(); }
-function closeModal() { document.getElementById('modal').hidden = true; }
+function closeModal() { modalGuard = null; document.getElementById('modal').hidden = true; }      // closes for good (after a save, or «discard»)
 const WORDS = new Map();
 function wordsOf(pid, run, wid) {
   const k = `${pid}|${run}|${wid}`;

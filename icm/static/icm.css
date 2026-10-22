@@ -151,6 +151,7 @@ details.splitd{margin:8px 0}details.splitd>summary{cursor:pointer;color:var(--ac
 .chaintext{max-height:45vh}
 .chaintext .tok.nm{background:hsl(var(--h) var(--k-s) var(--hd-l));font-weight:700}      /* a name: its own colour, strong */
 .chaintext .tok.tm{background:hsl(38 22% var(--hl-l));box-shadow:inset 0 -2px 0 hsl(38 30% 55%);color:var(--muted)}   /* the words between names (the phrase): one neutral colour for all */
+.chaintext .tok.gap{background:hsl(38 16% var(--hl-l) / .55);color:var(--muted)}      /* between two narrators: the link, lighter than the phrase */
 .chaintext .tok.cur.nm{background:hsl(var(--h) var(--k-s) var(--k-l));color:var(--on-sw,#fff)}   /* the selected narrator: dark fill, white text, outline */
 .chaintext .tok.cur.tm{background:hsl(var(--h) var(--hl-s) var(--hd-l));color:var(--fg);box-shadow:none}
 .chaintext .tok.cur{outline:3px solid hsl(48 95% 55%);outline-offset:1px}

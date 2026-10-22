@@ -32,6 +32,6 @@
       if (!modal.hidden && !back) { back = document.activeElement; const x = document.getElementById('modal-x'); if (x) x.focus(); }
       else if (modal.hidden && back) { try { back.focus(); } catch (_) {} back = null; }
     }).observe(modal, { attributes: true, attributeFilter: ['hidden'] });
-    document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !modal.hidden) modal.hidden = true; });
+    document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !modal.hidden) { if (window.ICMCloseModal) window.ICMCloseModal(); else modal.hidden = true; } });
   }
 })();

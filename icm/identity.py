@@ -700,7 +700,7 @@ def _find(keys: List[str], nm: List[str], start: int) -> Optional[int]:
 def anchor_elems(toks: List[str], elems: Sequence[dict]) -> Dict[int, Optional[dict]]:
     """``{i: {t, a, b} | None}``: where each place of a chain stands in ``toks`` (``hadith_words``), left to right, each
     after the one before: the name as written without honorifics (ابن≡بن, ابی/ابا≡ابو), the transmission phrase
-    [t, a) in front of it when its words are there. The collector (the book's author) is never looked for."""
+    [t, a) in front of it (the source's words when they are there, else the transmission words directly before it). The collector (the book's author) is never looked for."""
     keys = [_akey(t) for t in toks]
     out: Dict[int, Optional[dict]] = {}
     cur = 0
@@ -715,7 +715,12 @@ def anchor_elems(toks: List[str], elems: Sequence[dict]) -> Dict[int, Optional[d
             continue
         b = a + len(nm)
         tm = [_akey(t) for t in norm(e.get("term") or "").split()]
-        t = a - len(tm) if tm and a - len(tm) >= cur and keys[a - len(tm):a] == tm else a
+        if tm and a - len(tm) >= cur and keys[a - len(tm):a] == tm:
+            t = a - len(tm)
+        else:                                                              # the source gave no phrase (KG): the transmission words in front of the name
+            t = a
+            while t > cur and a - t < 4 and sanad_parse.is_transmit(toks[t - 2] if t >= 2 else None, toks[t - 1]):
+                t -= 1
         out[e["i"]] = dict(t=t, a=a, b=b)
         cur = b
     return out

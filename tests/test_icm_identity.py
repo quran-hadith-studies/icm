@@ -424,7 +424,7 @@ def test_anchor_elems_finds_each_place_after_the_one_before_without_honorifics()
           dict(i=2, name="فلان", raw="فلان", term="عن", kind="name", exact=None, cands=[]),
           dict(i=3, name="سعید بن المسیب", raw="سعید بن المسیب عليه السلام", term=None, kind="name", exact=None, cands=[])]
     sp = identity.anchor_elems(toks, el)
-    assert sp == {0: None, 1: dict(t=6, a=7, b=9), 2: None, 3: dict(t=13, a=13, b=16)}
+    assert sp == {0: None, 1: dict(t=6, a=7, b=9), 2: None, 3: dict(t=12, a=13, b=16)}      # no phrase given: «عن» in front of it is found
     assert identity.anchor_elems(["ابو", "محمد"], [dict(i=5, name="ابی محمد", raw="ابی محمد", term=None, kind="name")]) == {5: dict(t=0, a=0, b=2)}
 
 
