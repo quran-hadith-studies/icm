@@ -340,6 +340,9 @@ def test_a_unit_defined_over_columns_follows_its_words():
     r = align.run(S, sel, {"units": {key: {"m:3": {"def": wide}, sub_key(base): {"drop": True}}}})
     w = next(u for u in r["units"] if u["ukey"] == "m:3")
     assert w["cols"] == [6, 7] and len(w["labels"]) == 2 and [u["ukey"] for u in r["dropped_units"]] == [sub_key(base)]
+    # a unit of one's own can be switched off, and back on
+    r = align.run(S, sel, {"units": {key: {"m:1": {"def": lexical, "drop": True}}}})
+    assert [u["ukey"] for u in r["dropped_units"]] == ["m:1"] and "m:1" not in {u["ukey"] for u in r["units"]}
     # words that are not in the alignment: flagged, no unit
     ghost = {"kind": "presence", "text": "ghost", "anchors": {"t:seed": ["ghost#1", "ghost#1"]}}
     r = align.run(S, sel, {"units": {key: {"m:4": {"def": ghost}}}})

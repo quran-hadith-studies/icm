@@ -608,7 +608,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                             and isinstance(df.get("text"), str) and 0 < len(df["text"].strip()) <= 300
                             and isinstance(an, dict) and 0 < len(an) <= 50 and all(
                                 isinstance(w, str) and WID_RE.match(w) and isinstance(v, list) and len(v) == 2 and all(tok_ok(t) for t in v)
-                                for w, v in an.items())) or e.get("drop"):
+                                for w, v in an.items())):
                         raise bad_units
                     e["def"] = dict(kind=df["kind"], anchors={w: list(v) for w, v in an.items()}, text=df["text"].strip())
                 if e:

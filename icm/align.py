@@ -534,7 +534,7 @@ def _apply_unit_decisions(units: List[dict], clause_defs: Sequence[dict], unit_c
             u["n_states"] = len(u["labels"])
             if d.get("keep"):
                 u["user_keep"] = True
-            if d.get("drop") and u.get("by") != "user":
+            if d.get("drop"):
                 u["user_drop"] = True
 
 

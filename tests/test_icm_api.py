@@ -189,7 +189,7 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
                     {"units": {key: {"بیتا": {"cls": "both"}}}}, {"units": {key: {"بیتا": {"states": {w: 3}}}}}, {"units": {key: {"بیتا": {"states": {"bad": None}}}}},
                     {"units": {key: {"بیتا": {"drop": "yes"}}}}, {"units": {key: {"بیتا": {"color": 1}}}},
                     {"units": {key: mdef(anchors={W0: ["من", "من#1"]})}}, {"units": {key: mdef(anchors={})}}, {"units": {key: mdef(kind="both")}},
-                    {"units": {key: mdef(text="  ")}}, {"units": {key: {"m:1": {"def": manual, "drop": True}}}}, {"units": {"bad": {"بیتا": {"drop": True}}}}, {"units": [1]}):
+                    {"units": {key: mdef(text="  ")}}, {"units": {"bad": {"بیتا": {"drop": True}}}}, {"units": [1]}):
             assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": dict(body, **bad)}, headers=H("alice")).status_code == 400, bad
         assert project.decision(pid, "parts")["units"] == want
         pipeline.advance(pid)                                                               # reaches the alignment (a unit that does not fit is flagged)
