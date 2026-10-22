@@ -1008,9 +1008,8 @@ const panels = {
 
     /* ---- the chain in its text («ویرایش سند»): one popup for the chain of a hadith. The list is the chain as it stands, in text
        order; a removed narrator leaves it (nothing is kept for restoring). The text below is the whole hadith (sanad + matn), where
-       only the narrators' NAMES are coloured. Nothing selected: a click on a name selects that narrator; a click on a free word only
-       SUGGESTS a narrator (the word is marked; more clicks on the words next to it grow the suggestion) and nothing in the chain
-       changes until «افزودن» is pressed. A narrator selected: a free word moves the nearer edge of its name there (if that
+       only the narrators' NAMES are coloured. Nothing selected: a click on a name selects that narrator; a click on a free word adds
+       a narrator of that one word and selects it. A narrator selected: a free word moves the nearer edge of its name there (if that
        would cover another narrator, the name becomes just that word: a move); a word inside its name takes that word and the ones
        towards the nearer edge out; a word of another narrator changes nothing. No two narrators share a word, and nothing that would
        make them share one is applied (also «↺ خودکار»). Saved as parts.chain[aid]; place ids never change (an added place is 1000 +
@@ -1027,7 +1026,7 @@ const panels = {
       const saved = (pdec.chain || {})[ch.aid] || {}, savedSpan = saved.span || {};
       const ed = { span: { ...savedSpan }, add: (saved.add || []).map(s => ({ ...s })), drop: [...(saved.drop || [])] };
       const nSaved = ed.add.length;                     // a saved add keeps its id for good; an unsaved one can simply be taken back
-      let sel = selI != null ? selI : null, pend = null, note = '', shown = T.n_sanad + PAGE;     // pend: {a, b}, the words suggested as a new narrator
+      let sel = selI != null ? selI : null, note = '', shown = T.n_sanad + PAGE;
       const hist = [];                                  // undo: the state of `ed` before each change
       const mutate = f => { hist.push(JSON.stringify(ed)); f(); };
       const base = i => (i in savedSpan ? auto[i] : cur0[i]) || null;      // a place's words when the user has not set them
@@ -1061,32 +1060,21 @@ const panels = {
         mutate(() => { if (b0 && b0.a === a && b0.b === b) delete ed.span[s.i]; else setSpan(s, mkSpan(a, b, s)); });
         return true;
       };
-      /* «افزودن» of the suggestion: a narrator of those words, selected; taken back if anything goes wrong */
-      const confirmNew = () => {
-        const k = ed.add.length, h = hist.length, { a, b } = pend;
+      /* a click on a free word with nothing selected: a narrator of that one word, selected; taken back if anything goes wrong */
+      const addNew = j => {
+        const k = ed.add.length, h = hist.length;
         try {
-          if (overlaps(a, b, null)) throw new Error('taken');
-          mutate(() => ed.add.push(mkSpan(a, b, null)));
-          sel = ADD0 + k; pend = null;
+          if (overlaps(j, j + 1, null)) throw new Error('taken');
+          mutate(() => ed.add.push(mkSpan(j, j + 1, null)));
+          sel = ADD0 + k;
           if (!selP()) throw new Error('not in the list');
-          note = 'راوی تازه افزوده و برگزیده شد.';
-        } catch (_) { ed.add.length = Math.min(ed.add.length, k); hist.length = h; sel = null; pend = null; note = 'افزودن راوی تازه در این‌جا ممکن نشد.'; }
+          note = 'راوی تازه افزوده و برگزیده شد؛ برای گسترش نامش روی واژه‌های کنارش بزنید.';
+        } catch (_) { ed.add.length = Math.min(ed.add.length, k); hist.length = h; sel = null; note = 'افزودن راوی تازه در این‌جا ممکن نشد.'; }
       };
       const clickTok = j => {
         note = '';
         const p = owner(j), s = selP();
-        if (s) pend = null;
-        if (!s) {                                                                                   // nothing selected: a click never changes the chain
-          if (p) { sel = p.i; pend = null; return paint(); }                                        // a name: select it
-          if (!pend) pend = { a: j, b: j + 1 };                                                     // a free word: only suggest a narrator
-          else if (j >= pend.a && j < pend.b) { if (pend.b - pend.a === 1) pend = null; else if (j - pend.a < pend.b - 1 - j) pend = { a: j + 1, b: pend.b }; else pend = { a: pend.a, b: j }; }
-          else {
-            const na = Math.min(pend.a, j), nb = Math.max(pend.b, j + 1);
-            if (overlaps(na, nb, null)) { pend = { a: j, b: j + 1 }; note = 'میان پیشنهاد و این واژه راوی دیگری است؛ پیشنهاد فقط همین واژه شد.'; }
-            else pend = { a: na, b: nb };
-          }
-          return paint();
-        }
+        if (!s) { if (p) sel = p.i; else addNew(j); return paint(); }                              // select, or add
         if (p && p.i !== s.i) { note = `این واژه از آنِ «${nameOf(p)}» است؛ نخست «لغو انتخاب» را بزنید یا نام او را کوتاه کنید.`; return paint(); }
         const sp = s.span;
         if (p) {                                                                                    // a word of its own name: shorten
@@ -1100,7 +1088,7 @@ const panels = {
         else setRegion(s, na, nb);                                                                  // extend the nearer edge
         paint();
       };
-      const HINT = 'روی نام یک راوی بزنید تا برگزیده شود. روی واژه‌ای آزاد بزنید تا راوی تازه‌ای پیشنهاد شود؛ تا «افزودن» را نزنید چیزی تغییر نمی‌کند.';
+      const HINT = 'روی نام یک راوی بزنید تا برگزیده شود، یا روی واژه‌ای آزاد بزنید تا راوی تازه‌ای از همان واژه ساخته شود.';
       const box = el('div', { class: 'ar pedit pick chaintext' }), bar = el('div', { class: 'toolbar small edbar' }), list = el('div', { class: 'edlist' }), tools = el('div', { class: 'toolbar small' });
       const msg = el('div', { class: 'small', style: 'color:var(--warn);min-height:1.3em' });
       box.onclick = ev => {
@@ -1129,7 +1117,7 @@ const panels = {
       };
       const ok = el('button', { class: 'primary', onclick: save }, 'ذخیره و محاسبه‌ی دوباره‌ی راویان');
       const btn = (t, f, cls, title, dis) => el('button', { type: 'button', class: 'small' + (cls ? ' ' + cls : ''), title: title || '', disabled: !!dis, onclick: ev => { ev.stopPropagation(); f(); } }, t);
-      const pick = p => { sel = p.i; pend = null; note = ''; paint(); if (p.span) { const b = box.querySelector(`button[data-i='${p.span.a}']`); if (b) b.scrollIntoView({ block: 'center' }); } };
+      const pick = p => { sel = p.i; note = ''; paint(); if (p.span) { const b = box.querySelector(`button[data-i='${p.span.a}']`); if (b) b.scrollIntoView({ block: 'center' }); } };
       const remove = p => { mutate(() => { if (p.added && p.i - ADD0 >= nSaved) ed.add.splice(p.i - ADD0, 1); else ed.drop.push(p.i); }); sel = null; note = `«${nameOf(p)}» از سند برداشته شد.`; paint(); };
       /* «↺ خودکار»: only when the automatic words of the place are free now */
       const revert = p => {
@@ -1160,7 +1148,6 @@ const panels = {
           else if (j) kids.push(' ');
           const L = lab[j], cls = ['tok'];
           if (L) { cls.push('nm'); if (L.p.idDrop) cls.push('iddrop'); if (L.p.i === sel) cls.push('cur'); } else cls.push('out');
-          if (!L && pend && j >= pend.a && j < pend.b) cls.push('pend');
           kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(L ? Math.max(L.k, 0) : 0)}`, title: L ? 'راوی: ' + nameOf(L.p) : 'واژه‌ی آزاد' },
             L && j === L.p.span.a ? el('sup', { class: 'pnum' }, fa(L.k + 1)) : null, T.words[j]));
         }
@@ -1173,10 +1160,7 @@ const panels = {
         fill(bar, ...(s ? [el('span', {}, 'راوی برگزیده: ', el('b', { class: 'ar' }, nameOf(s) || '—'), s.span
             ? '. روی واژه‌ای آزاد بزنید تا مرز نام به آن برسد (اگر راوی دیگری در میان باشد، نام فقط همان واژه می‌شود)؛ روی واژه‌ای درون نام بزنید تا آن واژه و واژه‌های میان آن و نزدیک‌ترین لبه از نام بیرون روند.'
             : '. در متن پیدا نشد؛ روی واژه‌ای آزاد بزنید تا نامش همان‌جا باشد.', s.e && s.e.exact ? ' (با تغییر مرز، پیوند قطعیِ منبع برداشته و نامزدها از نو ساخته می‌شود.)' : ''),
-          btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })]
-          : pend ? [el('span', {}, 'راوی تازه: «', el('b', { class: 'ar' }, T.words.slice(pend.a, pend.b).join(' ')), '»؟ برای گسترش نام روی واژه‌های کنارش بزنید؛ برای کوتاه‌کردن روی واژه‌ای از خودش.'),
-            btn('افزودن', () => { confirmNew(); paint(); }, 'primary'), btn('لغو', () => { pend = null; note = ''; paint(); })]
-          : [el('span', { class: 'muted' }, HINT)]));
+          btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })] : [el('span', { class: 'muted' }, HINT)]));
         fill(askBox, asking ? el('div', { class: 'help warnbox' }, el('b', {}, 'تغییرهای ذخیره‌نشده دارید. پیش از بستن ذخیره شوند؟'),
           el('div', { class: 'toolbar' }, btn('ذخیره و بستن', save, 'primary'), btn('دور انداختن تغییرها و بستن', closeModal, 'danger'),
             btn('ادامه‌ی ویرایش', () => { asking = false; paint(); }))) : null);
