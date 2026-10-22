@@ -525,7 +525,6 @@ const panels = {
        present state is a pending change; «ذخیره‌ی انتخاب» saves them all at once (parts.units: keep / drop). */
     const PV = A.private_variants || [], DU = A.dropped_units || [], nPrivate = PV.filter(u => !u.why || u.why === 'private').length;
     const WHY = { private: 'کنارگذاشته‌ی خودکار: فقط یک شاهد متفاوت', capped: 'کنارگذاشته‌ی خودکار: بیش از ۴۰ واحد', orthographic: 'کنارگذاشته‌ی خودکار: فقط اختلاف املایی', constant: 'همه‌ی شاهدها یک حالت دارند' };
-    let showOrth = pref('icm.ortho', '0') === '1';
     const stale = A.units.some(u => u.ukey === undefined) || PV.some(u => !u.labels);     // built before the units could be edited: run it again
     const cand = [...units.map(u => ({ u, st: 'in' })), ...(PV.every(x => x.labels) ? PV : []).map(u => ({ u, st: u.why || 'private' })), ...DU.map(u => ({ u, st: 'dropped' }))];
     const want = {}, cid = x => `${x.u.clause}|${x.u.ukey}`;
@@ -536,13 +535,12 @@ const panels = {
     const saveSelection = () => saveUnits(cand.filter(x => cid(x) in want).map(x => [clauseKeyOf(x.u), x.u.ukey, want[cid(x)] ? e => { e.keep = true; delete e.drop; } : e => { e.drop = true; delete e.keep; }]), 'unit selection');
     const decided = () => Object.entries(pd.units || {}).flatMap(([k, m]) => Object.entries(m).filter(([, e]) => e.drop || e.keep).map(([uk]) => [k, uk, e => { delete e.drop; delete e.keep; }]));
     const drawUnits = () => {
-      const vis = cand.filter(x => showOrth || x.st !== 'orthographic' || isOn(x) || cid(x) in want), nOrth = cand.filter(x => x.st === 'orthographic').length;
+      const vis = cand;                                // every unit, the ones set aside included
       const pending = Object.keys(want).length, nOn = cand.filter(isOn).length, mine = decided(), all = (on) => () => { vis.filter(usable).forEach(x => setWant(x, on)); drawUnits(); };
       unitsBox.replaceChildren(
         canEdit && cand.some(usable) ? el('div', { class: 'toolbar' + (pending ? ' actionbar' : '') },
           el('b', {}, `${fa(nOn)} از ${fa(cand.length)} واحد برای مدل (مرحله‌ی ۵) انتخاب شده`),
           el('button', { class: 'small', onclick: all(true) }, 'انتخاب همه'), el('button', { class: 'small', onclick: all(false) }, 'برداشتن همه'),
-          nOrth ? el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: showOrth, onchange: ev => { showOrth = ev.target.checked; setPref('icm.ortho', showOrth ? '1' : '0'); drawUnits(); } }), ` نمایش ${fa(nOrth)} ستونِ فقط املایی`) : null,
           el('button', { class: 'small', disabled: !mine.length || pending > 0, title: 'همه‌ی «نگه داشتن» و «کنار گذاشتن»های شما برداشته می‌شود و انتخاب خودکار برمی‌گردد', onclick: () => saveUnits(mine, 'unit selection reset') }, 'بازگشت به انتخاب خودکار'),
           pending ? [el('button', { class: 'primary', onclick: saveSelection }, `ذخیره‌ی انتخاب (${fa(pending)} تغییر)`), el('button', { class: 'small', onclick: () => { Object.keys(want).forEach(k => delete want[k]); drawUnits(); } }, 'لغو تغییرها'),
             el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.')] : null) : null,
@@ -680,7 +678,7 @@ const panels = {
             el('li', {}, el('b', {}, 'عدد: '), 'عددی که حدیث می‌گوید (۴، ۵، ۶، ۷…).')),
           el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد خودکار نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست؛ واحدهایی که خودتان نگه می‌دارید یا می‌سازید جدا از این سقف‌اند.`))], help('step3.units'),
         el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.${DU.length ? ` ${fa(DU.length)} واحد را خودتان کنار گذاشته‌اید.` : ''}${canEdit ? ' ستون «در مدل» را تیک بزنید یا بردارید تا تعیین کنید کدام واحدها به مرحله‌ی بعد بروند (واحدهای کنارگذاشته هم در همین جدول‌اند)؛ با «+ واحد تازه» بالای جدول هم‌ترازی روی چند ستون واحدی بسازید.' : ''}`),
-        stale ? el('div', { class: 'help warnbox' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است؛ برخی واحدها (واژه‌ی جایگزین) را نمی‌توان برداشت و واحدهای کنارگذاشته در جدول نیستند. ',
+        stale ? el('div', { class: 'help warnbox' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است: واحدهای کنارگذاشته (مانند واژه‌ای که فقط یک شاهد دارد، یا ستون‌هایی که فقط در املا فرق دارند) در این جدول نیستند و برخی واحدها را نمی‌توان برداشت. با «اجرای دوباره» همه‌ی آن‌ها در جدول می‌آیند و می‌توانید تیکشان بزنید. ',
           c.can && !STATIC ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reloadAt(c.pid, 'alignment'); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
           el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند و مرحله‌ی ۵ دوباره تأیید می‌خواهد.')) : null,
         unitsBox,
