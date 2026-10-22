@@ -316,3 +316,35 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         assert 1000 not in ids3 and e1["i"] not in ids3 and len(ids3) == len(ids) - 2
     finally:
         shutil.rmtree(d)
+
+
+def test_a_place_removed_on_the_main_page_leaves_the_chain():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        W0 = "v02:800316143"
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid)
+        S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [x["wid"] for x in S["candidates"][:2]]}}, headers=H("alice"))
+        pipeline.advance(pid)
+        I = c.get(f"/icm/api/project/{pid}/runs/current/identify").json()
+        ch = next(x for x in I["chains"] if x["wid"] == W0)
+        e = next(x for x in ch["elems"] if x.get("role") != "collector")
+        occ, others = f"{ch['aid']}|{e['i']}", [x["i"] for x in ch["elems"] if x["i"] != e["i"]]
+        assert "drops_in" in I and I["drops_in"] == []
+        assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"drops": [occ]}}, headers=H("alice")).status_code == 200
+        pipeline.advance(pid)
+        I2 = c.get(f"/icm/api/project/{pid}/runs/current/identify").json()
+        ch2 = next(x for x in I2["chains"] if x["aid"] == ch["aid"])
+        assert [x["i"] for x in ch2["elems"]] == others                    # gone; the others keep their ids and their order
+        assert I2["drops_in"] == [occ] and I2["chain_in"] == {}           # parts.chain untouched; the editor's pending check stays quiet
+        assert all(o != [ch["aid"], e["i"]] for cd in I2["cards"].values() for o in cd["occurrences"])
+        # restored on the main page and confirmed: back in the chain
+        assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"drops": []}}, headers=H("alice")).status_code == 200
+        pipeline.advance(pid)
+        I3 = c.get(f"/icm/api/project/{pid}/runs/current/identify").json()
+        assert [x["i"] for x in next(x for x in I3["chains"] if x["aid"] == ch["aid"])["elems"]] == [x["i"] for x in ch["elems"]]
+    finally:
+        shutil.rmtree(d)

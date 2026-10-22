@@ -713,8 +713,10 @@ What every step also offers (added 2026-10-13):
   there, a click inside shortens it (a narrator not found in the text is located by the first word clicked);
   a plain word clicked with nothing selected only SUGGESTS a narrator (marked, grown by clicking the words next to it) and
   nothing changes until «افزودن» is pressed. The transmission
-  phrase in front of a name is found by itself (transmission words before it). «حذف از سند…» in step 4's part 3 opens
-  this popup with that narrator marked removed. Closing with unsaved edits asks (save / discard / go on). Saved as `parts.chain[aid] = {span: {i: {t, a, b}}, add:
+  phrase in front of a name is found by itself (transmission words before it). A removal means the same everywhere: «✕ حذف» here (saved
+  with «ذخیره») and «حذف از سند» on step 4's main page or an accepted «حذف از سند» suggestion (identities.drops, saved with
+  «تأیید راویان»; `identity.merge_drops` folds them into the chain's `drop` before identify) both take the place out of the
+  chain. A removal alone keeps the chain's order. Closing with unsaved edits asks (save / discard / go on). Saved as `parts.chain[aid] = {span: {i: {t, a, b}}, add:
   [{t, a, b}], drop: [i]}` (`identity.apply_chain_edits`, before `apply_renames`, which it overrides for the same
   place). Place ids never change: an added place is `1000 + its position in add`, for good, so every `aid|i` key of
   the identities decision stays valid; the chain is reordered by text position (a place not found in the text stays

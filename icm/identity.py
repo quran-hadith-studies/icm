@@ -731,6 +731,18 @@ def _span_ok(s, top: int) -> bool:
             and 0 <= s["t"] <= s["a"] < s["b"] <= top)
 
 
+def merge_drops(chain_edits: Optional[dict], drops: Optional[Sequence[str]]) -> Optional[dict]:
+    """``chain_edits`` (parts.chain) with the places removed on step 4's main page (identities.drops, ``"<aid>|<i>"``)
+    added to their chain's ``drop``: one meaning for a removal wherever it was made, the place leaves the chain."""
+    out = {aid: dict(ed) for aid, ed in (chain_edits or {}).items()}
+    for occ in drops or ():
+        aid, _, i = str(occ).rpartition("|")
+        if aid and i.isdigit():
+            ed = out.setdefault(aid, {})
+            ed["drop"] = sorted(set(ed.get("drop") or []) | {int(i)})
+    return out or None
+
+
 def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Optional[dict]) -> int:
     """The user's reading of a chain in its text (``parts.chain``, keyed by chain ``aid``): ``span`` ``{i: {t, a, b}}``
     moves the boundaries of a place (transmission phrase [t, a), name [a, b), in the tokens of ``hadith_words``);
@@ -803,7 +815,10 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
             pos[id(e)] = last
         for e in added:
             pos[id(e)] = e["span"]["a"]
-        ch["elems"] = sorted(keep + added, key=lambda e: (pos[id(e)], 1 if e.get("added") else 0, orig.get(id(e), 10 ** 9)))
+        if added or ed.get("span"):                    # a removal alone leaves the order as the source gave it
+            ch["elems"] = sorted(keep + added, key=lambda e: (pos[id(e)], 1 if e.get("added") else 0, orig.get(id(e), 10 ** 9)))
+        else:
+            ch["elems"] = keep
         if ch.get("speaker"):
             ch["speaker"]["elem"] = None                   # written by the parser, read nowhere; stale after a reorder
         if len(ch["elems"]) < 2 and not ch.get("speaker") and "no_sanad" not in ch["flags"]:

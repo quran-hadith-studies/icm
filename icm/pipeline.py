@@ -79,10 +79,11 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         V = project.narrator_version(pid)
         ren = pdec.get("renames") or None                         # step 4: where a name begins and ends (only then, so keys stay)
         ced = pdec.get("chain") or None                           # step 4: places added, removed or re-bounded in the text
-        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([ren] if ren else []),
-                    *([ced] if ced else []))
-        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A, V, ren, ced), hashes)
         iddec = project.decision(pid, "identities")
+        idrops = sorted(set((iddec or {}).get("drops") or [])) or None   # step 4: places removed on the main page leave the chain too
+        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([ren] if ren else []),
+                    *([ced] if ced else []), *([{"drops": idrops}] if idrops else []))
+        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A, V, ren, ced, idrops), hashes)
         if not iddec:
             return _finish(pid, vers, hashes, "draft", "identities")
         # --- graph -------------------------------------------------------------------------------
@@ -125,12 +126,14 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         raise
 
 
-def _identify(S: dict, A: dict, V: narrator_versions.Version, renames: Optional[dict] = None, chain_edits: Optional[dict] = None) -> dict:
+def _identify(S: dict, A: dict, V: narrator_versions.Version, renames: Optional[dict] = None, chain_edits: Optional[dict] = None,
+              drops: Optional[list] = None) -> dict:
     wids = [S["seed"]["wid"]] + [w["wid"] for w in A["witnesses"] if w["wid"] != S["seed"]["wid"]]
     recs = corpus.get_many(wids)
-    I = identity.build([recs[w] for w in wids if w in recs], V, renames, chain_edits)
+    I = identity.build([recs[w] for w in wids if w in recs], V, renames, identity.merge_drops(chain_edits, drops))
     I["renames_in"] = renames or {}
     I["chain_in"] = chain_edits or {}
+    I["drops_in"] = drops or []
     I["suggestions"] = suggest_mod.suggest(I, V)
     I["narrator_version"] = V.info()
     return I

@@ -783,12 +783,12 @@ const panels = {
       return { sts, st, txt, nund, tip: ['exact', 'auto', 'user', 'und', 'none', 'anon', 'drop'].filter(k => n(k)).map(k => `${fa(n(k))} ${ST[k]}`).join('، ') + (nund ? `، ${fa(nund)} بی‌تاریخ` : '') };
     };
 
-    const ST = { exact: 'قطعی (از منبع)', auto: 'خودکار (بازبینی‌نشده)', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم', drop: 'حذف از سند' };
+    const ST = { exact: 'قطعی (از منبع)', auto: 'خودکار (بازبینی‌نشده)', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم', drop: 'حذف می‌شود (با تأیید راویان)' };
     const chip = (ch, e) => {
       if (isGap(e)) return el('span', { class: 'gapm', title: 'جایی که منبع راوی‌ای را نیاورده است' }, '‹' + e.name.replace('موضع ', '').replace('اسم مبهم', 'بی‌نام') + '›');
       const s = stateOf(ch, e), cd = cards[e.card], st = stOf(s), occ = `${ch.aid}|${e.i}`;
       const n = cd && !relOnly(cd) ? cd.occurrences.length : 1;
-      const sub = st === 'exact' ? '✓' : st === 'und' ? 'بی‌تصمیم' : st === 'none' ? 'فقط نام' : st === 'anon' ? 'نامعلوم' : st === 'drop' ? 'حذف از سند' : labelOf(s.id, e, cd);
+      const sub = st === 'exact' ? '✓' : st === 'und' ? 'بی‌تصمیم' : st === 'none' ? 'فقط نام' : st === 'anon' ? 'نامعلوم' : st === 'drop' ? 'حذف می‌شود' : labelOf(s.id, e, cd);
       const hit = pick && (pick.key === keyAt(ch, e) || pick.key.startsWith('id:') && s.id === pick.key.slice(3));
       return el('button', { class: `nc ${st}` + (hit ? (pick.occ === occ ? ' pk pk2' : ' pk') : ''),
         title: `${ST[st]}${s.split ? ' — شخص جداشده' : s.here ? ' — فقط همین جا' : ''}${s.id && s.id !== 'none' ? ' — ' + s.id : ''}`,
@@ -1198,7 +1198,7 @@ const panels = {
       if (s.st === 'drop') return fill(part3,
         el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, e.raw || e.name)),
           el('span', { class: 'chip none' }, ST.drop), el('span', { class: 'grow' }), el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
-        el('p', {}, `این جا (در ${wtitle(ch.wid)}) نام راوی شمرده نمی‌شود و در شجره از سند بیرون می‌ماند.`),
+        el('p', {}, `این راوی (در ${wtitle(ch.wid)}) با «تأیید راویان» از سند برداشته می‌شود: از سند، از «ویرایش سند» و از شجره بیرون می‌رود، همان‌گونه که با «✕ حذف» در «ویرایش سند».`),
         c.can ? el('button', { class: 'small', onclick: () => { drops.delete(occ); draw(); } }, 'بازگرداندن به سند') : null);
       const here = relOnly(cd) || n === 1 ? true : scopeHere || !!s.here;
       const val = here ? overrides[occ] : choices[cd.key], curId = s.id;
@@ -1243,7 +1243,7 @@ const panels = {
         c.can ? el('div', { class: 'toolbar' },
           el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setTimeout(() => setVal(cd, occ, here, v)); else if (v) alert('قالب شناسه نادرست است'); } }),
           val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default && !relOnly(cd) || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null,
-          el('span', { class: 'grow' }), el('button', { class: 'small', title: 'ویرایش سند را باز می‌کند و این راوی را از سند برمی‌دارد (با «↶ واگرد» پس می‌آید)؛ با «ذخیره» اعمال می‌شود. (واژه‌ی سند یا تکه‌ای از متن که نام خوانده شده است)', onclick: () => chainEditor(ch, e.i, true) }, 'حذف از سند…')) : null,
+          el('span', { class: 'grow' }), el('button', { class: 'small', title: 'این راوی از سند برداشته می‌شود، همان‌گونه که با «✕ حذف» در «ویرایش سند»؛ با «تأیید راویان» اعمال می‌شود و تا آن زمان «بازگرداندن به سند» آن را پس می‌آورد. (واژه‌ی سند یا تکه‌ای از متن که نام خوانده شده است)', onclick: () => { drops.add(occ); draw(); } }, 'حذف از سند')) : null,
         mergeSplit(ch, e),
         dateBox(ch, e, s));
       if (s.id || cands.length) fetchDeaths([s.id, ...cands.map(k => k.id)].filter(Boolean)).then(more => { if (more) draw(); });

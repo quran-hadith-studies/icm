@@ -491,3 +491,16 @@ def test_is_transmit_marks_phrases_and_their_prepositions():
     from icm import sanad_parse
     assert sanad_parse.is_transmit(None, "حدثنا") and sanad_parse.is_transmit("حدثنا", "عن") and sanad_parse.is_transmit(None, "وعن")
     assert sanad_parse.is_transmit("قرات", "علی") and not sanad_parse.is_transmit("یحیی", "علی") and not sanad_parse.is_transmit(None, "سعید")
+
+
+def test_main_page_removals_are_chain_removals_and_a_removal_alone_keeps_the_order():
+    assert identity.merge_drops(None, None) is None
+    got = identity.merge_drops({"a#t": {"add": [{"t": 0, "a": 0, "b": 1}], "drop": [2]}}, ["a#t|5", "a#t|2", "b#0|1", "bad", "c#t|x"])
+    assert got == {"a#t": {"add": [{"t": 0, "a": 0, "b": 1}], "drop": [2, 5]}, "b#0": {"drop": [1]}}
+    # a chain whose source order differs from the text order: removing one place must not reorder the rest
+    toks, words, _ = identity.hadith_words(_REC)
+    el = lambda i, name, **kw: dict(i=i, name=name, raw=name, term=None, kind="name", exact=None, cands=[], **kw)
+    ch = dict(aid="v02:9#s", wid="v02:9", source="noor_slots", speaker=None, quoted_work=None, flags=[],
+              elems=[el(0, "مالک", role="collector"), el(1, "ابن عباس"), el(2, "نام ناپیدا"), el(3, "یحیی بن سعید")])
+    identity.apply_chain_edits([ch], {"v02:9": (toks, words)}, identity.merge_drops(None, ["v02:9#s|2"]))
+    assert [e["i"] for e in ch["elems"]] == [0, 1, 3]
