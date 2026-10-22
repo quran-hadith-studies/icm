@@ -72,7 +72,7 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         selected = sorted(set(seldec.get("selected", [])) - {p["seed"]})
         # --- alignment + identity candidates --------------------------------------------------------
         say("align", 0.2, "aligning")
-        parts_in = {k: pdec[k] for k in ("extras_dropped", "extras_added", "slots", "words", "unit_cls") if pdec.get(k)}
+        parts_in = {k: pdec[k] for k in ("extras_dropped", "extras_added", "slots", "words", "unit_cls", "units") if pdec.get(k)}
         k_align = h("align", k_search, selected, STAGE_VERSIONS["align"], *([parts_in] if parts_in else []))
         A = _get_or_run(pid, "align", k_align, lambda: align_mod.run(S, selected, parts_in), hashes)
         say("identify", 0.4, "finding the narrators")

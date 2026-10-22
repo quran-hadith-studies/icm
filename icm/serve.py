@@ -140,7 +140,7 @@ def page_context(pid: str, run: str, full_texts: bool = True) -> dict:
         ctx["texts"] = {w: dict(matn=x["matn"], marks=x.get("marks", [])) for x in [S["seed"], *S["candidates"]] for w in [x["wid"], *x.get("copies", [])]}
         ctx["clauses"] = [c["text"] for c in S["clauses"]]
     if A:
-        ctx["units"] = [{k: u.get(k) for k in ("name", "kind", "unit_kind", "clause", "labels", "states", "cols")} for u in A["units"]]
+        ctx["units"] = [{k: u.get(k) for k in ("name", "kind", "unit_kind", "clause", "labels", "states", "cols", "ukey", "by")} for u in A["units"]]
         ctx["align"] = align_view(A)
     if G:
         ctx["nodes"] = {n: dict(tiers=i.get("tiers", []), date_source=i.get("date_source")) for n, i in G["nodes"].items()}

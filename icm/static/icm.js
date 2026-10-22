@@ -137,7 +137,9 @@ const FLAG_FA = {
   heads_capped: 'تعداد سرزنجیره‌ها از حد گذشت؛ فقط پرشاهدترها نامزد منبع شدند.', units_capped: 'فقط آگاهی‌بخش‌ترین واحدهای تغییر نگه داشته شد.',
   chronology: 'ناسازگاری زمانی: استاد پس از شاگرد درگذشته است (هویت یکی از آن‌ها را بررسی کنید).', repeated_node: 'یک راوی دو بار در یک سند آمده بود.',
   chain_too_short: 'سندی با کمتر از دو راوی.', witness_without_chain: 'شاهدی بدون سند خوانا؛ فقط در گردآورنده‌اش لنگر شد (پیشنهاد کنار گذاشتنش در مرحله‌ی ۴ آمده است).',
-  unknown_witness: 'شاهد انتخاب‌شده در نتایج جستجو نیست.', part_unused: 'یکی از اصلاح‌های فرازبندی به بخش یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.', no_chain: 'برای این شاهد سندی خوانده نشد.' };
+  unknown_witness: 'شاهد انتخاب‌شده در نتایج جستجو نیست.', part_unused: 'یکی از اصلاح‌های فرازبندی به بخش یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.', no_chain: 'برای این شاهد سندی خوانده نشد.',
+  unit_unused: 'یکی از اصلاح‌های واحدها به واحد، واژه یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.',
+  unit_constant: 'واحدی که نگه داشته یا ساخته‌اید در همه‌ی شاهدها یک حالت دارد؛ به مدل نمی‌رود.' };
 const flagText = f => FLAG_FA[f.kind] ? (f.kind === 'chronology' ? FLAG_FA[f.kind] + ' — ' + f.message : FLAG_FA[f.kind]) : f.message;
 let ME = { user: null, admin: false }, timer = null;
 const SITE_TITLE = 'تحلیل منبع حدیث';
@@ -405,6 +407,8 @@ const panels = {
     const cname = cl => cl.kind === 'seed' ? clauseRaw(S, cl.i) : cl.text;
     const hadith = wid => wid === S.seed.wid ? S.seed : S.candidates.find(x => x.wid === wid || (x.copies || []).includes(wid));
     let view = pref('icm.alview', 'one'), onlyDiff = pref('icm.aldiff', '0') === '1', pick = null;
+    let umode = false, uanc = null;        // defining a unit of one's own: picking its first and last column in the grid
+    const canEdit = c.can && !STATIC;
 
     /* the cells of one witness in one part: per grid column, or one cell when the part is not in its text */
     const cellsOf = (cl, w, keep) => {
@@ -419,11 +423,12 @@ const panels = {
           const col = g.columns[j], t = col[w.wid], r = refTok(g, j, seed);
           const cls = j < lo || j > hi ? 'na' : t == null ? (r == null ? 'gap' : 'om') : r == null ? 'ins' : mkey(t) === mkey(r) ? 'same' : 'diff';
           const on = pick !== null && (colUnits[`${cl.i}|${j}`] || []).includes(pick);
-          const td = el('td', { class: cls + (on ? ' pk' : '') + (j === keep[0] ? ' sep' : '') + (sg.user ? ' usr' : '') + (mine.has(j) ? ' wusr' : '') + (editable && t != null ? ' clk' : ''), style: hu,
+          const td = el('td', { class: cls + (on ? ' pk' : '') + (j === keep[0] ? ' sep' : '') + (sg.user ? ' usr' : '') + (mine.has(j) ? ' wusr' : '') + (umode ? ' clk' : editable && t != null ? ' clk' : '') + (uanc && uanc.ci === cl.i && uanc.j === j ? ' anc' : ''), style: hu,
             title: (cls === 'om' ? `«${r}» در این شاهد نیامده` : cls === 'ins' ? 'در حدیث مبدأ نیست' : cls === 'diff' ? `حدیث مبدأ: ${r}` : '') + (mine.has(j) ? ' (تصمیم دستی شما)' : '')
               + (editable && t != null ? ' — برای اصلاح بزنید: افزوده یا متفاوت؟' : '') }, t != null ? t : cls === 'na' ? '' : '·');
           td.dataset.c = `${cl.i}|${j}`;
-          if (editable && t != null) td.onclick = () => wordModal(cl, w, j, g, A, c, pd);
+          if (umode && cl.key) td.onclick = () => pickCol(cl, j);
+          else if (editable && t != null) td.onclick = () => wordModal(cl, w, j, g, A, c, pd);
           return td;
         });
       }
@@ -453,9 +458,9 @@ const panels = {
           clauseUnit[cl.i] !== undefined ? ubadge(clauseUnit[cl.i]) : null,
           cl.key && !STATIC ? el('button', { class: 'ub', title: 'بازبینی و اصلاح جای این بخش در شاهدها', onclick: ev => { ev.stopPropagation(); partModal(cl, A, S, c, pd, cname); } }, '✎') : null)));
       const head2 = el('tr', { class: 'u' }, cls.flatMap((cl, n) => keeps[n].length
-        ? keeps[n].map(j => el('th', { class: j === keeps[n][0] ? 'sep' : '', style: `--h:${hue(cl.i)}` }, (colUnits[`${cl.i}|${j}`] || []).map(ubadge)))
+        ? keeps[n].map(j => el('th', { class: j === keeps[n][0] ? 'sep' : '', style: `--h:${hue(cl.i)}`, onclick: umode && cl.key ? () => pickCol(cl, j) : null }, (colUnits[`${cl.i}|${j}`] || []).map(ubadge)))
         : el('th', { class: 'sep', style: `--h:${hue(cl.i)}` }, onlyDiff && grid[cl.i] && grid[cl.i].columns.length ? el('span', { class: 'small muted' }, 'یکسان') : '')));
-      return el('div', { class: 'grid-wrap', style: 'max-height:76vh' }, el('table', { class: 'altab' }, el('thead', {}, head1, head2),
+      return el('div', { class: 'grid-wrap', style: 'max-height:76vh' }, el('table', { class: 'altab' + (umode ? ' pickc' : '') }, el('thead', {}, head1, head2),
         el('tbody', {}, rows.map(([w, i]) => el('tr', { class: w.wid === seed ? 'seed' : '' }, nameCell(w, i),
           cls.flatMap((cl, n) => keeps[n].length || !(grid[cl.i] && grid[cl.i].columns.length) ? cellsOf(cl, w, keeps[n])
             : [el('td', { class: 'same sep', style: `--h:${hue(cl.i)}` }, grid[cl.i].witnesses.includes(w.wid) ? '=' : '')]))))));
@@ -517,23 +522,128 @@ const panels = {
         can && set ? el('button', { class: 'small', title: 'برگشت به حدس خودکار', onclick: () => flip(null) }, 'خودکار') : null);
     };
     const drawUnits = () => unitsBox.replaceChildren(el('table', { class: 'units' },
-      el('tr', {}, ...['واحد', 'بخش', 'گونه', 'جا در متن', 'حالت‌ها (شمار شاهدها)', 'افزوده یا افتاده؟'].map(t => el('th', {}, t))),
+      el('tr', {}, ...['واحد', 'بخش', 'گونه', 'جا در متن', 'حالت‌ها (شمار شاهدها)', 'افزوده یا افتاده؟', ''].map(t => el('th', {}, t))),
       units.map(u => { const nNA = Object.values(u.states).filter(v => v < 0).length;
         return el('tr', { class: pick === u.k ? 'on' : '', onclick: () => setPick(pick === u.k ? null : u.k), title: 'نمایش در جدول هم‌ترازی' },
-          el('td', {}, ubadge(u.k)), el('td', {}, swatch(u.clause)), el('td', { class: 'small' }, UKIND(u)), el('td', { class: 'ar' }, uwhere(u, A)),
+          el('td', {}, ubadge(u.k)), el('td', {}, swatch(u.clause)), el('td', { class: 'small' }, UKIND(u), unitChips(u)), el('td', { class: 'ar' }, uwhere(u, A)),
           el('td', {}, u.labels.map((l, i) => el('span', { class: 'st', style: `--h:${hue(u.clause)}` }, el('span', { class: 'ar' }, ulab(l)), ' ', fa(Object.values(u.states).filter(v => v === i).length))),
-            nNA ? el('span', { class: 'small muted' }, ` نامعلوم ${fa(nNA)}`) : null), clsCell(u)); })));
+            nNA ? el('span', { class: 'small muted' }, ` نامعلوم ${fa(nNA)}`) : null), clsCell(u), unitEdit(u)); })));
 
+    /* ----- the user's decisions about units ----- */
+    const clauseKeyOf = u => (A.clauses.find(x => x.i === u.clause) || {}).key;
+    const names = Object.fromEntries(W.map((w, i) => [w.wid, `${fa(i)}. ${w.title || w.wid}`]));
+    const saveUnits = async (edits, note) => { await saveParts(c.pid, d => foldUnits(d, edits), note); reloadAt(c.pid, 'alignment'); };
+    const pickCol = (cl, j) => {
+      if (!uanc || uanc.ci !== cl.i) { uanc = { ci: cl.i, j }; drawTools(); drawBody(); return; }
+      const j0 = Math.min(uanc.j, j), j1 = Math.max(uanc.j, j);
+      uanc = null; umode = false; drawTools(); drawBody(); newUnitModal(cl, j0, j1);
+    };
+    /* a unit over the columns j0..j1 of a part: what each witness has there decides its state */
+    const newUnitModal = (cl, j0, j1) => {
+      const g = grid[cl.i], seqs = rangeSeqs(g, j0, j1), forms = new Set(Object.values(seqs).filter(x => x && x.length).map(x => x.map(mkey).join(' ')));
+      let kind = forms.size <= 1 ? 'presence' : 'lexical', dropAuto = true;
+      const first = Object.values(seqs).find(x => x && x.length), txt = el('input', { type: 'text', size: 32, dir: 'rtl', class: 'ar', value: (seqs[A.seed] || []).join(' ') || (first || []).join(' ') });
+      const inside = units.filter(u => u.clause === cl.i && u.cols && u.unit_kind !== 'clause' && u.ukey !== undefined && u.by !== 'user' && u.cols[0] >= j0 && u.cols[1] <= j1);
+      const anchors = {};
+      [A.seed, ...g.witnesses.filter(w => w !== A.seed)].filter(w => seqs[w] && seqs[w].length).slice(0, 50).forEach(w => {
+        const ks = rowKeys(g.columns, w).filter(([j]) => j >= j0 && j <= j1).map(([, k]) => k); anchors[w] = [ks[0], ks[ks.length - 1]]; });
+      const body = el('div'), ok = el('button', { class: 'primary' }, 'ساختن واحد');
+      const draw = () => {
+        const pv = unitPreview(kind, seqs);
+        body.replaceChildren(
+          el('div', { class: 'toolbar' }, el('b', {}, 'گونه‌ی واحد: '), seg([['presence', 'حضور واژه (دارد / ندارد)'], ['lexical', 'واژه‌ی جایگزین (هر واژه یک حالت)']], kind, k => { kind = k; draw(); })),
+          el('table', { class: 'small' }, el('tr', {}, ...['شاهد', 'واژه‌ها در این ستون‌ها', 'حالت'].map(t => el('th', {}, t))),
+            g.witnesses.map(w => el('tr', {}, el('td', {}, names[w] || w), el('td', { class: 'ar' }, seqs[w] == null ? el('span', { class: 'muted' }, 'بیرون از متن این شاهد') : seqs[w].length ? seqs[w].join(' ') : '·'),
+              el('td', {}, pv.st[w] < 0 ? el('span', { class: 'muted' }, 'نامعلوم') : ulab(pv.labels[pv.st[w]]))))),
+          kind === 'lexical' && pv.labels.length < 2 || kind === 'presence' && new Set(Object.values(pv.st).filter(v => v >= 0)).size < 2
+            ? el('p', { class: 'small', style: 'color:var(--warn)' }, 'همه‌ی شاهدها در این ستون‌ها یک حالت دارند؛ چنین واحدی به مدل نمی‌رود.') : null);
+        ok.disabled = !Object.keys(anchors).length;
+      };
+      ok.onclick = async () => {
+        await saveParts(c.pid, d => foldUnits(d, [...(dropAuto ? inside.map(u => [cl.key, u.ukey, e => { e.drop = true; delete e.keep; }]) : []),
+          [cl.key, 'm:' + nextUnitId(d), e => { e.def = { kind, anchors, text: txt.value.trim() || (first || []).join(' ') }; }]]), `unit over columns ${j0}-${j1} of ${cl.key}`);
+        reloadAt(c.pid, 'alignment');
+      };
+      draw();
+      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'واحد تازه روی ستون‌های ', fa(j0 + 1), ' تا ', fa(j1 + 1), ' از بخش ', fa(cl.i + 1)), help('step3.unitedit'),
+        el('p', { class: 'small muted' }, 'واحد به واژه‌های همین شاهدها بسته است، نه به شماره‌ی ستون؛ اگر هم‌ترازی عوض شود، واحد همراه واژه‌ها می‌رود.'),
+        el('div', { class: 'toolbar' }, el('label', { class: 'small' }, 'نام واحد: '), txt), body,
+        inside.length ? el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: true, onchange: ev => { dropAuto = ev.target.checked; } }),
+          ` واحدهای خودکارِ درون همین ستون‌ها کنار گذاشته شوند (${fa(inside.length)} واحد: جایگزین شدن یا ادغام)`) : null,
+        el('div', { class: 'toolbar' }, ok, el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.'))));
+    };
+    /* one unit: leave it out or keep it, fix the state of a witness, delete a unit of one's own */
+    const unitModal = u => {
+      const key = clauseKeyOf(u), ukey = u.ukey, saved = uentry(pd, key, ukey), manual = u.by === 'user', g = grid[u.clause];
+      const pend = { drop: !!saved.drop, keep: !!saved.keep, states: JSON.parse(JSON.stringify(saved.states || {})) };
+      const sj = o => JSON.stringify(Object.entries(o).sort()), dirty = () => pend.drop !== !!saved.drop || pend.keep !== !!saved.keep || sj(pend.states) !== sj(saved.states || {});
+      const seqs = u.cols && g && g.columns.length ? rangeSeqs(g, u.cols[0], u.cols[1]) : null;
+      const wids = [...new Set([...Object.keys(u.states), ...Object.keys(pend.states)])].filter(w => names[w]);
+      const NA = '\u0001na', NEW = '\u0001new', body = el('div'), ok = el('button', { class: 'primary' }, 'ذخیره');
+      const row = w => {
+        const sg = A.segments[`${u.clause}|${w}`] || {}, st = u.states[w], cur = pend.states[w];
+        const sel = el('select', { 'aria-label': 'حالت ' + names[w] }, el('option', { value: '' }, 'خودکار'), el('option', { value: NA }, 'نامعلوم'),
+          u.labels.filter(l => l !== '*other*').map(l => el('option', { value: 'L:' + l }, ulab(l))), u.kind === 'presence' ? null : el('option', { value: NEW }, 'حالت تازه…'));
+        const inp = el('input', { type: 'text', size: 12, dir: 'rtl', class: 'ar', placeholder: 'حالت تازه' });
+        const isNew = typeof cur === 'string' && !u.labels.includes(cur);
+        sel.value = !(w in pend.states) ? '' : cur === null ? NA : isNew ? NEW : 'L:' + cur;
+        if (isNew) inp.value = cur;
+        inp.hidden = sel.value !== NEW;
+        sel.onchange = () => {
+          if (sel.value === '') delete pend.states[w]; else if (sel.value === NA) pend.states[w] = null;
+          else if (sel.value === NEW) { inp.hidden = false; inp.focus(); if (inp.value.trim()) pend.states[w] = inp.value.trim(); else delete pend.states[w]; }
+          else pend.states[w] = sel.value.slice(2);
+          if (sel.value !== NEW) inp.hidden = true;
+          ok.disabled = !dirty();
+        };
+        inp.oninput = () => { if (inp.value.trim()) pend.states[w] = inp.value.trim(); else delete pend.states[w]; ok.disabled = !dirty(); };
+        const words = seqs ? (seqs[w] == null ? '—' : seqs[w].length ? seqs[w].join(' ') : '·') : sg.tokens && sg.tokens.length ? short(sg.tokens.join(' '), 60) : '—';
+        return el('tr', {}, el('td', {}, names[w]), el('td', { class: 'ar' }, words), el('td', { class: 'small' }, st == null || st < 0 ? 'نامعلوم' : ulab(u.labels[st])), el('td', {}, sel, ' ', inp));
+      };
+      const draw = () => {
+        const state = manual ? 'واحد دستی شما' : pend.drop ? 'کنار گذاشته می‌شود' : pend.keep ? 'نگه داشته می‌شود (حتی اگر کم‌اطلاع باشد یا از سقف بگذرد)' : 'به‌طور خودکار';
+        body.replaceChildren(
+          el('p', { class: 'small' }, 'وضع این واحد: ', el('b', {}, state), u.why ? el('span', { class: 'chip medium', style: 'margin-inline-start:6px' }, { private: 'فقط یک شاهد متفاوت', capped: 'بیش از ۴۰ واحد', constant: 'همه‌ی شاهدها یک حالت دارند' }[u.why]) : null),
+          el('div', { class: 'toolbar' },
+            !manual ? el('button', { class: 'small', onclick: () => { pend.drop = !pend.drop; if (pend.drop) pend.keep = false; ok.disabled = !dirty(); draw(); } }, pend.drop ? 'بازگرداندن به مدل' : 'کنار گذاشتن از مدل') : null,
+            !manual ? el('button', { class: 'small', disabled: pend.drop, onclick: () => { pend.keep = !pend.keep; ok.disabled = !dirty(); draw(); } }, pend.keep ? 'برداشتن «نگه داشتن»' : 'نگه داشتن در مدل') : null,
+            manual ? el('button', { class: 'small', onclick: () => saveUnits([[key, ukey, e => Object.keys(e).forEach(k => delete e[k])]], `delete unit ${ukey}`) }, 'حذف این واحد') : null),
+          el('table', { class: 'small' }, el('tr', {}, ...['شاهد', u.cols ? 'واژه‌ها در ستون‌های واحد' : 'متن', 'حالت کنونی', 'حالت دستی'].map(t => el('th', {}, t))), wids.map(row)));
+      };
+      ok.disabled = true;
+      ok.onclick = () => saveUnits([[key, ukey, e => { delete e.drop; delete e.keep; delete e.states; if (pend.drop) e.drop = true; if (pend.keep) e.keep = true; if (Object.keys(pend.states).length) e.states = pend.states; }]], `unit ${ukey}`);
+      draw();
+      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, `واحد ${u.k != null ? fa(u.k + 1) + ': ' : ''}${UKIND(u)} — `, el('span', { class: 'ar' }, uwhere(u, A))), help('step3.unitedit'),
+        body, el('div', { class: 'toolbar' }, ok, el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.'))));
+    };
+    const unitChips = u => [u.user_keep ? el('span', { class: 'chip partial', style: 'margin-inline-start:4px' }, 'نگه‌داشته') : null,
+      (u.states_user || []).length ? el('span', { class: 'chip medium', style: 'margin-inline-start:4px' }, `${fa(u.states_user.length)} حالت دستی`) : null];
+    const unitEdit = u => el('td', { onclick: ev => ev.stopPropagation() }, canEdit && u.ukey !== undefined && clauseKeyOf(u) ? el('button', { class: 'small', title: 'ویرایش این واحد', onclick: () => unitModal(u) }, '✎') : null);
     const seg = (opts, cur, set) => el('span', { class: 'seg' }, opts.map(([k, t]) => el('button', { class: k === cur ? 'on' : '', onclick: () => set(k) }, t)));
     const tools = el('div', { class: 'toolbar' });
     const drawTools = () => tools.replaceChildren(
       seg([['one', 'همه‌ی بخش‌ها در یک جدول'], ['parts', 'هر بخش جدا']], view, k => { view = k; setPref('icm.alview', k); drawTools(); drawBody(); }),
       el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: onlyDiff, onchange: ev => { onlyDiff = ev.target.checked; setPref('icm.aldiff', onlyDiff ? '1' : '0'); drawBody(); } }), ' فقط ستون‌هایی که اختلاف دارند'),
       el('span', { class: 'small muted' }, 'راهنما: '), el('span', { class: 'lg same', style: `--h:${hue(0)}` }, 'مثل حدیث مبدأ'), el('span', { class: 'lg diff', style: `--h:${hue(0)}` }, 'واژه‌ی دیگر'),
-      el('span', { class: 'lg ins', style: `--h:${hue(0)}` }, 'افزوده'), el('span', { class: 'lg om' }, '· افتاده'), el('span', { class: 'lg miss' }, 'بخش نیامده'), ubadgeDemo());
+      el('span', { class: 'lg ins', style: `--h:${hue(0)}` }, 'افزوده'), el('span', { class: 'lg om' }, '· افتاده'), el('span', { class: 'lg miss' }, 'بخش نیامده'), ubadgeDemo(),
+      ...[canEdit && A.clauses.length && A.clauses[0].key ? el('button', { class: 'small', title: 'یک واحد تغییر را خودتان روی چند ستون از جدول تعریف کنید (ستون نخست و واپسین را می‌زنید)',
+        onclick: () => { umode = !umode; uanc = null; drawTools(); drawBody(); } }, umode ? 'لغو تعریف واحد' : '+ واحد تازه') : null,
+      umode ? el('span', { class: 'small', style: 'color:var(--accent)' }, uanc ? 'اکنون ستون واپسین واحد را بزنید (در همان بخش).' : 'ستون نخست واحد را در جدول بزنید.') : null].filter(Boolean));
     drawTools(); drawBody(); drawUnits();
 
-    const nPrivate = A.private_variants.length;
+    const PV = A.private_variants || [], DU = A.dropped_units || [], nPrivate = PV.filter(u => !u.why || u.why === 'private').length;
+    const WHY = { private: 'فقط یک شاهد متفاوت', capped: 'بیش از ۴۰ واحد', constant: 'همه‌ی شاهدها یک حالت' };
+    const unitList = (list, act) => el('table', { class: 'small' }, el('tr', {}, ...['بخش', 'گونه', 'جا در متن', 'حالت‌ها (شمار شاهدها)', 'چرا', ''].map(t => el('th', {}, t))),
+      list.map(u => el('tr', {}, el('td', {}, swatch(u.clause)), el('td', {}, UKIND(u)), el('td', { class: 'ar' }, uwhere(u, A)),
+        el('td', {}, u.labels.map((l, i) => el('span', { class: 'st', style: `--h:${hue(u.clause)}` }, el('span', { class: 'ar' }, ulab(l)), ' ', fa(Object.values(u.states).filter(v => v === i).length)))),
+        el('td', {}, u.why ? el('span', { class: 'chip medium' }, WHY[u.why]) : el('span', { class: 'chip auto' }, 'کنارگذاشته‌ی شما')),
+        el('td', {}, canEdit && u.ukey !== undefined && clauseKeyOf(u) ? [act(u), ' ', el('button', { class: 'small', title: 'ویرایش این واحد', onclick: () => unitModal(u) }, '✎')] : null))));
+    const setAside = PV.length && PV.every(u => u.labels) ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(PV.length)} واحد به مدل نمی‌رود (کنارگذاشته‌ی خودکار)؛ می‌توانید هر کدام را نگه دارید`),
+        unitList(PV, u => u.why === 'constant' ? null : el('button', { class: 'small', onclick: () => saveUnits([[clauseKeyOf(u), u.ukey, e => { e.keep = true; delete e.drop; }]], `keep unit ${u.ukey}`) }, 'نگه داشتن')))
+      : PV.length ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(PV.length)} واحد کنارگذاشته (فقط یک شاهد متفاوت)`),
+        el('div', { class: 'small ar' }, PV.map(u => u.name.split(':').slice(1).join(':')).join('  ·  '))) : null;
+    const droppedBox = DU.length ? el('details', { open: true }, el('summary', { class: 'small muted' }, `${fa(DU.length)} واحد را شما کنار گذاشته‌اید`),
+      unitList(DU, u => el('button', { class: 'small', onclick: () => saveUnits([[clauseKeyOf(u), u.ukey, e => { delete e.drop; }]], `restore unit ${u.ukey}`) }, 'بازگرداندن'))) : null;
     main.replaceChildren(
       A.clauses.length && A.clauses[0].key ? partsReviewCard(A, S, c, pd, cname) : null,
       card(['هم‌ترازی متن شاهدها، بخش‌به‌بخش', helpOf('هم‌ترازی چگونه ساخته شد؟',
@@ -555,11 +665,10 @@ const panels = {
             el('li', {}, el('b', {}, 'حضور واژه: '), 'چند واژه‌ی کنار هم که برخی شاهدها دارند و برخی نه.'),
             el('li', {}, el('b', {}, 'واژه‌ی جایگزین: '), 'در یک جایگاه، شاهدها واژه‌های مختلف دارند؛ هر واژه یک حالت.'),
             el('li', {}, el('b', {}, 'عدد: '), 'عددی که حدیث می‌گوید (۴، ۵، ۶، ۷…).')),
-          el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست.`))], help('step3.units'),
-        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.`),
+          el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد خودکار نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست؛ واحدهایی که خودتان نگه می‌دارید یا می‌سازید جدا از این سقف‌اند.`))], help('step3.units'),
+        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.${DU.length ? ` ${fa(DU.length)} واحد را خودتان کنار گذاشته‌اید.` : ''}${canEdit ? ' با ✎ هر واحد را ویرایش کنید (کنار گذاشتن، نگه داشتن، حالت یک شاهد)، یا با «+ واحد تازه» بالای جدول هم‌ترازی روی چند ستون واحدی بسازید.' : ''}`),
         unitsBox,
-        nPrivate ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(nPrivate)} واحد کنارگذاشته (فقط یک شاهد متفاوت)`),
-          el('div', { class: 'small ar' }, A.private_variants.map(u => u.name.split(':').slice(1).join(':')).join('  ·  '))) : null,
+        droppedBox, setAside,
         A.private_texts.length ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(A.private_texts.length)} تکه‌ی افزوده که فقط در یک شاهد آمده`),
           A.private_texts.map(t => el('div', { class: 'ar small' }, `${fa(W.findIndex(w => w.wid === t.wid))}. ${(W.find(w => w.wid === t.wid) || {}).title || t.wid}: ${t.text}`))) : null));
   },
@@ -1521,7 +1630,7 @@ function partsHelp() {
 const sameJ = (a, b) => JSON.stringify(a == null ? null : a) === JSON.stringify(b == null ? null : b);
 const partsBase = d => ({ seed: d.seed ?? null, seed_confirmed: d.seed_confirmed ?? null, extras_added: d.extras_added || [],
   extras_dropped: d.extras_dropped || [], slots: d.slots || {}, confirmed: d.confirmed || {},
-  words: d.words || {}, unit_cls: d.unit_cls || {}, renames: d.renames || {}, chain: d.chain || {} });   // words, unit_cls: step 3 per-word corrections; renames, chain: step 4 name/term spans, places added/removed/re-bounded
+  words: d.words || {}, unit_cls: d.unit_cls || {}, units: d.units || {}, renames: d.renames || {}, chain: d.chain || {} });   // words, unit_cls, units: step 3 per-word corrections and edits of the variation units; renames, chain: step 4 name/term spans, places added/removed/re-bounded
 async function saveParts(pid, patch, note) {
   const d = partsBase(await api(`/project/${pid}/decision/parts`));
   await post(`/project/${pid}/decide/parts`, { payload: { ...d, ...patch(d) }, note: note || '' });
@@ -1631,7 +1740,7 @@ function partStatus(cl, pd, W) {
 const PART_KIND = cl => cl.kind === 'seed' ? 'بخش حدیث مبدأ' : cl.by === 'user' ? 'افزوده‌ی شما' : `افزوده‌ی خودکار، در ${fa(cl.support)} شاهد`;
 function alignPending(A, pd) {        /* corrections saved but not in this alignment yet (it is being recomputed) */
   const pin = A.parts_in || {}, f = k => (pd[k] && (Array.isArray(pd[k]) ? pd[k].length : Object.keys(pd[k]).length)) ? pd[k] : null;
-  return ['extras_dropped', 'extras_added', 'slots', 'words', 'unit_cls'].some(k => !sameJ(f(k), pin[k] || null));
+  return ['extras_dropped', 'extras_added', 'slots', 'words', 'unit_cls', 'units'].some(k => !sameJ(f(k), pin[k] || null));
 }
 /* a word of the alignment grid: «افزوده» (an addition of this witness) or «متفاوت» (a variant of another witness's word).
    A word is named "<word>#<n>", the n-th time it stands in the witness's row (icm/align.py row_keys), as columns move between runs. */
@@ -1796,7 +1905,7 @@ function unitCols(u) {          // stage files written before units carried thei
   const m = /^c\d+([ws])(\d+)/.exec(u.name);
   return m ? [+m[2], +m[2]] : null;
 }
-const UKIND = u => u.unit_kind === 'clause' ? 'حضور بخش' : u.kind === 'presence' ? 'حضور واژه' : u.kind === 'numeric' ? 'عدد' : 'واژه‌ی جایگزین';
+const UKIND = u => (u.unit_kind === 'clause' ? 'حضور بخش' : u.kind === 'presence' ? 'حضور واژه' : u.kind === 'numeric' ? 'عدد' : 'واژه‌ی جایگزین') + (u.by === 'user' ? ' (دستی)' : '');
 const ulab = l => ({ absent: 'ندارد', present: 'دارد', '*other*': 'دیگر' }[l] || (/^\d+$/.test(l) ? fa(l) : l));
 function uwhere(u, A) {
   if (u.unit_kind === 'clause') return short(A.clauses[u.clause].text, 40);
@@ -1804,6 +1913,39 @@ function uwhere(u, A) {
   return u.labels.map(ulab).join(' / ');
 }
 const short = (t, n) => t.length > n ? t.slice(0, n) + '…' : t;
+/* the user's decisions about units (parts.units): part key -> unit key -> {drop, keep, states, def}; a unit key is stable (icm/align.py _unit_keys), "m:<n>" for a unit of the user's own */
+const uentry = (pd, key, ukey) => ((pd.units || {})[key] || {})[ukey] || {};
+function patchUnits(d, key, ukey, fn) {
+  const units = JSON.parse(JSON.stringify(d.units || {})), e = ((units[key] ||= {})[ukey] ||= {});
+  fn(e);
+  if (e.states && !Object.keys(e.states).length) delete e.states;
+  if (!Object.keys(e).length) delete units[key][ukey];
+  if (!Object.keys(units[key]).length) delete units[key];
+  return { units };
+}
+const foldUnits = (d, edits) => { let cur = d; for (const [key, ukey, fn] of edits) cur = { ...cur, ...patchUnits(cur, key, ukey, fn) }; return { units: cur.units }; };
+const nextUnitId = d => 1 + Math.max(0, ...Object.values(d.units || {}).flatMap(m => Object.keys(m)).filter(k => /^m:\d+$/.test(k)).map(k => +k.slice(2)));
+/* the words each witness of a part has in grid columns j0..j1: [] = none there inside its row (absent), null = outside its row (unknown) */
+function rangeSeqs(g, j0, j1) {
+  const out = {};
+  g.witnesses.forEach(w => {
+    const idx = g.columns.map((col, j) => col[w] != null ? j : -1).filter(j => j >= 0), seq = [];
+    for (let j = j0; j <= j1; j++) if (g.columns[j][w] != null) seq.push(g.columns[j][w]);
+    out[w] = seq.length ? seq : idx.length && idx[0] <= j0 && j1 <= idx[idx.length - 1] ? [] : null;
+  });
+  return out;
+}
+/* the states of a unit defined over columns, as icm/align.py _manual_unit makes them */
+function unitPreview(kind, seqs) {
+  const st = {}, form = s => s.map(mkey).join(' ');
+  if (kind === 'presence') { Object.entries(seqs).forEach(([w, s]) => { st[w] = s == null ? -1 : s.length ? 1 : 0; }); return { labels: ['absent', 'present'], st }; }
+  const groups = new Map(); Object.values(seqs).forEach(s => { if (s != null && !groups.has(form(s))) groups.set(form(s), s); });
+  const cnt = g => Object.values(seqs).filter(s => s != null && form(s) === g).length, order = [...groups.keys()].sort((a, b) => cnt(b) - cnt(a));
+  let labels = order.map(g => groups.get(g).join(' ') || 'absent');
+  if (labels.length > 6) labels = [...labels.slice(0, 5), '*other*'];
+  Object.entries(seqs).forEach(([w, s]) => { st[w] = s == null ? -1 : Math.min(order.indexOf(form(s)), labels.length - 1); });
+  return { labels, st };
+}
 const ubadgeDemo = () => el('span', { class: 'small muted' }, el('span', { class: 'ub' }, '۱'), ' واحد تغییر');
 function pref(k, d) { try { return localStorage.getItem(k) || d; } catch (_) { return d; } }
 function setPref(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }

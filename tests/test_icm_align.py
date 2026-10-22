@@ -241,3 +241,128 @@ def test_a_word_can_be_moved_into_the_column_of_the_word_it_varies():
     out, cells, _ = align._apply_word_edits([{"s": "a", "w": "b"}], {"w": {"b#1": {"to": ["s", "a#1"]}}}, flags, "k")
     assert out == [{"s": "a", "w": "b"}] and cells == [[0, "w"]] and not flags
     assert align.row_keys([{"w": "a"}, {}, {"w": "a"}], "w") == [(0, "a#1"), (2, "a#2")]
+
+
+# ---- editable units (parts.units) -----------------------------------------------------------------------------
+
+def _sub_fixture():
+    """Three witnesses with «مقعده», three with «بیته» in the same place, one that adds «حقا» (a private variant)."""
+    seed = "من كذب علي متعمدا فليتبوأ مقعده من النار"
+    w = [seed, seed, seed, *[seed.replace("مقعده", "بیته")] * 3, seed.replace("فليتبوأ", "فليتبوا حقا")]
+    S, sel = _search(seed, w), [f"t:{i}" for i in range(len(w))]
+    return S, sel, align.run(S, sel)
+
+
+def _key_at(cols, wid, j):
+    """The row key of the word a witness has in grid column j."""
+    return next(k for jj, k in align.row_keys(cols, wid) if jj == j)
+
+
+def _num_fixture():
+    w = [SEED] * 2 + [SEED.replace("ستة", "سبعة")] * 2 + [SEED.replace("والتارك لسنتي، ", "")] * 2
+    return _search(SEED, w), [f"t:{i}" for i in range(len(w))]
+
+
+def test_every_unit_has_a_key_that_does_not_depend_on_column_numbers():
+    S, sel, r = _sub_fixture()
+    sub = next(u for u in r["units"] if u["kind"] == "lexical")
+    assert sub["ukey"] == "s:" + _key_at(r["grids"][0]["columns"], "t:seed", 6) and sub["cols"] == [6, 6]
+    priv = next(u for u in r["private_variants"] if u["kind"] == "presence")
+    assert priv["why"] == "private" and priv["ukey"] == "حقا" and priv["labels"] == ["absent", "present"]
+    S2, sel2 = _num_fixture()
+    r2 = align.run(S2, sel2)
+    assert sorted(u["ukey"] for u in r2["units"]) == ["n:سته#1", "والتارک لسنتی"]
+    # a new witness moves nothing: the keys stay
+    w = [S["seed"]["matn"]] + [c["matn"] for c in S["candidates"]]
+    S3 = _search(S["seed"]["matn"], w[1:] + ["من كذب علي متعمدا فليتبوأ بيتا مقعده من النار"])
+    r3 = align.run(S3, [f"t:{i}" for i in range(len(w))])
+    assert sub["ukey"] in {u["ukey"] for u in r3["units"]}
+    for res in (r, r2, r3):
+        for part in {u["clause"] for u in res["units"] + res["private_variants"]}:
+            ks = [u["ukey"] for u in res["units"] + res["private_variants"] if u["clause"] == part]
+            assert len(ks) == len(set(ks))
+
+
+def test_drop_keep_and_state_overrides_of_units():
+    S, sel, base = _sub_fixture()
+    key = base["clauses"][0]["key"]
+    sub = next(u for u in base["units"] if u["kind"] == "lexical")["ukey"]
+    # drop an automatic unit: it leaves the units and X, and is listed so it can be restored
+    r = align.run(S, sel, {"units": {key: {sub: {"drop": True}}}})
+    assert not r["units"] and r["n_units"] == 0 and all(row == [] for row in r["X"].values())
+    assert [u["ukey"] for u in r["dropped_units"]] == [sub] and not r["flags"]
+    # keep a unit that only one witness differs in
+    r = align.run(S, sel, {"units": {key: {"حقا": {"keep": True}}}})
+    kept = next(u for u in r["units"] if u["ukey"] == "حقا")
+    assert kept["user_keep"] and all(u["why"] != "private" or u["ukey"] != "حقا" for u in r["private_variants"])
+    assert r["X"]["t:6"][r["units"].index(kept)] == 1
+    # a witness's state: unknown, an existing label, and a new label
+    r = align.run(S, sel, {"units": {key: {sub: {"keep": True, "states": {"t:3": None, "t:4": "مقعده", "t:5": "حجرته"}}}}})
+    u = next(u for u in r["units"] if u["ukey"] == sub)
+    assert u["states"]["t:3"] == -1 and u["states"]["t:4"] == 0 and u["labels"][u["states"]["t:5"]] == "حجرته"
+    assert sorted(u["states_user"]) == ["t:3", "t:4", "t:5"] and u["n_states"] == 3
+    # a state a presence unit does not have, a witness and a unit that are not there: flagged, nothing applied
+    r = align.run(S, sel, {"units": {key: {"حقا": {"states": {"t:0": "maybe"}}, "nothing": {"drop": True}, sub: {"states": {"x:1": None}}}}})
+    assert sorted(f["kind"] for f in r["flags"]) == ["unit_unused"] * 3
+    # numbers: a new number
+    S2, sel2 = _num_fixture()
+    k2 = align.run(S2, sel2)["clauses"][0]["key"]
+    r = align.run(S2, sel2, {"units": {k2: {"n:سته#1": {"states": {"t:0": "8"}}}}})
+    n = next(u for u in r["units"] if u["ukey"] == "n:سته#1")
+    assert n["labels"] == ["6", "7", "8"] and n["states"]["t:0"] == 2
+    # a label in the `units` decision beats unit_cls
+    S, sel, base = _sub_fixture()
+    r = align.run(S, sel, {"units": {key: {"حقا": {"keep": True, "cls": "omission"}}}, "unit_cls": {key: {"حقا": "addition"}}})
+    assert next(u for u in r["units"] if u["ukey"] == "حقا")["cls"] == "omission"
+
+
+def test_a_unit_defined_over_columns_follows_its_words():
+    S, sel, base = _sub_fixture()
+    key = base["clauses"][0]["key"]
+    cols = base["grids"][0]["columns"]
+    at = lambda w, *js: [_key_at(cols, w, j) for j in js]
+    lexical = {"kind": "lexical", "text": "مقعده", "anchors": {"t:seed": at("t:seed", 6) * 2, "t:3": at("t:3", 6) * 2}}
+    r = align.run(S, sel, {"units": {key: {"m:1": {"def": lexical}}}})
+    m = next(u for u in r["units"] if u["ukey"] == "m:1")
+    auto = next(u for u in r["units"] if u["kind"] == "lexical" and u["ukey"] != "m:1")
+    assert m["by"] == "user" and m["cols"] == auto["cols"] == [6, 6] and m["states"] == auto["states"] and m["labels"] == auto["labels"]
+    assert m["name"].startswith("c0u1:") and r["n_units"] == 2
+    # a presence unit over the extra word: one witness has it, so it is forced in; the others have an empty place there
+    pres = {"kind": "presence", "text": "حقا", "anchors": {"t:6": at("t:6", 5) * 2}}
+    r = align.run(S, sel, {"units": {key: {"m:2": {"def": pres}}}})
+    p = next(u for u in r["units"] if u["ukey"] == "m:2")
+    assert p["kind"] == "presence" and p["states"]["t:6"] == 1 and p["states"]["t:0"] == 0 and p["cols"] == [5, 5]
+    # the range is the columns the words are in now: after the user's correction moved a word, the unit follows it
+    r = align.run(S, sel, {"units": {key: {"m:1": {"def": lexical, "states": {"t:0": None}}}}})
+    assert next(u for u in r["units"] if u["ukey"] == "m:1")["states"]["t:0"] == -1
+    # merge: one unit over two columns, the automatic one excluded
+    wide = {"kind": "lexical", "text": "مقعده من", "anchors": {"t:seed": at("t:seed", 6, 7), "t:3": at("t:3", 6, 7)}}
+    r = align.run(S, sel, {"units": {key: {"m:3": {"def": wide}, sub_key(base): {"drop": True}}}})
+    w = next(u for u in r["units"] if u["ukey"] == "m:3")
+    assert w["cols"] == [6, 7] and len(w["labels"]) == 2 and [u["ukey"] for u in r["dropped_units"]] == [sub_key(base)]
+    # words that are not in the alignment: flagged, no unit
+    ghost = {"kind": "presence", "text": "ghost", "anchors": {"t:seed": ["ghost#1", "ghost#1"]}}
+    r = align.run(S, sel, {"units": {key: {"m:4": {"def": ghost}}}})
+    assert not [u for u in r["units"] + r["private_variants"] if u["ukey"] == "m:4"]
+    assert [(f["kind"], f["ref"]) for f in r["flags"]] == [("unit_unused", f"{key}|m:4")]
+    # everybody agrees over the range: the unit has one state and does not reach the model
+    same = {"kind": "lexical", "text": "من", "anchors": {"t:seed": at("t:seed", 0) * 2}}
+    r = align.run(S, sel, {"units": {key: {"m:5": {"def": same}}}})
+    assert not [u for u in r["units"] if u["ukey"] == "m:5"]
+    assert next(u for u in r["private_variants"] if u["ukey"] == "m:5")["why"] == "constant"
+    assert [f["kind"] for f in r["flags"]] == ["unit_constant"]
+
+
+def sub_key(r):
+    return next(u for u in r["units"] if u["kind"] == "lexical")["ukey"]
+
+
+def test_units_the_user_keeps_come_on_top_of_the_cap(monkeypatch):
+    S2, sel2 = _num_fixture()
+    r = align.run(S2, sel2)
+    monkeypatch.setattr(align, "MAX_UNITS", 1)
+    capped = align.run(S2, sel2)
+    assert capped["n_units"] == 1 and [f["kind"] for f in capped["flags"]] == ["units_capped"]
+    out = next(u for u in capped["private_variants"] if u["why"] == "capped")
+    kept = align.run(S2, sel2, {"units": {r["clauses"][out["clause"]]["key"]: {out["ukey"]: {"keep": True}}}})
+    assert kept["n_units"] == 2 and {u["ukey"] for u in kept["units"]} == {u["ukey"] for u in r["units"]}

@@ -178,9 +178,27 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
         A3 = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
         assert A3["parts_in"]["words"] == good["words"] and A3["parts_in"]["unit_cls"] == good["unit_cls"]
         assert c.get(f"/icm/api/project/{pid}/runs/current/identify").json()["renames_in"] == got["renames"]     # trimmed
+        # edits of the variation units (step 3): exclude, keep, a witness's state, a unit of the user's own over words of the grid
+        manual = {"kind": "lexical", "anchors": {W0: ["من#1", "من#1"]}, "text": " من "}
+        units = {key: {"بیتا": {"drop": True}, "حقا": {"keep": True, "cls": "omission", "states": {w: None}}, "m:1": {"def": manual}}}
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": dict(body, units=units)}, headers=H("alice")).status_code == 200
+        want = {key: {"بیتا": {"drop": True}, "حقا": {"keep": True, "cls": "omission", "states": {w: None}}, "m:1": {"def": dict(manual, text="من")}}}
+        assert project.decision(pid, "parts")["units"] == want
+        mdef = lambda **kw: {"m:1": {"def": dict(manual, **kw)}}
+        for bad in ({"units": {key: {"m:1": {}}}}, {"units": {key: {"بیتا": {"def": manual}}}}, {"units": {key: {"بیتا": {"drop": True, "keep": True}}}},
+                    {"units": {key: {"بیتا": {"cls": "both"}}}}, {"units": {key: {"بیتا": {"states": {w: 3}}}}}, {"units": {key: {"بیتا": {"states": {"bad": None}}}}},
+                    {"units": {key: {"بیتا": {"drop": "yes"}}}}, {"units": {key: {"بیتا": {"color": 1}}}},
+                    {"units": {key: mdef(anchors={W0: ["من", "من#1"]})}}, {"units": {key: mdef(anchors={})}}, {"units": {key: mdef(kind="both")}},
+                    {"units": {key: mdef(text="  ")}}, {"units": {key: {"m:1": {"def": manual, "drop": True}}}}, {"units": {"bad": {"بیتا": {"drop": True}}}}, {"units": [1]}):
+            assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": dict(body, **bad)}, headers=H("alice")).status_code == 400, bad
+        assert project.decision(pid, "parts")["units"] == want
+        pipeline.advance(pid)                                                               # reaches the alignment (a unit that does not fit is flagged)
+        A4 = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
+        assert A4["parts_in"]["units"] == want and isinstance(A4["dropped_units"], list)
+        assert all(u.get("ukey") is not None for u in A4["units"] + A4["private_variants"])
         # emptied corrections are not stored at all, so the stage keys of older projects stay as they were
-        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": dict(body, words={key: {w: {}}}, unit_cls={}, renames={})}, headers=H("alice")).status_code == 200
-        assert not any(k in project.decision(pid, "parts") for k in ("words", "unit_cls", "renames"))
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": dict(body, words={key: {w: {}}}, unit_cls={}, renames={}, units={key: {}})}, headers=H("alice")).status_code == 200
+        assert not any(k in project.decision(pid, "parts") for k in ("words", "unit_cls", "renames", "units"))
     finally:
         shutil.rmtree(d)
 

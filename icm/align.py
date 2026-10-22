@@ -24,6 +24,11 @@ clause, add one cut from a witness's text, and set a clause's slot in a witness 
 the text the search stage keeps, see ``text_tokens``) or say it is absent or unknown there. Corrections are
 keyed by the clause's ``key`` (``part_keys``: its kind and text), so a re-cut clause starts unreviewed.
 
+The units themselves can be edited too (``parts.units``: part key -> unit key -> {drop, keep, cls, states, def}): every unit
+has a ``ukey`` that does not depend on column numbers, so a decision survives a new alignment. A user can exclude a unit
+(``drop``), keep one the filter or the cap set aside (``keep``), fix a witness's state, or define a unit over a range of
+columns (``def``, anchored on the words of the witnesses it was drawn on, not on column numbers).
+
 Rows of X use ``text_model.NA = -1``.
 """
 from __future__ import annotations
@@ -274,6 +279,7 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
             fix = lambda ed: dict(to=[(wit_by.get(ed["to"][0]) or {"wid": ed["to"][0]})["wid"], ed["to"][1]]) if ed != "add" else ed
             word_edits.setdefault(k, {}).setdefault(w["wid"], {}).update({t: fix(ed) for t, ed in m.items()})
     unit_cls = parts.get("unit_cls") or {}
+    units_dec = parts.get("units") or {}
 
     units: List[dict] = []
     grids: List[dict] = []
@@ -300,10 +306,13 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         dropped_orth += orth
         grids.append(dict(clause=ci, kind=c["kind"], text=c["text"], witnesses=holders, columns=grid, user_cells=info["user_cells"]))
         units.extend(col_units)
-        for u in units:                                   # the user's addition / omission label of a presence unit
-            lab = (unit_cls.get(c["key"]) or {}).get(u.get("ukey")) if u["kind"] == "presence" and u["clause"] == ci else None
-            if lab:
-                u.update(cls=lab, cls_user=True)
+        _unit_keys([u for u in units if u["clause"] == ci], grid, holders, seed)
+        manual = sorted(((int(k[2:]), k, d) for k, d in (units_dec.get(c["key"]) or {}).items() if k.startswith("m:") and d.get("def")))
+        for n, ukey, d in manual:                         # the user's own units over a range of columns
+            u = _manual_unit(c, grid, holders, wit_by, ukey, n, d["def"], seed, flags)
+            if u:
+                units.append(u)
+    _apply_unit_decisions(units, clause_defs, unit_cls, units_dec, wit_by, flags)
 
     # --- keep the most informative units -----------------------------------------------------------
     for u in units:
@@ -313,24 +322,38 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         u["minor"] = len(vals) - max(cnt.values()) if cnt else 0
         ordered = sorted(cnt.values(), reverse=True)
         u["second"] = ordered[1] if len(ordered) > 1 else 0          # parsimony-informative: >= 2
-    informative = [u for u in units if u["second"] >= 2]
-    informative.sort(key=lambda u: (-u["minor"], u["name"]))
-    private = [u for u in units if u["second"] < 2]
-    if len(informative) > MAX_UNITS:
-        private = private + informative[MAX_UNITS:]
-        informative = informative[:MAX_UNITS]
+        u["n_distinct"] = len(cnt)
+    gone = [u for u in units if u.get("user_drop")]                   # the user's exclusions
+    pool = [u for u in units if not u.get("user_drop")]
+    constant = [u for u in pool if u["n_distinct"] < 2]               # one state (after the user's corrections): nothing to model
+    for u in constant:
+        if u.get("user_keep") or u.get("by") == "user":
+            flags.append(dict(kind="unit_constant", ref=f"{_clause_key(clause_defs, u['clause'])}|{u['ukey']}",
+                              message="a unit the user kept or defined has one state in every witness: it does not reach the model"))
+    pool = [u for u in pool if u["n_distinct"] >= 2]
+    forced = [u for u in pool if u.get("user_keep") or u.get("by") == "user"]
+    rest = [u for u in pool if u not in forced]
+    auto = sorted([u for u in rest if u["second"] >= 2], key=lambda u: (-u["minor"], u["name"]))
+    private = [u for u in rest if u["second"] < 2]
+    capped: List[dict] = []
+    if len(auto) > MAX_UNITS:                                         # the cap is for the automatic units: the user's come on top
+        capped = auto[MAX_UNITS:]
+        auto = auto[:MAX_UNITS]
         flags.append(dict(kind="units_capped", ref=None, message=f"only the {MAX_UNITS} most informative units are kept"))
+    informative = sorted(forced + auto, key=lambda u: (-u["minor"], u["name"]))
     for k, u in enumerate(informative):
         u["k"] = k
     wids = [w["wid"] for w in wits]
     X = {w: [u["states"].get(w, NA) for u in informative] for w in wids}
+    plain = lambda u: {k: v for k, v in u.items() if k not in ("minor", "n_known", "second", "n_distinct")}
     return dict(
         seed=seed, witnesses=[{k: v for k, v in w.items() if k not in ("tokens", "matn", "full")} | dict(n_tokens=len(w["tokens"]))
                               for w in wits],
         clauses=[{k: v for k, v in c.items() if k != "tokens"} for c in clause_defs],
         segments={f"{ci}|{w}": {k: v for k, v in sg.items() if k != "aligned"} for (ci, w), sg in segs.items()},
-        grids=grids, units=[{k: v for k, v in u.items() if k not in ("minor", "n_known", "second")} for u in informative],
-        X=X, private_variants=[dict(name=u["name"], kind=u["kind"], states=u["states"]) for u in private],
+        grids=grids, units=[plain(u) for u in informative],
+        X=X, private_variants=[plain(u) | dict(why=why) for why, us in (("private", private), ("capped", capped), ("constant", constant)) for u in us],
+        dropped_units=[plain(u) for u in gone],
         private_texts=extras["private"], dropped_orthographic=dropped_orth,
         n_units=len(informative), flags=flags, parts_in=parts)
 
@@ -369,7 +392,7 @@ def _number_units(c: dict, segs, wits, grid: List[dict], seed: str) -> List[dict
         states = {w: (idx.get(v, MAX_STATES - 1) if v is not None else NA) for w, v in vals.items()}
         units.append(dict(name=f"c{c['i']}n{i}:{tok}", kind="numeric", unit_kind="number", clause=c["i"], cls="numeric",
                           n_states=len(idx), labels=[str(v) for v in idx], states=states,
-                          cols=[j, j] if j is not None else None))
+                          cols=[j, j] if j is not None else None, seed_key=f"{tok}#{c['tokens'][:i + 1].count(tok)}"))
     return units
 
 
@@ -379,6 +402,140 @@ def _binary_unit(uid: str, text: str, states: Dict[str, int], kind: str, ci: int
     return dict(name=f"{uid}:{' '.join(text.split()[:4])}", kind="presence", unit_kind=kind, clause=ci,
                 cls="omission" if share >= 0.25 else "addition", n_states=2, labels=["absent", "present"],
                 states=dict(states), cols=cols, ukey=text, cls_user=False)
+
+
+def _clause_key(clause_defs: Sequence[dict], ci: int) -> str:
+    return next((c["key"] for c in clause_defs if c["i"] == ci), "")
+
+
+def _unit_keys(mine: List[dict], grid: List[dict], holders: Sequence[str], seed: str) -> None:
+    """Give every unit of one clause a ``ukey`` that does not depend on column numbers, so the user's decisions
+    about it survive a new alignment: a presence unit is its words (the key it always had), a number unit is the
+    number word of the seed ("ستة#1"), a substitution unit is the seed's words in its columns ("s:<word>#<n> ..."; the
+    first witness that has a word there when the seed has none). A repeated key gets "#2", "#3" (the first stays)."""
+    rk = {w: row_keys(grid, w) for w in holders}
+    seen: Counter = Counter()
+    for u in mine:
+        if u["kind"] == "presence":
+            base = u["ukey"]
+        elif u["unit_kind"] == "number":
+            base = "n:" + u.pop("seed_key", "?")
+        else:
+            j0, j1 = u["cols"]
+            base = "s:?"
+            for w in ([seed] if seed in rk else []) + [x for x in holders if x != seed]:
+                keys = [k for j, k in rk.get(w, []) if j0 <= j <= j1]
+                if keys:
+                    base = "s:" + (" ".join(keys) if w == seed else f"{w}:" + " ".join(keys))
+                    break
+        u.pop("seed_key", None)
+        seen[base] += 1
+        u["ukey"] = base if seen[base] == 1 else f"{base}#{seen[base]}"
+
+
+def _extents(grid: List[dict], holders: Sequence[str]) -> Dict[str, Tuple[int, int]]:
+    """First and last grid column in which a witness has a word (outside them its row is NA, not absent)."""
+    out = {}
+    for w in holders:
+        idx = [j for j, col in enumerate(grid) if w in col]
+        if idx:
+            out[w] = (idx[0], idx[-1])
+    return out
+
+
+def _manual_unit(c: dict, grid: List[dict], holders: Sequence[str], wit_by: dict, ukey: str, n: int, d: dict,
+                 seed: str, flags: List[dict]) -> Optional[dict]:
+    """A unit the user defined over a range of columns of this clause's grid. ``d["anchors"]`` names, per witness, its
+    first and last word in the range (``row_keys``), so the range follows the words when the alignment changes: it is
+    the columns those words are in now. ``presence``: has a word in the range or not; ``lexical``: which words (groups
+    of equal ``match_key`` forms) each witness has there. A word row outside a witness's extent is NA."""
+    ref = f"{c['key']}|{ukey}"
+    lo = hi = None
+    rk = {w: {k: j for j, k in row_keys(grid, w)} for w in holders}
+    for wid, (k0, k1) in (d.get("anchors") or {}).items():
+        w = (wit_by.get(wid) or {}).get("wid")
+        if w not in rk or k0 not in rk[w] or k1 not in rk[w] or rk[w][k0] > rk[w][k1]:
+            continue
+        a, b = rk[w][k0], rk[w][k1]
+        lo, hi = (a if lo is None else min(lo, a)), (b if hi is None else max(hi, b))
+    if lo is None:
+        flags.append(dict(kind="unit_unused", ref=ref, message="a unit whose words are no longer in this alignment"))
+        return None
+    ext = _extents(grid, holders)
+    seqs: Dict[str, List[str]] = {}
+    states: Dict[str, int] = {}
+    for w in holders:
+        seq = [grid[j][w] for j in range(lo, hi + 1) if w in grid[j]]
+        if seq:
+            seqs[w] = seq
+        elif w in ext and ext[w][0] <= lo and hi <= ext[w][1]:
+            seqs[w] = []                                   # inside its row with nothing there: absent
+        else:
+            states[w] = NA                                 # outside its row, or not in the grid: unknown
+    text = (d.get("text") or " ".join(next(iter(s for s in seqs.values() if s), []))).strip()
+    if d.get("kind") == "presence":
+        states.update({w: 1 if s else 0 for w, s in seqs.items()})
+        u = _binary_unit(f"c{c['i']}u{n}", text, states, "words", c["i"], [lo, hi])
+    else:
+        form = lambda s: " ".join(match_key(t) for t in s)
+        groups: Dict[str, List[str]] = {}
+        for w, s in seqs.items():
+            groups.setdefault(form(s), s)
+        order = sorted(groups, key=lambda g: (-sum(1 for s in seqs.values() if form(s) == g), list(groups).index(g)))
+        labels = [" ".join(groups[g]) or "absent" for g in order]
+        if len(labels) > MAX_STATES:
+            labels = labels[:MAX_STATES - 1] + ["*other*"]
+        idx = {g: min(i, len(labels) - 1) for i, g in enumerate(order)}
+        states.update({w: idx[form(s)] for w, s in seqs.items()})
+        u = dict(name=f"c{c['i']}u{n}:{' '.join(text.split()[:4])}", kind="lexical", unit_kind="words", clause=c["i"], cls="lexical",
+                 n_states=len(labels), labels=labels, states=states, cols=[lo, hi], cls_user=False)
+    u.update(ukey=ukey, by="user")
+    return u
+
+
+def _apply_unit_decisions(units: List[dict], clause_defs: Sequence[dict], unit_cls: dict, units_dec: dict,
+                          wit_by: dict, flags: List[dict]) -> None:
+    """The user's decisions about units (``parts.unit_cls`` and ``parts.units``), by part key and unit key: an
+    addition / omission label, a witness's state (a label, a new label, or None = unknown), keep and drop."""
+    by_key = {(_clause_key(clause_defs, u["clause"]), u["ukey"]): u for u in units}
+    known = {c["key"] for c in clause_defs}
+    for part, m in unit_cls.items():
+        for ukey, lab in m.items():
+            u = by_key.get((part, ukey))
+            if u and u["kind"] == "presence" and lab:
+                u.update(cls=lab, cls_user=True)
+    for part, m in units_dec.items():
+        for ukey, d in m.items():
+            u = by_key.get((part, ukey))
+            if u is None:
+                if not (ukey.startswith("m:") and part in known):      # a manual unit that did not resolve is flagged when built
+                    flags.append(dict(kind="unit_unused", ref=f"{part}|{ukey}", message="a unit decision for a unit not in this alignment"))
+                continue
+            if d.get("cls") and u["kind"] == "presence":
+                u.update(cls=d["cls"], cls_user=True)
+            for wid, v in (d.get("states") or {}).items():
+                w = wit_by.get(wid)
+                if w is None:
+                    flags.append(dict(kind="unit_unused", ref=f"{part}|{ukey}|{wid}", message="a state for a witness not in this alignment"))
+                    continue
+                if v is None:
+                    u["states"][w["wid"]] = NA
+                else:
+                    labels = u["labels"]
+                    i = labels.index(v) if v in labels else next((k for k, x in enumerate(labels) if x != "*other*" and match_key(x) == match_key(v)), None)
+                    if i is None and u["kind"] != "presence" and len(labels) < MAX_STATES:
+                        labels.append(v)
+                        i = len(labels) - 1
+                    if i is None:
+                        flags.append(dict(kind="unit_unused", ref=f"{part}|{ukey}|{wid}", message="a state this unit does not have"))
+                        continue
+                    u["states"][w["wid"]] = i
+                u.setdefault("states_user", []).append(w["wid"])
+            u["n_states"] = len(u["labels"])
+            if d.get("keep"):
+                u["user_keep"] = True
+            if d.get("drop") and u.get("by") != "user":
+                u["user_drop"] = True
 
 
 def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:

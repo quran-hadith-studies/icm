@@ -576,6 +576,47 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 key_ok(k) and isinstance(v, dict) and len(v) <= 200 and all(
                     isinstance(t, str) and 0 < len(t) <= 300 and x in ("addition", "omission") for t, x in v.items()) for k, v in ucls.items())):
             raise HTTPException(400, "unit_cls must map a part key to {<words of the unit>: addition | omission}")
+        units_in, units_out = pl.get("units", {}) or {}, {}
+        bad_units = HTTPException(400, "units must map a part key to {<unit key>: {drop, keep, cls, states: {wid: label | null}, def: {kind, anchors: {wid: [<word>#<n>, <word>#<n>]}, text}}}")
+        if not (isinstance(units_in, dict) and len(units_in) <= 300):
+            raise bad_units
+        for k, m in units_in.items():
+            if not (key_ok(k) and isinstance(m, dict) and len(m) <= 200):
+                raise bad_units
+            one = {}
+            for uk, d in m.items():
+                if not (isinstance(uk, str) and 0 < len(uk) <= 400 and isinstance(d, dict) and set(d) <= {"drop", "keep", "cls", "states", "def"}):
+                    raise bad_units
+                manual = re.fullmatch(r"m:\d{1,6}", uk) is not None
+                if manual != ("def" in d) or (d.get("drop") and d.get("keep")) or any(f in d and not isinstance(d[f], bool) for f in ("drop", "keep")):
+                    raise bad_units
+                if "cls" in d and d["cls"] not in ("addition", "omission"):
+                    raise bad_units
+                st = d.get("states") or {}
+                if not (isinstance(st, dict) and len(st) <= 2000 and all(
+                        isinstance(w, str) and WID_RE.match(w) and (v is None or (isinstance(v, str) and 0 < len(v) <= 200)) for w, v in st.items())):
+                    raise bad_units
+                e = {f: True for f in ("drop", "keep") if d.get(f)}
+                if d.get("cls"):
+                    e["cls"] = d["cls"]
+                if st:
+                    e["states"] = st
+                if manual:
+                    df = d["def"]
+                    an = df.get("anchors") if isinstance(df, dict) else None
+                    if not (isinstance(df, dict) and set(df) <= {"kind", "anchors", "text"} and df.get("kind") in ("presence", "lexical")
+                            and isinstance(df.get("text"), str) and 0 < len(df["text"].strip()) <= 300
+                            and isinstance(an, dict) and 0 < len(an) <= 50 and all(
+                                isinstance(w, str) and WID_RE.match(w) and isinstance(v, list) and len(v) == 2 and all(tok_ok(t) for t in v)
+                                for w, v in an.items())) or e.get("drop"):
+                        raise bad_units
+                    e["def"] = dict(kind=df["kind"], anchors={w: list(v) for w, v in an.items()}, text=df["text"].strip())
+                if e:
+                    one[uk] = e
+            if one:
+                units_out[k] = one
+        if sum(len(m) for m in units_out.values()) > 3000:
+            raise bad_units
         renames = pl.get("renames", {}) or {}
         if not (isinstance(renames, dict) and len(renames) <= 2000 and all(
                 isinstance(k, str) and PLACE_RE.match(k) and isinstance(v, dict) and isinstance(v.get("name"), str) and 0 < len(v["name"].strip()) <= 200
@@ -613,7 +654,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                    slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
         for key, val in (("words", {k: {w: m for w, m in v.items() if m} for k, v in words.items()}), ("unit_cls", ucls),
                          ("renames", {k: dict(name=v["name"].strip(), term=v.get("term", "").strip()) for k, v in renames.items()}),
-                         ("chain", chain_out)):
+                         ("chain", chain_out), ("units", units_out)):
             val = {k: v for k, v in val.items() if v}
             if val:                                         # only then, so older decisions and their stage keys stay as they were
                 out[key] = val

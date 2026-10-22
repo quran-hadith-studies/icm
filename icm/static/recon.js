@@ -79,7 +79,7 @@
             const t = majority(col, ws, seed);
             if (t != null) tokens.push({ t, p: pv[s], unit: u.k, state: u.labels[s], alts });
             else if (u.kind === 'presence') { const t0 = majority(col, g.witnesses, seed); if (t0 != null) tokens.push({ t: t0, p: pv[s], unit: u.k, state: u.labels[s], alts, omit: true }); }
-            else if (j === u.cols[0] && u.labels[s] !== '*other*') tokens.push({ t: u.labels[s], p: pv[s], unit: u.k, state: u.labels[s], alts });
+            else if (j === u.cols[0] && u.labels[s] !== '*other*' && u.labels[s] !== 'absent') tokens.push({ t: u.labels[s], p: pv[s], unit: u.k, state: u.labels[s], alts });
           } else {
             const have = g.witnesses.filter(w => col[w] != null);
             const miss = g.witnesses.filter(w => col[w] == null && j > ext[w][0] && j < ext[w][1]);
