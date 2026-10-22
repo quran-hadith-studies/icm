@@ -467,6 +467,26 @@ def test_chain_edits_order_follows_the_text_and_unfound_places_stay_behind_their
     assert [e["i"] for e in ch3["elems"]] == [0] and ch3["flags"] == ["no_sanad"]
 
 
+def test_chain_edits_no_two_places_share_a_word_and_each_keeps_its_automatic_reading():
+    toks, words, _ = identity.hadith_words(_REC)
+    texts = {"v02:9": (toks, words)}
+    # a place added over the automatic words of «ابن عباس» (place 3, [7, 9)), place 3 itself untouched: the user's span wins
+    ch = identity.text_chain(_REC)
+    identity.apply_chain_edits([ch], texts, {"v02:9#t": dict(add=[dict(t=6, a=7, b=9)])})
+    by = {e["i"]: e for e in ch["elems"]}
+    assert by[3]["span"] is None and by[3]["span_auto"] == dict(t=6, a=7, b=9) and ch["flags"].count("chain_overlap") == 1
+    assert by[1000]["span"] == dict(t=6, a=7, b=9) and by[1000]["span_auto"] is None
+    assert by[1]["span"] == by[1]["span_auto"] == dict(t=0, a=1, b=4)
+    assert [e["i"] for e in ch["elems"]] == [0, 1, 2, 3, 1000]           # the unplaced one stays behind the place before it
+    assert "removed" not in ch                                              # a removed place is gone, not kept for restoring
+    # an edited place keeps its automatic reading (what «back to automatic» gives); no overlap, no flag
+    ch2 = identity.text_chain(_REC)
+    identity.apply_chain_edits([ch2], texts, {"v02:9#t": dict(span={"1": dict(t=1, a=1, b=4)}, drop=[2])})
+    e1 = next(e for e in ch2["elems"] if e["i"] == 1)
+    assert e1["span"] == dict(t=1, a=1, b=4) and e1["span_auto"] == dict(t=0, a=1, b=4)
+    assert "chain_overlap" not in ch2["flags"] and "removed" not in ch2 and 2 not in [e["i"] for e in ch2["elems"]]
+
+
 def test_is_transmit_marks_phrases_and_their_prepositions():
     from icm import sanad_parse
     assert sanad_parse.is_transmit(None, "حدثنا") and sanad_parse.is_transmit("حدثنا", "عن") and sanad_parse.is_transmit(None, "وعن")

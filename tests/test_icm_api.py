@@ -267,6 +267,7 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         aid, n = ch["aid"], len(T["tokens"])
         spans = next(x for x in T["chains"] if x["aid"] == aid)["spans"]
         assert set(spans) == {str(e["i"]) for e in ch["elems"]} and spans["0"] is None            # the collector is never in the text
+        assert next(x for x in T["chains"] if x["aid"] == aid)["auto"] == spans                     # unedited: the automatic reading is the reading
         found = [e for e in ch["elems"] if spans[str(e["i"])]]
         assert found, "the rule-based chain of the seed should be found in its own sanad"
         e1 = found[0]
@@ -283,6 +284,11 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         r = c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": good}, headers=H("alice"))
         assert r.status_code == 400                                                                 # "foo" is not a key
         del good["chain"][aid]["foo"]
+        # no two places on one word: a span over an added place, two added places on one word; a dropped place frees its words
+        over = {"t": s1["t"], "a": s1["a"], "b": s1["b"]}
+        for bad in ({aid: {"add": [over], "span": {str(e1["i"]): over}}}, {aid: {"add": [over, dict(over, b=over["a"] + 1)]}}):
+            assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"chain": bad}}, headers=H("alice")).status_code == 400, bad
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"chain": {aid: {"add": [over], "span": {str(e1["i"]): over}, "drop": [1000]}}}}, headers=H("alice")).status_code == 200
         assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": good}, headers=H("alice")).status_code == 200
         got = project.decision(pid, "parts")["chain"]
         assert got == {aid: {"add": good["chain"][aid]["add"], "span": good["chain"][aid]["span"]}}
@@ -298,6 +304,8 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         assert moved["renamed"] and moved["span"]["b"] == s1["b"] + 1 and moved["name"] != "x"     # the span wins over the rename of the same place
         T2 = c.get(f"/icm/api/hadith/{W0}/tokens", params={"pid": pid}, headers=H("alice")).json()
         assert next(x for x in T2["chains"] if x["aid"] == aid)["spans"]["1000"] == new["span"]
+        auto2 = next(x for x in T2["chains"] if x["aid"] == aid)["auto"]
+        assert auto2[str(e1["i"])] == s1 and auto2["1000"] is None                                 # the moved place's automatic reading; an added one has none
         # the added place takes an override like any other, and can be dropped by its id
         assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"choices": {}, "overrides": {f"{aid}|1000": "none"}}}, headers=H("alice")).status_code == 200
         good["chain"][aid]["drop"] = [1000, e1["i"]]

@@ -738,8 +738,9 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
     removes places. Place ids never change, so decisions keyed by ``aid|i`` stay valid; the chain is reordered by
     position in the text (a place not found in the text stays behind the one before it). A place whose words the
     user changed loses the source's link (kept as ``exact_was``). The collector is left alone. ``texts`` maps wid ->
-    (tokens, words). The removed places are kept in ``ch["removed"]`` (so the editor can restore them). Returns how
-    many places changed."""
+    (tokens, words). Every place keeps its automatic reading in ``span_auto`` (what «back to automatic» would give).
+    No two places share a word: an unedited place whose automatic words a user span now covers is left unplaced
+    (``span`` None, behind the place before it) and the chain is flagged ``chain_overlap``. Returns how many places changed."""
     n = 0
     for ch in chains:
         ed = (edits or {}).get(ch["aid"])
@@ -748,7 +749,7 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
         toks, words = texts[ch["wid"]]
         spans = anchor_elems(toks, ch["elems"])
         for e in ch["elems"]:
-            e["span"] = spans.get(e["i"])
+            e["span"] = e["span_auto"] = spans.get(e["i"])
 
         def set_words(e: dict, s: dict):
             raw = " ".join(words[s["a"]:s["b"]])
@@ -761,17 +762,20 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
                 e.pop(k, None)
 
         by_i = {e["i"]: e for e in ch["elems"]}
+        edited = set()
         for i, s in (ed.get("span") or {}).items():
             e = by_i.get(int(i))
             if e is None or e.get("role") == "collector" or not _span_ok(s, len(toks)):
                 continue
             set_words(e, s)
+            edited.add(e["i"])
             n += 1
         added = []
         for k, s in enumerate(ed.get("add") or []):
             if not _span_ok(s, len(toks)):
                 continue
             e = _elem(ADDED_BASE + k, "", None, "name", added=True)
+            e["span_auto"] = None
             set_words(e, s)
             added.append(e)
             n += 1
@@ -779,9 +783,15 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
         orig = {id(e): k for k, e in enumerate(ch["elems"])}
         keep = [e for e in ch["elems"] if e["i"] not in drop or e.get("role") == "collector"]
         n += len(ch["elems"]) - len(keep)
-        ch["removed"] = [dict(i=e["i"], raw=e["raw"], name=e["name"], term=e["term"], span=e.get("span"))      # so the editor can restore them
-                         for e in ch["elems"] + added if e["i"] in drop and e.get("role") != "collector"]
         added = [e for e in added if e["i"] not in drop]
+        # no two places share a word: the user's spans win over the automatic reading of a place they did not touch
+        mine = [e["span"] for e in keep + added if e["i"] in edited or e.get("added")]
+        for e in keep:
+            sp = e.get("span")
+            if sp and e["i"] not in edited and e.get("role") != "collector" and any(sp["a"] < u["b"] and u["a"] < sp["b"] for u in mine):
+                e["span"] = None
+                if "chain_overlap" not in ch["flags"]:
+                    ch["flags"].append("chain_overlap")
         pos: Dict[int, float] = {}
         last = -1
         for e in keep:

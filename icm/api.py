@@ -640,6 +640,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                     and isinstance(add, list) and len(add) <= 50 and all(identity._span_ok(v, top) for v in add)
                     and isinstance(drop, list) and len(drop) <= 250 and all(int_ok(i) for i in drop)):
                 raise bad_chain
+            kept = sorted([v for k, v in sp.items() if int(k) not in drop] + [v for k, v in enumerate(add) if identity.ADDED_BASE + k not in drop],
+                          key=lambda v: (v["a"], v["b"]))
+            if any(x["b"] > y["a"] for x, y in zip(kept, kept[1:])):          # two places on one word
+                raise HTTPException(400, "chain: two places of a chain cannot share a word")
             one = {}
             if sp:
                 one["span"] = {k: dict(t=v["t"], a=v["a"], b=v["b"]) for k, v in sp.items()}

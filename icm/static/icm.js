@@ -999,12 +999,14 @@ const panels = {
       return el('div', {}, head, el('div', { class: 'small muted' }, 'نخستین و واپسین واژه‌ی نام راوی را بزنید؛ واژه‌های پیش از آن «لفظ نقل» می‌شوند (مثلاً در «قرأت على أبو محمد»: نام فقط «أبو محمد» است).'), box, prev, el('div', { class: 'toolbar' }, ok));
     };
 
-    /* ---- the chain in its text («ویرایش سند»): one popup for the chain of a hadith. The list is the chain in order (one row per
-       narrator: remove, restore, back to automatic); the text below is the whole hadith (sanad + matn), where only the narrators'
-       NAMES are coloured, everything else is plain text. Select a narrator (row or name), then a click on a word outside its name
-       moves the nearer edge of the name there, a click inside shortens it; «＋ راوی تازه» adds one from any two words. Saved as
-       parts.chain[aid]; place ids never change (an added place is 1000 + its position in `add`), so the choices made on the
-       places stay. The transmission phrase in front of a name is found by itself (the transmission words before it). */
+    /* ---- the chain in its text («ویرایش سند»): one popup for the chain of a hadith. The list is the chain as it stands, in text
+       order; a removed narrator leaves it (nothing is kept for restoring). The text below is the whole hadith (sanad + matn), where
+       only the narrators' NAMES are coloured. Nothing selected: a click on a name selects that narrator; a click on a free word adds
+       a narrator of that one word and selects it. A narrator selected: a free word moves the nearer edge of its name there (if that
+       would cover another narrator, the name becomes just that word: a move); a word inside its name takes that word and the ones
+       towards the nearer edge out; a word of another narrator changes nothing. No two narrators share a word, and nothing that would
+       make them share one is applied (also «↺ خودکار»). Saved as parts.chain[aid]; place ids never change (an added place is 1000 +
+       its position in `add`). The transmission phrase in front of a name is found by itself (the transmission words before it). */
     const TOKS = new Map();
     const tokensOf = wid => { if (!TOKS.has(wid)) TOKS.set(wid, api(`/hadith/${encodeURIComponent(wid)}/tokens?pid=${encodeURIComponent(c.pid)}`).catch(e => { TOKS.delete(wid); throw e; })); return TOKS.get(wid); };
     const ADD0 = 1000, PAGE = 400;
@@ -1012,65 +1014,76 @@ const panels = {
       if (!c.can || STATIC) return;
       modal(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       let T; try { T = await tokensOf(ch.wid); } catch (e) { modal(el('p', {}, 'متن در دسترس نیست: ' + e.message)); return; }
-      const auto = (T.chains.find(x => x.aid === ch.aid) || { spans: {} }).spans;
-      const saved = (pdec.chain || {})[ch.aid] || {};
-      const ed = { span: { ...(saved.span || {}) }, add: (saved.add || []).map(s => ({ ...s })), drop: [...(saved.drop || [])] };
+      const TC = T.chains.find(x => x.aid === ch.aid) || { spans: {} };
+      const cur0 = TC.spans, auto = TC.auto || TC.spans;          // the reading now (the user's spans included) / the automatic reading
+      const saved = (pdec.chain || {})[ch.aid] || {}, savedSpan = saved.span || {};
+      const ed = { span: { ...savedSpan }, add: (saved.add || []).map(s => ({ ...s })), drop: [...(saved.drop || [])] };
       const nSaved = ed.add.length;                     // a saved add keeps its id for good; an unsaved one can simply be taken back
-      let sel = selI != null ? selI : null, anchor = null, adding = false, note = '', shown = T.n_sanad + PAGE;
+      let sel = selI != null ? selI : null, note = '', shown = T.n_sanad + PAGE;
       const hist = [];                                  // undo: the state of `ed` before each change
       const mutate = f => { hist.push(JSON.stringify(ed)); f(); };
-      const places = () => {
+      const base = i => (i in savedSpan ? auto[i] : cur0[i]) || null;      // a place's words when the user has not set them
+      const places = () => {                            // the chain as it stands: removed places are not in it
         const byI = Object.fromEntries(ch.elems.map(e => [e.i, e]));
-        const out = ch.elems.filter(e => e.i < ADD0).map(e => ({ e, i: e.i, span: ed.span[e.i] || auto[e.i] || null, user: !!ed.span[e.i], coll: e.role === 'collector', idDrop: drops.has(`${ch.aid}|${e.i}`) }));
-        ed.add.forEach((s, k) => out.push({ e: byI[ADD0 + k] || null, i: ADD0 + k, span: s, added: true, idDrop: drops.has(`${ch.aid}|${ADD0 + k}`) }));   // a saved add is also in the chain: one place
-        (ch.removed || []).forEach(r => { if (!out.some(p => p.i === r.i)) out.push({ e: null, i: r.i, span: r.span, raw: r.raw, term: r.term, removed: true }); });   // dropped in an earlier save: still restorable
-        out.forEach(p => { p.dropped = ed.drop.includes(p.i); });
+        const out = ch.elems.filter(e => e.i < ADD0 && !ed.drop.includes(e.i)).map(e => ({ e, i: e.i, span: ed.span[e.i] || base(e.i), user: !!ed.span[e.i], coll: e.role === 'collector', idDrop: drops.has(`${ch.aid}|${e.i}`) }));
+        ed.add.forEach((s, k) => { if (!ed.drop.includes(ADD0 + k)) out.push({ e: byI[ADD0 + k] || null, i: ADD0 + k, span: s, added: true, idDrop: drops.has(`${ch.aid}|${ADD0 + k}`) }); });
         return out;
       };
       const ordered = (all = places()) => {             // the server's rule: by position in the text; a place not found stays behind the one before it
-        const ps = all.filter(p => !p.dropped), pos = new Map(); let last = -1;
+        const ps = [...all], pos = new Map(); let last = -1;
         ps.forEach((p, k) => { if (p.added) pos.set(p, [p.span.a, 1, k]); else if (p.coll) pos.set(p, [-2, 0, k]); else { if (p.span) last = p.span.a; pos.set(p, [last, 0, k]); } });
         return ps.sort((x, y) => { const a = pos.get(x), b = pos.get(y); return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
       };
-      const live = () => places().filter(p => p.span && !p.dropped);
-      const nameOf = p => p.span ? T.words.slice(p.span.a, p.span.b).join(' ') : p.e ? p.e.raw || p.e.name : p.raw || '';
-      const termOf = p => p.span ? T.words.slice(p.span.t, p.span.a).join(' ') : (p.e && p.e.term) || p.term || '';
-      const at = j => live().find(p => j >= p.span.a && j < p.span.b);
+      const live = () => places().filter(p => p.span);
+      const nameOf = p => p.span ? T.words.slice(p.span.a, p.span.b).join(' ') : p.e ? p.e.raw || p.e.name : '';
+      const termOf = p => p.span ? T.words.slice(p.span.t, p.span.a).join(' ') : (p.e && p.e.term) || '';
+      const owner = j => live().find(p => j >= p.span.a && j < p.span.b) || null;          // the narrator whose NAME has this word
+      const overlaps = (a, b, me) => live().find(q => q.i !== me && a < q.span.b && q.span.a < b) || null;
       const inName = (j, me) => live().some(p => p.i !== me && j >= p.span.a && j < p.span.b);
       const autoTerm = (a, me) => { let t = a; while (t > 0 && a - t < 4 && T.tflag[t - 1] && !inName(t - 1, me)) t--; return t; };
       const clampT = (t, a, me) => Math.max(t, ...live().filter(p => p.i !== me && p.span.b <= a).map(p => p.span.b));   // the phrase never reaches into the place before
+      const mkSpan = (a, b, s) => ({ t: s && s.span && a === s.span.a ? s.span.t : clampT(autoTerm(a, s ? s.i : null), a, s ? s.i : null), a, b });
       const selP = () => sel == null ? null : places().find(p => p.i === sel) || null;
       const setSpan = (p, s) => { if (p.added) ed.add[p.i - ADD0] = s; else ed.span[p.i] = s; };
-      const HINT = 'برای افزودن راوی «＋ راوی تازه» را بزنید؛ برای ویرایش، یک راوی را از فهرست یا از روی نامش در متن برگزینید.';
-      const box = el('div', { class: 'ar pedit pick chaintext' }), bar = el('div', { class: 'toolbar small edbar' }), list = el('div', { class: 'edlist' }), tools = el('div', { class: 'toolbar small' });
-      const msg = el('div', { class: 'small', style: 'color:var(--warn);min-height:1.3em' });
-      /* the name of `s` becomes [a, b) (one edge moved); its phrase is found again when the start moved */
-      const setName = (s, a, b) => {
-        const clash = live().find(q => q.i !== s.i && a < q.span.b && q.span.a < b);
-        if (clash) { note = `این واژه‌ها نامِ «${nameOf(clash)}» را هم می‌پوشاند؛ نخست نام او را کوتاه کنید یا حذفش کنید.`; return; }
-        const sp = s.span;
-        mutate(() => setSpan(s, { t: sp && a === sp.a ? sp.t : clampT(autoTerm(a, s.i), a, s.i), a, b }));
+      /* the name of `s` becomes [a, b); back to no user span when that is what it would be anyway (no false «✎ مرز تازه») */
+      const setRegion = (s, a, b) => {
+        const q = overlaps(a, b, s.i);
+        if (q) { note = `این واژه‌ها نامِ «${nameOf(q)}» را هم می‌پوشاند؛ تغییر داده نشد.`; return false; }
+        const b0 = s.added ? null : base(s.i);
+        mutate(() => { if (b0 && b0.a === a && b0.b === b) delete ed.span[s.i]; else setSpan(s, mkSpan(a, b, s)); });
+        return true;
+      };
+      /* a click on a free word with nothing selected: a narrator of that one word, selected; taken back if anything goes wrong */
+      const addNew = j => {
+        const k = ed.add.length, h = hist.length;
+        try {
+          if (overlaps(j, j + 1, null)) throw new Error('taken');
+          mutate(() => ed.add.push(mkSpan(j, j + 1, null)));
+          sel = ADD0 + k;
+          if (!selP()) throw new Error('not in the list');
+          note = 'راوی تازه افزوده و برگزیده شد؛ برای گسترش نامش روی واژه‌های کنارش بزنید.';
+        } catch (_) { ed.add.length = Math.min(ed.add.length, k); hist.length = h; sel = null; note = 'افزودن راوی تازه در این‌جا ممکن نشد.'; }
       };
       const clickTok = j => {
         note = '';
-        if (adding) {                                   // «＋ راوی تازه»: its first and its last word
-          if (anchor === null) { if (at(j)) note = 'این واژه در نام راوی دیگری است.'; else anchor = j; return paint(); }
-          const a = Math.min(anchor, j), b = Math.max(anchor, j) + 1; anchor = null;
-          const clash = live().find(q => a < q.span.b && q.span.a < b);
-          if (clash) { note = `این واژه‌ها نامِ «${nameOf(clash)}» را هم می‌پوشاند.`; return paint(); }
-          mutate(() => ed.add.push({ t: clampT(autoTerm(a, null), a, null), a, b }));
-          sel = ADD0 + ed.add.length - 1; adding = false; return paint();
-        }
-        const p = at(j), s = selP();
-        if (p && (!s || p.i !== s.i)) { sel = p.i; return paint(); }      // a narrator's name: select it
-        if (!s) { note = HINT; return paint(); }                           // a plain word and nothing selected: nothing happens
-        if (s.coll || s.dropped || s.idDrop) { note = s.coll ? 'گردآورنده از نام کتاب می‌آید و تغییر نمی‌کند.' : 'این راوی حذف شده است؛ نخست بازگردانید.'; return paint(); }
+        const p = owner(j), s = selP();
+        if (!s) { if (p) sel = p.i; else addNew(j); return paint(); }                              // select, or add
+        if (p && p.i !== s.i) { note = `این واژه از آنِ «${nameOf(p)}» است؛ نخست «لغو انتخاب» را بزنید یا نام او را کوتاه کنید.`; return paint(); }
         const sp = s.span;
-        if (!sp) setName(s, j, j + 1);                                      // not found in the text: the first word clicked is where it is
-        else if (j >= sp.a && j < sp.b) { if (j - sp.a < sp.b - 1 - j) setName(s, j, sp.b); else if (j !== sp.b - 1) setName(s, sp.a, j + 1); }   // inside: shorten from the nearer edge
-        else if (j < sp.a) setName(s, j, sp.b); else setName(s, sp.a, j + 1);                                                                     // outside: extend the nearer edge
+        if (p) {                                                                                    // a word of its own name: shorten
+          if (sp.b - sp.a === 1) sel = null;
+          else if (j - sp.a < sp.b - 1 - j) setRegion(s, j + 1, sp.b); else setRegion(s, sp.a, j);
+          return paint();
+        }
+        if (!sp) { setRegion(s, j, j + 1); return paint(); }                                        // not found in the text: here it is
+        const na = Math.min(sp.a, j), nb = Math.max(sp.b, j + 1);
+        if (overlaps(na, nb, s.i)) { if (setRegion(s, j, j + 1)) note = 'میان نام و این واژه راوی دیگری است؛ نام فقط همین واژه شد.'; }   // would cover another: a move
+        else setRegion(s, na, nb);                                                                  // extend the nearer edge
         paint();
       };
+      const HINT = 'روی نام یک راوی بزنید تا برگزیده شود، یا روی واژه‌ای آزاد بزنید تا راوی تازه‌ای از همان واژه ساخته شود.';
+      const box = el('div', { class: 'ar pedit pick chaintext' }), bar = el('div', { class: 'toolbar small edbar' }), list = el('div', { class: 'edlist' }), tools = el('div', { class: 'toolbar small' });
+      const msg = el('div', { class: 'small', style: 'color:var(--warn);min-height:1.3em' });
       box.onclick = ev => {
         const b = ev.target.closest('button'); if (!b || !box.contains(b)) return;
         if (b.classList.contains('more')) { shown += PAGE; return paint(); }
@@ -1096,49 +1109,51 @@ const panels = {
         } catch (e) { ok.disabled = false; alert(e.message); }
       };
       const ok = el('button', { class: 'primary', onclick: save }, 'ذخیره و محاسبه‌ی دوباره‌ی راویان');
-      const btn = (t, f, cls, title) => el('button', { type: 'button', class: 'small' + (cls ? ' ' + cls : ''), title: title || '', onclick: ev => { ev.stopPropagation(); f(); } }, t);
-      const pick = p => { sel = p.i; adding = false; anchor = null; note = ''; paint(); if (p.span) { const b = box.querySelector(`button[data-i='${p.span.a}']`); if (b) b.scrollIntoView({ block: 'center' }); } };
-      const remove = p => { mutate(() => { if (p.added && p.i - ADD0 >= nSaved) ed.add.splice(p.i - ADD0, 1); else ed.drop.push(p.i); }); sel = null; note = ''; paint(); };
-      const restore = p => { if (p.idDrop) { drops.delete(`${ch.aid}|${p.i}`); draw(); } else mutate(() => { ed.drop = ed.drop.filter(i => i !== p.i); }); paint(); };
+      const btn = (t, f, cls, title, dis) => el('button', { type: 'button', class: 'small' + (cls ? ' ' + cls : ''), title: title || '', disabled: !!dis, onclick: ev => { ev.stopPropagation(); f(); } }, t);
+      const pick = p => { sel = p.i; note = ''; paint(); if (p.span) { const b = box.querySelector(`button[data-i='${p.span.a}']`); if (b) b.scrollIntoView({ block: 'center' }); } };
+      const remove = p => { mutate(() => { if (p.added && p.i - ADD0 >= nSaved) ed.add.splice(p.i - ADD0, 1); else ed.drop.push(p.i); }); sel = null; note = `«${nameOf(p)}» از سند برداشته شد.`; paint(); };
+      /* «↺ خودکار»: only when the automatic words of the place are free now */
+      const revert = p => {
+        const au = auto[p.i];
+        if (!au) { note = 'برای این راوی خواندن خودکاری در متن نیست.'; return paint(); }
+        const q = overlaps(au.a, au.b, p.i);
+        if (q) { note = `بازگشت ممکن نیست: واژه‌های خودکارِ این راوی اکنون از آنِ «${nameOf(q)}» است.`; return paint(); }
+        mutate(() => { delete ed.span[p.i]; }); note = ''; paint();
+      };
       const rowOf = (p, k) => {
-        const off = p.dropped || p.idDrop, badges = [p.added ? 'جدید' : null, p.user ? '✎ مرز تازه' : null, !p.span && !p.coll && !p.removed ? 'در متن پیدا نشد' : null,
-          p.idDrop ? 'در بخش ۳ حذف شده' : null, p.dropped ? 'با ذخیره حذف می‌شود' : null, p.coll ? 'گردآورنده (از نام کتاب)' : null].filter(Boolean);
-        const acts = p.coll ? [] : off ? [btn('بازگرداندن', () => restore(p))]
-          : [p.user ? btn('↺ خودکار', () => mutate(() => { delete ed.span[p.i]; }) || paint(), '', 'مرز را به خواندن خودکار برگردان') : null, btn('✕ حذف', () => remove(p), 'danger')];
-        return el('div', { class: 'edrow' + (p.i === sel ? ' on' : '') + (off ? ' off' : ''), style: `--h:${hue(Math.max(k, 0))}`, onclick: () => pick(p) },
-          el('span', { class: 'sw' }, off ? '—' : fa(k + 1)), el('span', { class: 'n ar' }, nameOf(p)),
-          termOf(p) && !off ? el('span', { class: 'small muted' }, 'لفظ نقل: ' + termOf(p)) : null, badges.map(b => el('span', { class: 'small muted' }, '· ' + b)),
+        const badges = [p.added ? 'جدید' : null, p.user ? '✎ مرز تازه' : null, !p.span && !p.coll ? 'در متن پیدا نشد' : null,
+          p.idDrop ? 'در مرحله‌ی ۴ حذف شده' : null, p.coll ? 'گردآورنده (از نام کتاب)' : null].filter(Boolean);
+        const acts = p.coll ? [] : [p.user && !p.added ? btn('↺ خودکار', () => revert(p), '', auto[p.i] ? 'مرز را به خواندن خودکار برگردان (اگر واژه‌هایش آزاد باشد)' : 'خواندن خودکاری در متن نیست', !auto[p.i]) : null,
+          btn('✕ حذف', () => remove(p), 'danger', 'این راوی از سند برداشته می‌شود')];
+        return el('div', { class: 'edrow' + (p.i === sel ? ' on' : ''), style: `--h:${hue(Math.max(k, 0))}`, onclick: p.coll ? null : () => pick(p) },
+          el('span', { class: 'sw' }, fa(k + 1)), el('span', { class: 'n ar' }, nameOf(p)),
+          termOf(p) ? el('span', { class: 'small muted' }, 'لفظ نقل: ' + termOf(p)) : null, badges.map(b => el('span', { class: 'small muted' }, '· ' + b)),
           el('span', { class: 'grow' }), acts);
       };
       const paint = () => {
+        if (selP() && selP().coll) sel = null;
         const ps = places(), ord = ordered(ps), lab = new Array(T.tokens.length).fill(null);   // the same objects, so a place's index in `ord` is its number
-        ps.forEach(p => { if (!p.span) return; const k = ord.indexOf(p); for (let j = p.span.a; j < p.span.b; j++) if (!p.dropped || !lab[j]) lab[j] = { p, k }; });
+        ps.forEach(p => { if (!p.span) return; const k = ord.indexOf(p); for (let j = p.span.a; j < p.span.b; j++) lab[j] = { p, k }; });
         const n = Math.min(T.tokens.length, Math.max(shown, ...ps.filter(p => p.span).map(p => p.span.b + 20)));
         const kids = [];
         for (let j = 0; j < n; j++) {
           if (j === T.n_sanad) kids.push(' ', el('span', { class: 'seg', title: 'از این جا متن حدیث آغاز می‌شود' }, T.n_sanad ? 'متن' : 'متن (بی‌سند)'), ' ');
           else if (j) kids.push(' ');
           const L = lab[j], cls = ['tok'];
-          if (L) { cls.push('nm'); if (L.p.dropped) cls.push('dropped'); if (L.p.idDrop) cls.push('iddrop'); if (L.p.i === sel) cls.push('cur'); } else cls.push('out');
-          if (anchor === j) cls.push('anc');
-          kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(L ? Math.max(L.k, 0) : 0)}`, title: L ? 'راوی: ' + nameOf(L.p) : '' },
-            L && j === L.p.span.a && !L.p.dropped ? el('sup', { class: 'pnum' }, fa(L.k + 1)) : null, T.words[j]));
+          if (L) { cls.push('nm'); if (L.p.idDrop) cls.push('iddrop'); if (L.p.i === sel) cls.push('cur'); } else cls.push('out');
+          kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(L ? Math.max(L.k, 0) : 0)}`, title: L ? 'راوی: ' + nameOf(L.p) : 'واژه‌ی آزاد' },
+            L && j === L.p.span.a ? el('sup', { class: 'pnum' }, fa(L.k + 1)) : null, T.words[j]));
         }
         if (n < T.tokens.length) kids.push(' ', el('button', { type: 'button', class: 'small more' }, `… ${fa(T.tokens.length - n)} واژه‌ی دیگر`));
         box.replaceChildren(...kids);
-        fill(tools, btn(adding ? 'لغو افزودن' : '＋ راوی تازه', () => { adding = !adding; anchor = null; note = ''; if (adding) sel = null; paint(); }, adding ? '' : 'primary', 'افزودن راوی از هر دو واژه‌ی سند یا متن'),
-          btn('↶ واگرد', () => { if (!hist.length) return; Object.assign(ed, JSON.parse(hist.pop())); if (sel != null && !places().some(p => p.i === sel)) sel = null; note = ''; paint(); }, '', 'آخرین تغییر را پس بگیر'),
+        fill(tools, btn('↶ واگرد', () => { if (!hist.length) return; Object.assign(ed, JSON.parse(hist.pop())); if (sel != null && !places().some(p => p.i === sel)) sel = null; note = ''; paint(); }, '', 'آخرین تغییر را پس بگیر', !hist.length),
           el('span', { class: 'small muted' }, `${fa(ord.filter(p => !p.coll).length)} راوی در سند`));
-        fill(list, ord.map((p, k) => rowOf(p, k)), ps.filter(p => p.dropped).map(p => rowOf(p, -1)), ps.filter(p => p.idDrop && !p.dropped && !ord.includes(p)).map(p => rowOf(p, -1)));
+        fill(list, ord.map((p, k) => rowOf(p, k)));
         const s = selP();
-        let tb;
-        if (adding) tb = [anchor === null ? 'نخستین واژه‌ی نامِ راوی تازه را بزنید.' : 'واپسین واژه‌ی نام را بزنید.'];
-        else if (s && !s.coll && !s.dropped && !s.idDrop) tb = [el('span', {}, 'راوی برگزیده: ', el('b', { class: 'ar' }, nameOf(s)), s.span
-            ? '. روی واژه‌ای بیرون از نام بزنید تا مرز نام به آن‌جا برسد؛ روی واژه‌ای درون نام بزنید تا نام از آن‌جا کوتاه شود.'
-            : '. در متن پیدا نشد؛ روی نخستین واژه‌ی نامش در متن بزنید.', s.e && s.e.exact ? ' (با تغییر مرز، پیوند قطعیِ منبع برداشته و نامزدها از نو ساخته می‌شود.)' : ''),
-          btn('لغو انتخاب', () => { sel = null; paint(); })];
-        else tb = [el('span', { class: 'muted' }, HINT)];
-        fill(bar, ...tb);
+        fill(bar, ...(s ? [el('span', {}, 'راوی برگزیده: ', el('b', { class: 'ar' }, nameOf(s) || '—'), s.span
+            ? '. روی واژه‌ای آزاد بزنید تا مرز نام به آن برسد (اگر راوی دیگری در میان باشد، نام فقط همان واژه می‌شود)؛ روی واژه‌ای درون نام بزنید تا آن واژه و واژه‌های میان آن و نزدیک‌ترین لبه از نام بیرون روند.'
+            : '. در متن پیدا نشد؛ روی واژه‌ای آزاد بزنید تا نامش همان‌جا باشد.', s.e && s.e.exact ? ' (با تغییر مرز، پیوند قطعیِ منبع برداشته و نامزدها از نو ساخته می‌شود.)' : ''),
+          btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })] : [el('span', { class: 'muted' }, HINT)]));
         fill(askBox, asking ? el('div', { class: 'help warnbox' }, el('b', {}, 'تغییرهای ذخیره‌نشده دارید. پیش از بستن ذخیره شوند؟'),
           el('div', { class: 'toolbar' }, btn('ذخیره و بستن', save, 'primary'), btn('دور انداختن تغییرها و بستن', closeModal, 'danger'),
             btn('ادامه‌ی ویرایش', () => { asking = false; paint(); }))) : null);
@@ -1146,11 +1161,11 @@ const panels = {
         ok.disabled = !changed();
       };
       modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'ویرایش سند: ', el('span', { class: 'ar' }, wtitle(ch.wid))), help('step4.chainedit'),
-        el('div', { class: 'small muted' }, 'فهرست زیر سندِ این حدیث است. در متن فقط نامِ راویان رنگی است (هر راوی یک رنگ)؛ میان آن‌ها متنِ عادی است. با ذخیره، راویان و نامزدهایشان از نو ساخته می‌شود؛ انتخاب‌های پیشین بر جای خود می‌مانند.'),
+        el('div', { class: 'small muted' }, 'فهرست زیر سندِ این حدیث است، به ترتیب متن. در متن فقط نامِ راویان رنگی است (هر راوی یک رنگ)؛ هیچ واژه‌ای از آنِ دو راوی نیست. راوی حذف‌شده از فهرست بیرون می‌رود. با ذخیره، راویان و نامزدهایشان از نو ساخته می‌شود؛ انتخاب‌های پیشین بر جای خود می‌مانند.'),
         askBox, tools, list, bar, msg, box,
         el('div', { class: 'toolbar' }, ok, el('button', { type: 'button', onclick: tryCloseModal }, 'بستن'), chainPending ? el('span', { class: 'small muted' }, 'ویرایش پیشین این مرحله هنوز در حال محاسبه است.') : null)));
       modalGuard = () => { if (!changed()) return true; asking = true; paint(); askBox.scrollIntoView({ block: 'nearest' }); return false; };
-      if (removeSel && selI != null) { const s0 = selP(); if (s0 && !s0.coll && !s0.dropped && !s0.idDrop) { ed.drop.push(s0.i); sel = null; } }   // «حذف از سند» of step 4 opens here, the place marked removed
+      if (removeSel && selI != null) { const s0 = selP(); if (s0 && !s0.coll) { remove(s0); return; } }   // «حذف از سند» of step 4 opens here, the place taken out
       paint();
     };
     const drawEd = () => {
@@ -1206,7 +1221,7 @@ const panels = {
         c.can ? el('div', { class: 'toolbar' },
           el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setTimeout(() => setVal(cd, occ, here, v)); else if (v) alert('قالب شناسه نادرست است'); } }),
           val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default && !relOnly(cd) || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null,
-          el('span', { class: 'grow' }), el('button', { class: 'small', title: 'ویرایش سند را باز می‌کند و این راوی را حذف‌شده نشان می‌دهد؛ با «ذخیره» اعمال می‌شود. (واژه‌ی سند یا تکه‌ای از متن که نام خوانده شده است)', onclick: () => chainEditor(ch, e.i, true) }, 'حذف از سند…')) : null,
+          el('span', { class: 'grow' }), el('button', { class: 'small', title: 'ویرایش سند را باز می‌کند و این راوی را از سند برمی‌دارد (با «↶ واگرد» پس می‌آید)؛ با «ذخیره» اعمال می‌شود. (واژه‌ی سند یا تکه‌ای از متن که نام خوانده شده است)', onclick: () => chainEditor(ch, e.i, true) }, 'حذف از سند…')) : null,
         mergeSplit(ch, e),
         dateBox(ch, e, s));
       if (s.id || cands.length) fetchDeaths([s.id, ...cands.map(k => k.id)].filter(Boolean)).then(more => { if (more) draw(); });

@@ -101,7 +101,8 @@ def hadith(wid: str) -> Optional[dict]:
 def hadith_tokens(wid: str, pid: Optional[str] = None) -> Optional[dict]:
     """The whole text of a hadith as the chain editor needs it: ``tokens`` (the sanad's first, ``n_sanad`` of them),
     the raw spelling of each (``words``), which are transmission words (``tflag``), and, for a project, where every
-    place of its chains stands in them (``chains``: aid -> {i: {t, a, b} | None}; the user's spans where they set them)."""
+    place of its chains stands in them (``chains``: aid -> ``spans`` {i: {t, a, b} | None}, the user's spans where they set
+    them, and ``auto``, the automatic reading of each place, which «back to automatic» would give; None for an added place)."""
     rec = corpus.get(wid)
     if rec is None:
         return None
@@ -113,10 +114,11 @@ def hadith_tokens(wid: str, pid: Optional[str] = None) -> Optional[dict]:
         if ch["wid"] != wid:
             continue
         spans = identity.anchor_elems(toks, ch["elems"])
+        auto = {e["i"]: e.get("span_auto", spans.get(e["i"])) if "span" in e else spans.get(e["i"]) for e in ch["elems"]}
         for e in ch["elems"]:
             if "span" in e:                                    # an edited chain: the stage already holds the user's spans
                 spans[e["i"]] = e["span"]
-        chains.append(dict(aid=ch["aid"], spans={str(i): s for i, s in spans.items()}))
+        chains.append(dict(aid=ch["aid"], spans={str(i): s for i, s in spans.items()}, auto={str(i): s for i, s in auto.items()}))
     return dict(wid=wid, n_sanad=n_sanad, tokens=toks, words=words, tflag=tflag, chains=chains)
 
 
