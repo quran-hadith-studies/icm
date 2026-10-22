@@ -524,7 +524,9 @@ const panels = {
     /* every candidate unit in one table, with a tick «در مدل»: the units the next step uses. A tick that differs from the unit's
        present state is a pending change; «ذخیره‌ی انتخاب» saves them all at once (parts.units: keep / drop). */
     const PV = A.private_variants || [], DU = A.dropped_units || [], nPrivate = PV.filter(u => !u.why || u.why === 'private').length;
-    const WHY = { private: 'کنارگذاشته‌ی خودکار: فقط یک شاهد متفاوت', capped: 'کنارگذاشته‌ی خودکار: بیش از ۴۰ واحد', constant: 'همه‌ی شاهدها یک حالت دارند' };
+    const WHY = { private: 'کنارگذاشته‌ی خودکار: فقط یک شاهد متفاوت', capped: 'کنارگذاشته‌ی خودکار: بیش از ۴۰ واحد', orthographic: 'کنارگذاشته‌ی خودکار: فقط اختلاف املایی', constant: 'همه‌ی شاهدها یک حالت دارند' };
+    let showOrth = pref('icm.ortho', '0') === '1';
+    const stale = A.units.some(u => u.ukey === undefined) || PV.some(u => !u.labels);     // built before the units could be edited: run it again
     const cand = [...units.map(u => ({ u, st: 'in' })), ...(PV.every(x => x.labels) ? PV : []).map(u => ({ u, st: u.why || 'private' })), ...DU.map(u => ({ u, st: 'dropped' }))];
     const want = {}, cid = x => `${x.u.clause}|${x.u.ukey}`;
     const usable = x => canEdit && x.u.ukey !== undefined && !!clauseKeyOf(x.u) && x.st !== 'constant';
@@ -534,17 +536,19 @@ const panels = {
     const saveSelection = () => saveUnits(cand.filter(x => cid(x) in want).map(x => [clauseKeyOf(x.u), x.u.ukey, want[cid(x)] ? e => { e.keep = true; delete e.drop; } : e => { e.drop = true; delete e.keep; }]), 'unit selection');
     const decided = () => Object.entries(pd.units || {}).flatMap(([k, m]) => Object.entries(m).filter(([, e]) => e.drop || e.keep).map(([uk]) => [k, uk, e => { delete e.drop; delete e.keep; }]));
     const drawUnits = () => {
-      const pending = Object.keys(want).length, nOn = cand.filter(isOn).length, mine = decided(), all = (on) => () => { cand.filter(usable).forEach(x => setWant(x, on)); drawUnits(); };
+      const vis = cand.filter(x => showOrth || x.st !== 'orthographic' || isOn(x) || cid(x) in want), nOrth = cand.filter(x => x.st === 'orthographic').length;
+      const pending = Object.keys(want).length, nOn = cand.filter(isOn).length, mine = decided(), all = (on) => () => { vis.filter(usable).forEach(x => setWant(x, on)); drawUnits(); };
       unitsBox.replaceChildren(
         canEdit && cand.some(usable) ? el('div', { class: 'toolbar' + (pending ? ' actionbar' : '') },
           el('b', {}, `${fa(nOn)} از ${fa(cand.length)} واحد برای مدل (مرحله‌ی ۵) انتخاب شده`),
           el('button', { class: 'small', onclick: all(true) }, 'انتخاب همه'), el('button', { class: 'small', onclick: all(false) }, 'برداشتن همه'),
+          nOrth ? el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: showOrth, onchange: ev => { showOrth = ev.target.checked; setPref('icm.ortho', showOrth ? '1' : '0'); drawUnits(); } }), ` نمایش ${fa(nOrth)} ستونِ فقط املایی`) : null,
           el('button', { class: 'small', disabled: !mine.length || pending > 0, title: 'همه‌ی «نگه داشتن» و «کنار گذاشتن»های شما برداشته می‌شود و انتخاب خودکار برمی‌گردد', onclick: () => saveUnits(mine, 'unit selection reset') }, 'بازگشت به انتخاب خودکار'),
           pending ? [el('button', { class: 'primary', onclick: saveSelection }, `ذخیره‌ی انتخاب (${fa(pending)} تغییر)`), el('button', { class: 'small', onclick: () => { Object.keys(want).forEach(k => delete want[k]); drawUnits(); } }, 'لغو تغییرها'),
             el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.')] : null) : null,
         el('table', { class: 'units' },
           el('tr', {}, ...['در مدل', 'واحد', 'بخش', 'گونه', 'جا در متن', 'حالت‌ها (شمار شاهدها)', 'وضع', 'افزوده یا افتاده؟', ''].map(t => el('th', {}, t))),
-          cand.map(x => { const u = x.u, on = isOn(x), nNA = Object.values(u.states).filter(v => v < 0).length, [stt, stc] = statOf(x), inm = x.st === 'in';
+          vis.map(x => { const u = x.u, on = isOn(x), nNA = Object.values(u.states).filter(v => v < 0).length, [stt, stc] = statOf(x), inm = x.st === 'in';
             return el('tr', { class: (inm && pick === u.k ? 'on ' : '') + (on ? '' : 'off'), onclick: inm ? () => setPick(pick === u.k ? null : u.k) : null, title: inm ? 'نمایش در جدول هم‌ترازی' : '' },
               el('td', { onclick: ev => ev.stopPropagation() }, el('input', { type: 'checkbox', checked: on, disabled: !usable(x), 'aria-label': 'این واحد به مدل برود', title: x.st === 'constant' ? 'همه‌ی شاهدها در این واحد یک حالت دارند؛ به مدل نمی‌رود' : '',
                 onchange: ev => { setWant(x, ev.target.checked); drawUnits(); } })),
@@ -676,6 +680,9 @@ const panels = {
             el('li', {}, el('b', {}, 'عدد: '), 'عددی که حدیث می‌گوید (۴، ۵، ۶، ۷…).')),
           el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد خودکار نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست؛ واحدهایی که خودتان نگه می‌دارید یا می‌سازید جدا از این سقف‌اند.`))], help('step3.units'),
         el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.${DU.length ? ` ${fa(DU.length)} واحد را خودتان کنار گذاشته‌اید.` : ''}${canEdit ? ' ستون «در مدل» را تیک بزنید یا بردارید تا تعیین کنید کدام واحدها به مرحله‌ی بعد بروند (واحدهای کنارگذاشته هم در همین جدول‌اند)؛ با «+ واحد تازه» بالای جدول هم‌ترازی روی چند ستون واحدی بسازید.' : ''}`),
+        stale ? el('div', { class: 'help warnbox' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است؛ برخی واحدها (واژه‌ی جایگزین) را نمی‌توان برداشت و واحدهای کنارگذاشته در جدول نیستند. ',
+          c.can && !STATIC ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reloadAt(c.pid, 'alignment'); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
+          el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند و مرحله‌ی ۵ دوباره تأیید می‌خواهد.')) : null,
         unitsBox,
         A.private_texts.length ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(A.private_texts.length)} تکه‌ی افزوده که فقط در یک شاهد آمده`),
           A.private_texts.map(t => el('div', { class: 'ar small' }, `${fa(W.findIndex(w => w.wid === t.wid))}. ${(W.find(w => w.wid === t.wid) || {}).title || t.wid}: ${t.text}`))) : null));
@@ -1001,8 +1008,9 @@ const panels = {
 
     /* ---- the chain in its text («ویرایش سند»): one popup for the chain of a hadith. The list is the chain as it stands, in text
        order; a removed narrator leaves it (nothing is kept for restoring). The text below is the whole hadith (sanad + matn), where
-       only the narrators' NAMES are coloured. Nothing selected: a click on a name selects that narrator; a click on a free word adds
-       a narrator of that one word and selects it. A narrator selected: a free word moves the nearer edge of its name there (if that
+       only the narrators' NAMES are coloured. Nothing selected: a click on a name selects that narrator; a click on a free word only
+       SUGGESTS a narrator (the word is marked; more clicks on the words next to it grow the suggestion) and nothing in the chain
+       changes until «افزودن» is pressed. A narrator selected: a free word moves the nearer edge of its name there (if that
        would cover another narrator, the name becomes just that word: a move); a word inside its name takes that word and the ones
        towards the nearer edge out; a word of another narrator changes nothing. No two narrators share a word, and nothing that would
        make them share one is applied (also «↺ خودکار»). Saved as parts.chain[aid]; place ids never change (an added place is 1000 +
@@ -1019,7 +1027,7 @@ const panels = {
       const saved = (pdec.chain || {})[ch.aid] || {}, savedSpan = saved.span || {};
       const ed = { span: { ...savedSpan }, add: (saved.add || []).map(s => ({ ...s })), drop: [...(saved.drop || [])] };
       const nSaved = ed.add.length;                     // a saved add keeps its id for good; an unsaved one can simply be taken back
-      let sel = selI != null ? selI : null, note = '', shown = T.n_sanad + PAGE;
+      let sel = selI != null ? selI : null, pend = null, note = '', shown = T.n_sanad + PAGE;     // pend: {a, b}, the words suggested as a new narrator
       const hist = [];                                  // undo: the state of `ed` before each change
       const mutate = f => { hist.push(JSON.stringify(ed)); f(); };
       const base = i => (i in savedSpan ? auto[i] : cur0[i]) || null;      // a place's words when the user has not set them
@@ -1053,21 +1061,32 @@ const panels = {
         mutate(() => { if (b0 && b0.a === a && b0.b === b) delete ed.span[s.i]; else setSpan(s, mkSpan(a, b, s)); });
         return true;
       };
-      /* a click on a free word with nothing selected: a narrator of that one word, selected; taken back if anything goes wrong */
-      const addNew = j => {
-        const k = ed.add.length, h = hist.length;
+      /* «افزودن» of the suggestion: a narrator of those words, selected; taken back if anything goes wrong */
+      const confirmNew = () => {
+        const k = ed.add.length, h = hist.length, { a, b } = pend;
         try {
-          if (overlaps(j, j + 1, null)) throw new Error('taken');
-          mutate(() => ed.add.push(mkSpan(j, j + 1, null)));
-          sel = ADD0 + k;
+          if (overlaps(a, b, null)) throw new Error('taken');
+          mutate(() => ed.add.push(mkSpan(a, b, null)));
+          sel = ADD0 + k; pend = null;
           if (!selP()) throw new Error('not in the list');
-          note = 'راوی تازه افزوده و برگزیده شد؛ برای گسترش نامش روی واژه‌های کنارش بزنید.';
-        } catch (_) { ed.add.length = Math.min(ed.add.length, k); hist.length = h; sel = null; note = 'افزودن راوی تازه در این‌جا ممکن نشد.'; }
+          note = 'راوی تازه افزوده و برگزیده شد.';
+        } catch (_) { ed.add.length = Math.min(ed.add.length, k); hist.length = h; sel = null; pend = null; note = 'افزودن راوی تازه در این‌جا ممکن نشد.'; }
       };
       const clickTok = j => {
         note = '';
         const p = owner(j), s = selP();
-        if (!s) { if (p) sel = p.i; else addNew(j); return paint(); }                              // select, or add
+        if (s) pend = null;
+        if (!s) {                                                                                   // nothing selected: a click never changes the chain
+          if (p) { sel = p.i; pend = null; return paint(); }                                        // a name: select it
+          if (!pend) pend = { a: j, b: j + 1 };                                                     // a free word: only suggest a narrator
+          else if (j >= pend.a && j < pend.b) { if (pend.b - pend.a === 1) pend = null; else if (j - pend.a < pend.b - 1 - j) pend = { a: j + 1, b: pend.b }; else pend = { a: pend.a, b: j }; }
+          else {
+            const na = Math.min(pend.a, j), nb = Math.max(pend.b, j + 1);
+            if (overlaps(na, nb, null)) { pend = { a: j, b: j + 1 }; note = 'میان پیشنهاد و این واژه راوی دیگری است؛ پیشنهاد فقط همین واژه شد.'; }
+            else pend = { a: na, b: nb };
+          }
+          return paint();
+        }
         if (p && p.i !== s.i) { note = `این واژه از آنِ «${nameOf(p)}» است؛ نخست «لغو انتخاب» را بزنید یا نام او را کوتاه کنید.`; return paint(); }
         const sp = s.span;
         if (p) {                                                                                    // a word of its own name: shorten
@@ -1081,7 +1100,7 @@ const panels = {
         else setRegion(s, na, nb);                                                                  // extend the nearer edge
         paint();
       };
-      const HINT = 'روی نام یک راوی بزنید تا برگزیده شود، یا روی واژه‌ای آزاد بزنید تا راوی تازه‌ای از همان واژه ساخته شود.';
+      const HINT = 'روی نام یک راوی بزنید تا برگزیده شود. روی واژه‌ای آزاد بزنید تا راوی تازه‌ای پیشنهاد شود؛ تا «افزودن» را نزنید چیزی تغییر نمی‌کند.';
       const box = el('div', { class: 'ar pedit pick chaintext' }), bar = el('div', { class: 'toolbar small edbar' }), list = el('div', { class: 'edlist' }), tools = el('div', { class: 'toolbar small' });
       const msg = el('div', { class: 'small', style: 'color:var(--warn);min-height:1.3em' });
       box.onclick = ev => {
@@ -1110,7 +1129,7 @@ const panels = {
       };
       const ok = el('button', { class: 'primary', onclick: save }, 'ذخیره و محاسبه‌ی دوباره‌ی راویان');
       const btn = (t, f, cls, title, dis) => el('button', { type: 'button', class: 'small' + (cls ? ' ' + cls : ''), title: title || '', disabled: !!dis, onclick: ev => { ev.stopPropagation(); f(); } }, t);
-      const pick = p => { sel = p.i; note = ''; paint(); if (p.span) { const b = box.querySelector(`button[data-i='${p.span.a}']`); if (b) b.scrollIntoView({ block: 'center' }); } };
+      const pick = p => { sel = p.i; pend = null; note = ''; paint(); if (p.span) { const b = box.querySelector(`button[data-i='${p.span.a}']`); if (b) b.scrollIntoView({ block: 'center' }); } };
       const remove = p => { mutate(() => { if (p.added && p.i - ADD0 >= nSaved) ed.add.splice(p.i - ADD0, 1); else ed.drop.push(p.i); }); sel = null; note = `«${nameOf(p)}» از سند برداشته شد.`; paint(); };
       /* «↺ خودکار»: only when the automatic words of the place are free now */
       const revert = p => {
@@ -1141,6 +1160,7 @@ const panels = {
           else if (j) kids.push(' ');
           const L = lab[j], cls = ['tok'];
           if (L) { cls.push('nm'); if (L.p.idDrop) cls.push('iddrop'); if (L.p.i === sel) cls.push('cur'); } else cls.push('out');
+          if (!L && pend && j >= pend.a && j < pend.b) cls.push('pend');
           kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(L ? Math.max(L.k, 0) : 0)}`, title: L ? 'راوی: ' + nameOf(L.p) : 'واژه‌ی آزاد' },
             L && j === L.p.span.a ? el('sup', { class: 'pnum' }, fa(L.k + 1)) : null, T.words[j]));
         }
@@ -1153,7 +1173,10 @@ const panels = {
         fill(bar, ...(s ? [el('span', {}, 'راوی برگزیده: ', el('b', { class: 'ar' }, nameOf(s) || '—'), s.span
             ? '. روی واژه‌ای آزاد بزنید تا مرز نام به آن برسد (اگر راوی دیگری در میان باشد، نام فقط همان واژه می‌شود)؛ روی واژه‌ای درون نام بزنید تا آن واژه و واژه‌های میان آن و نزدیک‌ترین لبه از نام بیرون روند.'
             : '. در متن پیدا نشد؛ روی واژه‌ای آزاد بزنید تا نامش همان‌جا باشد.', s.e && s.e.exact ? ' (با تغییر مرز، پیوند قطعیِ منبع برداشته و نامزدها از نو ساخته می‌شود.)' : ''),
-          btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })] : [el('span', { class: 'muted' }, HINT)]));
+          btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })]
+          : pend ? [el('span', {}, 'راوی تازه: «', el('b', { class: 'ar' }, T.words.slice(pend.a, pend.b).join(' ')), '»؟ برای گسترش نام روی واژه‌های کنارش بزنید؛ برای کوتاه‌کردن روی واژه‌ای از خودش.'),
+            btn('افزودن', () => { confirmNew(); paint(); }, 'primary'), btn('لغو', () => { pend = null; note = ''; paint(); })]
+          : [el('span', { class: 'muted' }, HINT)]));
         fill(askBox, asking ? el('div', { class: 'help warnbox' }, el('b', {}, 'تغییرهای ذخیره‌نشده دارید. پیش از بستن ذخیره شوند؟'),
           el('div', { class: 'toolbar' }, btn('ذخیره و بستن', save, 'primary'), btn('دور انداختن تغییرها و بستن', closeModal, 'danger'),
             btn('ادامه‌ی ویرایش', () => { asking = false; paint(); }))) : null);
@@ -1922,7 +1945,7 @@ function unitCols(u) {          // stage files written before units carried thei
   const m = /^c\d+([ws])(\d+)/.exec(u.name);
   return m ? [+m[2], +m[2]] : null;
 }
-const UKIND = u => (u.unit_kind === 'clause' ? 'حضور بخش' : u.kind === 'presence' ? 'حضور واژه' : u.kind === 'numeric' ? 'عدد' : 'واژه‌ی جایگزین') + (u.by === 'user' ? ' (دستی)' : '');
+const UKIND = u => (u.unit_kind === 'clause' ? 'حضور بخش' : u.kind === 'presence' ? 'حضور واژه' : u.kind === 'numeric' ? 'عدد' : u.ortho ? 'املای دیگر' : 'واژه‌ی جایگزین') + (u.by === 'user' ? ' (دستی)' : '');
 const ulab = l => ({ absent: 'ندارد', present: 'دارد', '*other*': 'دیگر' }[l] || (/^\d+$/.test(l) ? fa(l) : l));
 function uwhere(u, A) {
   if (u.unit_kind === 'clause') return short(A.clauses[u.clause].text, 40);

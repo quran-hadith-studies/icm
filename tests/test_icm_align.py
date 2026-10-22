@@ -369,3 +369,19 @@ def test_units_the_user_keeps_come_on_top_of_the_cap(monkeypatch):
     out = next(u for u in capped["private_variants"] if u["why"] == "capped")
     kept = align.run(S2, sel2, {"units": {r["clauses"][out["clause"]]["key"]: {out["ukey"]: {"keep": True}}}})
     assert kept["n_units"] == 2 and {u["ukey"] for u in kept["units"]} == {u["ukey"] for u in r["units"]}
+
+
+def test_spelling_only_columns_are_units_set_aside_that_can_be_kept():
+    seed = "ليس العبادة كثرة الصلاة والصوم إنما العبادة التفكر في أمر الله"
+    w = [seed] * 4 + [seed.replace("ليس", "ليست")] * 3
+    S, sel = _search(seed, w), [f"t:{i}" for i in range(len(w))]
+    r = align.run(S, sel)
+    o = [u for u in r["private_variants"] if u["why"] == "orthographic"]
+    assert len(o) == 1 and o[0]["ortho"] and o[0]["ukey"].startswith("o:") and set(o[0]["labels"]) == {"لیس", "لیست"}
+    assert not [u for u in r["units"] if u.get("ortho")]                      # not in the model unless kept
+    key = r["clauses"][o[0]["clause"]]["key"]
+    k = align.run(S, sel, {"units": {key: {o[0]["ukey"]: {"keep": True}}}})
+    u = next(u for u in k["units"] if u["ukey"] == o[0]["ukey"])
+    assert u["user_keep"] and u["cls"] == "orthography" and sorted(u["states"].values()).count(1) == 3
+    from hadith_phylogeny.text_model import VariantSpec, VariantModel
+    VariantModel([VariantSpec(**{f: x[f] for f in ("name", "n_states", "cls", "kind", "labels")}) for x in k["units"]])

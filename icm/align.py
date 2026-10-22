@@ -27,7 +27,9 @@ keyed by the clause's ``key`` (``part_keys``: its kind and text), so a re-cut cl
 The units themselves can be edited too (``parts.units``: part key -> unit key -> {drop, keep, cls, states, def}): every unit
 has a ``ukey`` that does not depend on column numbers, so a decision survives a new alignment. A user can exclude a unit
 (``drop``), keep one the filter or the cap set aside (``keep``), fix a witness's state, or define a unit over a range of
-columns (``def``, anchored on the words of the witnesses it was drawn on, not on column numbers).
+columns (``def``, anchored on the words of the witnesses it was drawn on, not on column numbers). Columns whose
+words differ only in spelling (لیس / لیست, لا / ولا: one cluster of ``cluster_tokens``) are units too (``ortho``), set aside
+(``why="orthographic"``) unless the user keeps them.
 
 Rows of X use ``text_model.NA = -1``.
 """
@@ -333,6 +335,8 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
     pool = [u for u in pool if u["n_distinct"] >= 2]
     forced = [u for u in pool if u.get("user_keep") or u.get("by") == "user"]
     rest = [u for u in pool if u not in forced]
+    ortho = [u for u in rest if u.get("ortho")]                       # spelling only: offered, not used unless kept
+    rest = [u for u in rest if not u.get("ortho")]
     auto = sorted([u for u in rest if u["second"] >= 2], key=lambda u: (-u["minor"], u["name"]))
     private = [u for u in rest if u["second"] < 2]
     capped: List[dict] = []
@@ -352,7 +356,7 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         clauses=[{k: v for k, v in c.items() if k != "tokens"} for c in clause_defs],
         segments={f"{ci}|{w}": {k: v for k, v in sg.items() if k != "aligned"} for (ci, w), sg in segs.items()},
         grids=grids, units=[plain(u) for u in informative],
-        X=X, private_variants=[plain(u) | dict(why=why) for why, us in (("private", private), ("capped", capped), ("constant", constant)) for u in us],
+        X=X, private_variants=[plain(u) | dict(why=why) for why, us in (("private", private), ("capped", capped), ("orthographic", ortho), ("constant", constant)) for u in us],
         dropped_units=[plain(u) for u in gone],
         private_texts=extras["private"], dropped_orthographic=dropped_orth,
         n_units=len(informative), flags=flags, parts_in=parts)
@@ -422,11 +426,12 @@ def _unit_keys(mine: List[dict], grid: List[dict], holders: Sequence[str], seed:
             base = "n:" + u.pop("seed_key", "?")
         else:
             j0, j1 = u["cols"]
-            base = "s:?"
+            pre = "o:" if u.get("ortho") else "s:"
+            base = pre + "?"
             for w in ([seed] if seed in rk else []) + [x for x in holders if x != seed]:
                 keys = [k for j, k in rk.get(w, []) if j0 <= j <= j1]
                 if keys:
-                    base = "s:" + (" ".join(keys) if w == seed else f"{w}:" + " ".join(keys))
+                    base = pre + (" ".join(keys) if w == seed else f"{w}:" + " ".join(keys))
                     break
         u.pop("seed_key", None)
         seen[base] += 1
@@ -721,6 +726,7 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
     ncol = len(cols)
     sub_runs: List[Tuple[int, dict]] = []
     pres_runs: List[Tuple[int, Tuple, str]] = []
+    ortho_cols: List[Tuple[int, dict, dict]] = []     # one word in every witness, spelled differently (لیس / لیست, لا / ولا)
     for j, col in enumerate(cols):
         vec = {}
         for w in order:
@@ -734,6 +740,8 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
         if toks and Counter(toks).most_common(1)[0][0] in skip_tokens:
             continue                                  # a number word: covered by its own unit
         clusters = cluster_tokens(toks)
+        if len(clusters) == 1 and len(set(toks)) > 1:
+            ortho_cols.append((j, vec, col))
         if len(set(known)) > 1 and len(clusters) <= 1:
             pres_runs.append((j, tuple(vec.get(w, NA) for w in order), clusters[0][0] if clusters else ""))
         elif len(clusters) >= 2:
@@ -795,4 +803,14 @@ def _clause_grid(c: dict, holders: List[str], segs, wits, skip_tokens=frozenset(
         group.append((j0, info))
         prev_key = key
     flush_sub()
+    # spelling-only columns: a unit too, set aside unless the user keeps it (``ortho``; states = the spellings)
+    for j, vec, col in ortho_cols:
+        cnt = Counter(col[w] for w in order if vec.get(w) == 1).most_common()
+        reps = [t for t, _ in cnt]
+        if len(reps) > MAX_STATES:
+            reps = reps[:MAX_STATES - 1] + ["*other*"]
+        idx = {t: min(i, len(reps) - 1) for i, (t, _) in enumerate(cnt)}
+        units.append(dict(name=f"c{c['i']}o{j}:{'|'.join(reps)}", kind="lexical", unit_kind="words", clause=c["i"], cls="orthography",
+                          n_states=len(reps), labels=reps, states={w: idx[col[w]] if w in placed and vec.get(w) == 1 else NA for w in holders},
+                          cols=[j, j], ortho=True))
     return grid, units, orth
