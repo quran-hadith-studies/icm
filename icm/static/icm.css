@@ -157,6 +157,7 @@ details.splitd{margin:8px 0}details.splitd>summary{cursor:pointer;color:var(--ac
 .edrow.off{opacity:.6;border-inline-start-color:var(--muted)}.edrow.off .n{text-decoration:line-through}.edrow .n{font-size:15px;color:var(--arabic)}.edrow .sw{margin:0}
 .chaintext .tok.pend{background:var(--accent-soft);outline:2px dashed var(--accent);outline-offset:1px}      /* the words suggested as a new narrator (nothing is added yet) */
 .chaintext .tok.cur{outline:3px solid hsl(48 95% 55%);outline-offset:1px}
+.chaintext .tok.ph{background:hsl(var(--h) var(--hl-s) var(--hl-l));border-bottom:2px dashed hsl(var(--h) var(--k-s) var(--k-l));color:var(--arabic)}   /* choosing phrases: a narrator's phrase, a light tint of its colour */
 .chaintext .tok.iddrop{text-decoration:line-through dotted}
 .chaintext .tok .pnum{margin-inline-end:2px;font-size:10px;vertical-align:super;color:var(--fg);font-weight:600}
 .chaintext .seg{display:inline-block;font-size:11px;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:0 6px;margin:0 2px;line-height:1.7;vertical-align:middle;font-family:inherit}

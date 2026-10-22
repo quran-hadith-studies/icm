@@ -1023,11 +1023,15 @@ const panels = {
       const TC = T.chains.find(x => x.aid === ch.aid) || { spans: {} };
       const cur0 = TC.spans, auto = TC.auto || TC.spans;          // the reading now (the user's spans included) / the automatic reading
       const saved = (pdec.chain || {})[ch.aid] || {}, savedSpan = saved.span || {};
-      const ed = { span: { ...savedSpan }, add: (saved.add || []).map(s => ({ ...s })), drop: [...(saved.drop || [])] };
+      const ed = { span: { ...savedSpan }, add: (saved.add || []).map(s => ({ ...s })), drop: [...(saved.drop || [])], term: Object.fromEntries(Object.entries(saved.term || {}).map(([i, v]) => [i, [...v]])) };
       const nSaved = ed.add.length;                     // a saved add keeps its id for good; an unsaved one can simply be taken back
-      let sel = selI != null ? selI : null, pend = null, note = '', shown = T.n_sanad + PAGE;     // pend: {a, b}, the words suggested as a new narrator
+      let sel = selI != null ? selI : null, pend = null, note = '', shown = T.n_sanad + PAGE, pm = false;     // pend: {a, b}, the words suggested as a new narrator; pm: choosing transmission phrases
       const hist = [];                                  // undo: the state of `ed` before each change
-      const mutate = f => { hist.push(JSON.stringify(ed)); f(); };
+      /* every change can be undone; a chosen phrase whose words between names changed (a name moved, added or removed) goes back to all of them */
+      const mutate = f => {
+        hist.push(JSON.stringify(ed)); const g0 = gaps(); f(); const g1 = gaps();
+        Object.keys(ed.term).forEach(i => { const x = g0[i], y = g1[i]; if (!x || !y || x.lo !== y.lo || x.a !== y.a) delete ed.term[i]; });
+      };
       const base = i => (i in savedSpan ? auto[i] : cur0[i]) || null;      // a place's words when the user has not set them
       const gone = i => drops.has(`${ch.aid}|${i}`);       // removed in step 4 («حذف از سند» of an older version): removed just the same
       const places = () => {                            // the chain as it stands: removed places are not in it
@@ -1042,8 +1046,24 @@ const panels = {
         return ps.sort((x, y) => { const a = pos.get(x), b = pos.get(y); return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
       };
       const live = () => places().filter(p => p.span);
+      /* the server's rule (identity.fill_terms): the words before each placed name since the name before it, never back over
+         the start of the matn: [lo, a); by default its phrase is all of them, a blessing («رضي الله عنه») of the name before excepted */
+      const gaps = (ps = places()) => {
+        const out = {}; let prev = 0;
+        ps.filter(p => p.span && !p.coll).sort((x, y) => x.span.a - y.span.a).forEach(p => {
+          const a = p.span.a, lo = prev < T.n_sanad && T.n_sanad <= a ? T.n_sanad : prev;
+          let d = lo;
+          if (d < a && T.hflag && T.hflag[d]) for (let j = d + 1; j < a; j++) if (T.tflag[j]) { d = j; break; }
+          out[p.i] = { lo, d, a }; prev = p.span.b;
+        });
+        return out;
+      };
+      const phraseOf = (p, G = gaps()) => {
+        const g = G[p.i], q = ed.term[p.i]; if (!g) return null;
+        return q && g.lo <= q[0] && q[0] <= q[1] && q[1] <= g.a ? { t: q[0], e: q[1], pin: true } : { t: g.d, e: g.a, pin: false };
+      };
       const nameOf = p => p.span ? T.words.slice(p.span.a, p.span.b).join(' ') : p.e ? p.e.raw || p.e.name : '';
-      const termOf = p => p.span ? T.words.slice(p.span.t, p.span.a).join(' ') : (p.e && p.e.term) || '';
+      const termOf = p => { const ph = phraseOf(p); return ph ? T.words.slice(ph.t, ph.e).join(' ') : (p.e && p.e.term) || ''; };
       const owner = j => live().find(p => j >= p.span.a && j < p.span.b) || null;          // the narrator whose NAME has this word
       const overlaps = (a, b, me) => live().find(q => q.i !== me && a < q.span.b && q.span.a < b) || null;
       const inName = (j, me) => live().some(p => p.i !== me && j >= p.span.a && j < p.span.b);
@@ -1071,8 +1091,31 @@ const panels = {
           note = 'راوی تازه افزوده و برگزیده شد.';
         } catch (_) { ed.add.length = Math.min(ed.add.length, k); hist.length = h; sel = null; pend = null; note = 'افزودن راوی تازه در این‌جا ممکن نشد.'; }
       };
+      /* the phrase of a place: [t, e) of its words between names, null: back to all of them (a choice equal to that is no choice) */
+      const setPhrase = (p, v) => {
+        const g = gaps()[p.i]; if (!g) return;
+        if (v && v[0] === g.d && v[1] === g.a) v = null;
+        if (sameJ(ed.term[p.i] || null, v)) return;
+        mutate(() => { if (v) ed.term[p.i] = v; else delete ed.term[p.i]; });
+      };
+      /* choosing phrases: a word between two names belongs to the name after it; the first click makes the phrase that word,
+         then a click beside it extends it, a click on it shortens it (from the nearer edge), its only word gives all the words back */
+      const clickPhrase = j => {
+        const ps = places(), G = gaps(ps), p = owner(j);
+        if (p) { sel = p.i; return paint(); }
+        const n = ps.find(q => G[q.i] && G[q.i].lo <= j && j < G[q.i].a);
+        if (!n) { note = 'این واژه پیش از هیچ نامی نیست (پس از واپسین راوی، یا پیش از آغاز متن با نامی در متن)؛ لفظ نقلِ کسی نمی‌شود.'; return paint(); }
+        sel = n.i;
+        const ph = phraseOf(n, G);
+        if (!ph.pin || ph.t === ph.e) setPhrase(n, [j, j + 1]);
+        else if (j < ph.t || j >= ph.e) setPhrase(n, [Math.min(ph.t, j), Math.max(ph.e, j + 1)]);
+        else if (ph.e - ph.t === 1) setPhrase(n, null);
+        else setPhrase(n, j - ph.t < ph.e - 1 - j ? [j + 1, ph.e] : [ph.t, j]);
+        paint();
+      };
       const clickTok = j => {
         note = '';
+        if (pm) return clickPhrase(j);
         const p = owner(j), s = selP();
         if (s) pend = null;
         if (!s) {                                                                                   // nothing selected: a click never changes the chain
@@ -1107,7 +1150,7 @@ const panels = {
         if (b.classList.contains('more')) { shown += PAGE; return paint(); }
         if (b.dataset.i != null) clickTok(+b.dataset.i);
       };
-      const changed = () => !sameJ(ed, { span: saved.span || {}, add: saved.add || [], drop: saved.drop || [] });
+      const changed = () => !sameJ(ed, { span: saved.span || {}, add: saved.add || [], drop: saved.drop || [], term: saved.term || {} });
       let asking = false;                               // the window is being closed with unsaved edits: save / discard / go on
       const askBox = el('div', {});
       const save = async () => {
@@ -1119,8 +1162,9 @@ const panels = {
             if (Object.keys(ed.span).length) out.span = ed.span;
             if (ed.add.length) out.add = ed.add;
             if (ed.drop.length) out.drop = [...new Set(ed.drop)].sort((a, b) => a - b);
+            if (Object.keys(ed.term).length) out.term = ed.term;
             if (Object.keys(out).length) chain[ch.aid] = out; else delete chain[ch.aid];
-            const renames = { ...d.renames }; Object.keys(ed.span).forEach(i => delete renames[`${ch.aid}|${i}`]);   // the span wins over an older reading
+            const renames = { ...d.renames }; [...Object.keys(ed.span), ...Object.keys(ed.term)].forEach(i => delete renames[`${ch.aid}|${i}`]);   // the span or phrase wins over an older reading
             return { chain, renames };
           }, `chain ${ch.aid}`);
           reloadAt(c.pid, 'identities');
@@ -1139,37 +1183,52 @@ const panels = {
         mutate(() => { delete ed.span[p.i]; }); note = ''; paint();
       };
       const rowOf = (p, k) => {
-        const badges = [p.added ? 'جدید' : null, p.user ? '✎ مرز تازه' : null, !p.span && !p.coll ? 'در متن پیدا نشد' : null,
+        const ph = phraseOf(p);
+        const badges = [p.added ? 'جدید' : null, p.user ? '✎ مرز تازه' : null, ph && ph.pin ? '✎ لفظ نقل برگزیده' : null, !p.span && !p.coll ? 'در متن پیدا نشد' : null,
           p.coll ? 'گردآورنده (از نام کتاب)' : null].filter(Boolean);
         const acts = p.coll ? [] : [p.user && !p.added ? btn('↺ خودکار', () => revert(p), '', auto[p.i] ? 'مرز را به خواندن خودکار برگردان (اگر واژه‌هایش آزاد باشد)' : 'خواندن خودکاری در متن نیست', !auto[p.i]) : null,
           btn('✕ حذف', () => remove(p), 'danger', 'این راوی از سند برداشته می‌شود')];
         return el('div', { class: 'edrow' + (p.i === sel ? ' on' : ''), style: `--h:${hue(Math.max(k, 0))}`, onclick: p.coll ? null : () => pick(p) },
           el('span', { class: 'sw' }, fa(k + 1)), el('span', { class: 'n ar' }, nameOf(p)),
-          termOf(p) ? el('span', { class: 'small muted' }, 'لفظ نقل: ' + termOf(p)) : null, badges.map(b => el('span', { class: 'small muted' }, '· ' + b)),
+          termOf(p) ? el('span', { class: 'small muted' }, 'لفظ نقل: ', el('span', { class: 'ar' }, termOf(p))) : ph && ph.pin ? el('span', { class: 'small muted' }, 'بی‌لفظ نقل') : null, badges.map(b => el('span', { class: 'small muted' }, '· ' + b)),
           el('span', { class: 'grow' }), acts);
       };
       const paint = () => {
         if (selP() && selP().coll) sel = null;
         const ps = places(), ord = ordered(ps), lab = new Array(T.tokens.length).fill(null);   // the same objects, so a place's index in `ord` is its number
         ps.forEach(p => { if (!p.span) return; const k = ord.indexOf(p); for (let j = p.span.a; j < p.span.b; j++) lab[j] = { p, k }; });
+        const G = gaps(ps), phr = new Array(T.tokens.length).fill(null);      // choosing phrases: whose phrase a word is
+        if (pm) ps.forEach(p => { const ph = phraseOf(p, G); if (ph) for (let j = ph.t; j < ph.e; j++) phr[j] = { p, k: ord.indexOf(p) }; });
         const n = Math.min(T.tokens.length, Math.max(shown, ...ps.filter(p => p.span).map(p => p.span.b + 20)));
         const kids = [];
         for (let j = 0; j < n; j++) {
           if (j === T.n_sanad) kids.push(' ', el('span', { class: 'seg', title: 'از این جا متن حدیث آغاز می‌شود' }, T.n_sanad ? 'متن' : 'متن (بی‌سند)'), ' ');
           else if (j) kids.push(' ');
           const L = lab[j], cls = ['tok'];
+          const P = !L && phr[j];
           if (L) { cls.push('nm'); if (L.p.i === sel) cls.push('cur'); } else cls.push('out');
+          if (P) { cls.push('ph'); if (P.p.i === sel) cls.push('cur'); }
           if (!L && pend && j >= pend.a && j < pend.b) cls.push('pend');
-          kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(L ? Math.max(L.k, 0) : 0)}`, title: L ? 'راوی: ' + nameOf(L.p) : 'واژه‌ی آزاد' },
+          const H = L || P;
+          kids.push(el('button', { type: 'button', class: cls.join(' '), 'data-i': j, style: `--h:${hue(H ? Math.max(H.k, 0) : 0)}`, title: L ? 'راوی: ' + nameOf(L.p) : P ? 'لفظ نقلِ ' + nameOf(P.p) : 'واژه‌ی آزاد' },
             L && j === L.p.span.a ? el('sup', { class: 'pnum' }, fa(L.k + 1)) : null, T.words[j]));
         }
         if (n < T.tokens.length) kids.push(' ', el('button', { type: 'button', class: 'small more' }, `… ${fa(T.tokens.length - n)} واژه‌ی دیگر`));
         box.replaceChildren(...kids);
-        fill(tools, btn('↶ واگرد', () => { if (!hist.length) return; Object.assign(ed, JSON.parse(hist.pop())); if (sel != null && !places().some(p => p.i === sel)) sel = null; note = ''; paint(); }, '', 'آخرین تغییر را پس بگیر', !hist.length),
+        const pmBtn = btn(pm ? '✓ پایان انتخاب لفظ نقل' : '✎ انتخاب لفظ نقل', () => { pm = !pm; pend = null; note = ''; paint(); }, pm ? 'primary' : '',
+          'لفظ نقلِ هر راوی (عن، حدثنا، سمعت…) به‌طور پیش‌فرض همه‌ی واژه‌های میان او و نام پیشین است؛ در این حالت می‌توانید بخشی از آن را برگزینید');
+        fill(tools, pmBtn, btn('↶ واگرد', () => { if (!hist.length) return; Object.assign(ed, JSON.parse(hist.pop())); if (sel != null && !places().some(p => p.i === sel)) sel = null; note = ''; paint(); }, '', 'آخرین تغییر را پس بگیر', !hist.length),
           el('span', { class: 'small muted' }, `${fa(ord.filter(p => !p.coll).length)} راوی در سند`));
         fill(list, ord.map((p, k) => rowOf(p, k)));
-        const s = selP();
-        fill(bar, ...(s ? [el('span', {}, 'راوی برگزیده: ', el('b', { class: 'ar' }, nameOf(s) || '—'), s.span
+        const s = selP(), sph = s && phraseOf(s, G);
+        fill(bar, ...(pm ? (s && sph ? [el('span', {}, 'لفظ نقلِ ', el('b', { class: 'ar' }, nameOf(s)), ': «', el('b', { class: 'ar' }, termOf(s) || '—'), '»',
+            sph.pin ? ' (برگزیده‌ی شما)' : ' (همه‌ی واژه‌های میان او و نام پیشین)', '. روی واژه‌ای از میانه بزنید تا لفظ نقل همان شود یا تا آن گسترش یابد؛ روی واژه‌ای از خودش تا کوتاه شود.'),
+            sph.pin ? btn('همه‌ی میانه', () => { setPhrase(s, null); paint(); }, '', 'لفظ نقل دوباره همه‌ی واژه‌های میان او و نام پیشین شود') : null,
+            sph.t !== sph.e || !sph.pin ? btn('بی‌لفظ نقل', () => { setPhrase(s, [sph.e, sph.e]); paint(); }, '', 'این راوی لفظ نقلی ندارد (مثلاً پس از «و»)') : null,
+            btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })]
+          : s ? [el('span', {}, 'لفظ نقلِ ', el('b', { class: 'ar' }, nameOf(s)), ' را نمی‌توان برگزید: نامش در متن پیدا نشده است.'), btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })]
+          : [el('span', { class: 'muted' }, 'حالت انتخاب لفظ نقل: روی واژه‌ای میان دو نام بزنید تا لفظ نقلِ راویِ پس از آن همان واژه شود. با پایان این حالت، زدن روی متن دوباره نام‌ها را ویرایش می‌کند.')])
+          : s ? [el('span', {}, 'راوی برگزیده: ', el('b', { class: 'ar' }, nameOf(s) || '—'), s.span
             ? '. روی واژه‌ای آزاد بزنید تا مرز نام به آن برسد (اگر راوی دیگری در میان باشد، نام فقط همان واژه می‌شود)؛ روی واژه‌ای درون نام بزنید تا آن واژه و واژه‌های میان آن و نزدیک‌ترین لبه از نام بیرون روند.'
             : '. در متن پیدا نشد؛ روی واژه‌ای آزاد بزنید تا نامش همان‌جا باشد.', s.e && s.e.exact ? ' (با تغییر مرز، پیوند قطعیِ منبع برداشته و نامزدها از نو ساخته می‌شود.)' : ''),
           btn('لغو انتخاب', () => { sel = null; note = ''; paint(); })]
@@ -1183,7 +1242,7 @@ const panels = {
         ok.disabled = !changed();
       };
       modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'ویرایش سند: ', el('span', { class: 'ar' }, wtitle(ch.wid))), help('step4.chainedit'),
-        el('div', { class: 'small muted' }, 'فهرست زیر سندِ این حدیث است، به ترتیب متن. در متن فقط نامِ راویان رنگی است (هر راوی یک رنگ)؛ هیچ واژه‌ای از آنِ دو راوی نیست. راوی حذف‌شده از فهرست بیرون می‌رود. با ذخیره، راویان و نامزدهایشان از نو ساخته می‌شود؛ انتخاب‌های پیشین بر جای خود می‌مانند.'),
+        el('div', { class: 'small muted' }, 'فهرست زیر سندِ این حدیث است، به ترتیب متن. در متن فقط نامِ راویان رنگی است (هر راوی یک رنگ)؛ هیچ واژه‌ای از آنِ دو راوی نیست. راوی حذف‌شده از فهرست بیرون می‌رود. لفظ نقلِ هر راوی همه‌ی واژه‌های میان او و نام پیشین است، مگر آن‌که در «✎ انتخاب لفظ نقل» بخشی از آن را برگزینید؛ با جابه‌جایی، افزودن یا حذف نامی کنار آن، دوباره همه‌ی میانه می‌شود. با ذخیره، راویان و نامزدهایشان از نو ساخته می‌شود؛ انتخاب‌های پیشین بر جای خود می‌مانند.'),
         askBox, tools, list, bar, msg, box,
         el('div', { class: 'toolbar' }, ok, el('button', { type: 'button', onclick: tryCloseModal }, 'بستن'), chainPending ? el('span', { class: 'small muted' }, 'ویرایش پیشین این مرحله هنوز در حال محاسبه است.') : null)));
       modalGuard = () => { if (!changed()) return true; asking = true; paint(); askBox.scrollIntoView({ block: 'nearest' }); return false; };

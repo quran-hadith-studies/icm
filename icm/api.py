@@ -623,22 +623,24 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 and isinstance(v.get("term", ""), str) and len(v.get("term", "")) <= 200 for k, v in renames.items())):
             raise HTTPException(400, "renames must map a place <aid>|<i> to {name, term}")
         chain, chain_out = pl.get("chain", {}) or {}, {}
-        bad_chain = HTTPException(400, "chain must map a chain id to {span: {<i>: {t, a, b}}, add: [{t, a, b}], drop: [<i>]} within the text's tokens")
+        bad_chain = HTTPException(400, "chain must map a chain id to {span: {<i>: {t, a, b}}, add: [{t, a, b}], drop: [<i>], term: {<i>: [t, e]}} within the text's tokens")
         if not (isinstance(chain, dict) and len(chain) <= 2000):
             raise bad_chain
         int_ok = lambda x: isinstance(x, int) and not isinstance(x, bool) and x >= 0
         for aid, ed in chain.items():
             if not (isinstance(aid, str) and 0 < len(aid) <= 200 and "|" not in aid and WID_RE.match(aid.split("#")[0])
-                    and isinstance(ed, dict) and set(ed) <= {"span", "add", "drop"}):
+                    and isinstance(ed, dict) and set(ed) <= {"span", "add", "drop", "term"}):
                 raise bad_chain
             rec = corpus.get(aid.split("#")[0])
             if rec is None:
                 raise bad_chain
             top = len(identity.hadith_words(rec)[0])
-            sp, add, drop = ed.get("span") or {}, ed.get("add") or [], ed.get("drop") or []
+            sp, add, drop, term = ed.get("span") or {}, ed.get("add") or [], ed.get("drop") or [], ed.get("term") or {}
             if not (isinstance(sp, dict) and len(sp) <= 200 and all(isinstance(k, str) and k.isdigit() and identity._span_ok(v, top) for k, v in sp.items())
                     and isinstance(add, list) and len(add) <= 50 and all(identity._span_ok(v, top) for v in add)
-                    and isinstance(drop, list) and len(drop) <= 250 and all(int_ok(i) for i in drop)):
+                    and isinstance(drop, list) and len(drop) <= 250 and all(int_ok(i) for i in drop)
+                    and isinstance(term, dict) and len(term) <= 250 and all(isinstance(k, str) and k.isdigit() and isinstance(v, list) and len(v) == 2
+                                                                             and all(int_ok(x) for x in v) and v[0] <= v[1] <= top for k, v in term.items())):
                 raise bad_chain
             kept = sorted([v for k, v in sp.items() if int(k) not in drop] + [v for k, v in enumerate(add) if identity.ADDED_BASE + k not in drop],
                           key=lambda v: (v["a"], v["b"]))
@@ -651,6 +653,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 one["add"] = [dict(t=v["t"], a=v["a"], b=v["b"]) for v in add]
             if drop:
                 one["drop"] = sorted(set(drop))
+            if term:
+                one["term"] = {k: [v[0], v[1]] for k, v in term.items()}
             if one:
                 chain_out[aid] = one
         out = dict(seed=None if seed == auto else seed, seed_confirmed=conf,

@@ -289,6 +289,10 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         for bad in ({aid: {"add": [over], "span": {str(e1["i"]): over}}}, {aid: {"add": [over, dict(over, b=over["a"] + 1)]}}):
             assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"chain": bad}}, headers=H("alice")).status_code == 400, bad
         assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"chain": {aid: {"add": [over], "span": {str(e1["i"]): over}, "drop": [1000]}}}}, headers=H("alice")).status_code == 200
+        for bad in ({aid: {"term": {"1": [3, 2]}}}, {aid: {"term": {"x": [0, 1]}}}, {aid: {"term": {"1": [0]}}}):     # a transmission phrase is [t, e), t <= e
+            assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"chain": bad}}, headers=H("alice")).status_code == 400, bad
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"chain": {aid: {"term": {"1": [0, 0]}}}}}, headers=H("alice")).status_code == 200
+        assert project.decision(pid, "parts")["chain"] == {aid: {"term": {"1": [0, 0]}}}
         assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": good}, headers=H("alice")).status_code == 200
         got = project.decision(pid, "parts")["chain"]
         assert got == {aid: {"add": good["chain"][aid]["add"], "span": good["chain"][aid]["span"]}}
@@ -299,7 +303,8 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         ids = [e["i"] for e in ch2["elems"]]
         assert ids[-1] == 1000 and sorted(ids[:-1]) == sorted(e["i"] for e in ch["elems"])        # ids kept; the added place is last (end of the matn)
         new = ch2["elems"][-1]
-        assert new["added"] and new["span"] == {"t": n - 2, "a": n - 2, "b": n} and new["raw"] == " ".join(T["words"][n - 2:n])
+        # its transmission phrase: every word between it and the name before it, not reaching back over the start of the matn
+        assert new["added"] and new["span"] == {"t": T["n_sanad"], "a": n - 2, "b": n} and new["raw"] == " ".join(T["words"][n - 2:n])
         moved = next(e for e in ch2["elems"] if e["i"] == e1["i"])
         assert moved["renamed"] and moved["span"]["b"] == s1["b"] + 1 and moved["name"] != "x"     # the span wins over the rename of the same place
         T2 = c.get(f"/icm/api/hadith/{W0}/tokens", params={"pid": pid}, headers=H("alice")).json()

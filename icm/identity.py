@@ -743,11 +743,34 @@ def merge_drops(chain_edits: Optional[dict], drops: Optional[Sequence[str]]) -> 
     return out or None
 
 
+def fill_terms(elems: Sequence[dict], toks: List[str], words: List[str], n_sanad: int, pins: dict) -> None:
+    """The transmission phrase of each placed name: the words between it and the name before it in the text (never
+    reaching back over the start of the matn; a blessing such as «رضي الله عنه» right after the name before belongs to
+    that name, so the phrase then starts at the first transmission word), or the user's choice among those words
+    (``pins`` {i: [t, e]}: words [t, e), t == e: no phrase). A choice no longer inside them (a name moved, added or
+    removed) falls back to the default."""
+    prev = 0
+    for e in sorted((e for e in elems if e.get("span") and e.get("role") != "collector"), key=lambda e: e["span"]["a"]):
+        a = e["span"]["a"]
+        lo = n_sanad if prev < n_sanad <= a else prev
+        p = pins.get(str(e["i"]), pins.get(e["i"]))
+        if isinstance(p, (list, tuple)) and len(p) == 2 and lo <= p[0] <= p[1] <= a:
+            t, te = p
+        else:
+            t, te = lo, a
+            if t < a and toks[t] in sanad_parse.HONORIFIC:
+                t = next((j for j in range(t + 1, a) if sanad_parse.is_transmit(toks[j - 1], toks[j])), t)
+        e["span"] = dict(e["span"], t=t, **({"te": te} if te != a else {}))
+        e["term"] = " ".join(norm(" ".join(words[t:te])).split()) or None
+        prev = e["span"]["b"]
+
+
 def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Optional[dict]) -> int:
     """The user's reading of a chain in its text (``parts.chain``, keyed by chain ``aid``): ``span`` ``{i: {t, a, b}}``
     moves the boundaries of a place (transmission phrase [t, a), name [a, b), in the tokens of ``hadith_words``);
     ``add`` ``[{t, a, b}]`` are places the user added (the k-th is place ``1000 + k``, for good); ``drop`` ``[i]``
-    removes places. Place ids never change, so decisions keyed by ``aid|i`` stay valid; the chain is reordered by
+    removes places, ``term`` ``{i: [t, e]}`` is the user's choice of a place's transmission phrase (``fill_terms``: by
+    default every word between it and the name before it). Place ids never change, so decisions keyed by ``aid|i`` stay valid; the chain is reordered by
     position in the text (a place not found in the text stays behind the one before it). A place whose words the
     user changed loses the source's link (kept as ``exact_was``). The collector is left alone. ``texts`` maps wid ->
     (tokens, words). Every place keeps its automatic reading in ``span_auto`` (what «back to automatic» would give).
@@ -758,7 +781,8 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
         ed = (edits or {}).get(ch["aid"])
         if not ed or ch["wid"] not in texts:
             continue
-        toks, words = texts[ch["wid"]]
+        tw = texts[ch["wid"]]
+        toks, words, n_sanad = tw[0], tw[1], (tw[2] if len(tw) > 2 else 0)
         spans = anchor_elems(toks, ch["elems"])
         for e in ch["elems"]:
             e["span"] = e["span_auto"] = spans.get(e["i"])
@@ -819,6 +843,7 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
             ch["elems"] = sorted(keep + added, key=lambda e: (pos[id(e)], 1 if e.get("added") else 0, orig.get(id(e), 10 ** 9)))
         else:
             ch["elems"] = keep
+        fill_terms(ch["elems"], toks, words, n_sanad, ed.get("term") or {})
         if ch.get("speaker"):
             ch["speaker"]["elem"] = None                   # written by the parser, read nowhere; stale after a reorder
         if len(ch["elems"]) < 2 and not ch.get("speaker") and "no_sanad" not in ch["flags"]:
@@ -844,7 +869,7 @@ def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, ch
         chains.extend(ch)
     if chain_edits:
         wids = {aid.split("#")[0] for aid in chain_edits}
-        apply_chain_edits(chains, {w["wid"]: hadith_words(w)[:2] for w in wits if w["wid"] in wids}, chain_edits)
+        apply_chain_edits(chains, {w["wid"]: hadith_words(w) for w in wits if w["wid"] in wids}, chain_edits)
         moved = {f"{aid}|{i}" for aid, ed in chain_edits.items() for i in (ed.get("span") or {})}
         renames = {k: v for k, v in (renames or {}).items() if k not in moved}
     apply_renames(chains, renames)

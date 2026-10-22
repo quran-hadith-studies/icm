@@ -438,10 +438,11 @@ def test_chain_edits_add_from_the_matn_drop_and_move_keep_place_ids():
     n = identity.apply_chain_edits([ch], texts, edits)
     assert n == 3
     got = [(e["i"], e["raw"], e["term"]) for e in ch["elems"]]
-    assert got == [(0, "مالک", None), (1, "يَحْيَى بْنُ سَعِيدٍ", None), (3, "ابن عباس", "عن"), (1000, "سَعِيدِ بْنِ الْمُسَيَّبِ", "عن")]
+    # each phrase is every word since the name before (the removed «ابیه» leaves its words to the next), a blessing after a name excepted
+    assert got == [(0, "مالک", None), (1, "يَحْيَى بْنُ سَعِيدٍ", "حدثنا"), (3, "ابن عباس", "عن ابیه عن"), (1000, "سَعِيدِ بْنِ الْمُسَيَّبِ", "عن")]
     a, b, c = ch["elems"][1], ch["elems"][2], ch["elems"][3]
-    assert a["renamed"] and a["exact"] is None and a["exact_was"] == "noor:5" and a["span"] == dict(t=1, a=1, b=4)   # the words changed: the link is gone
-    assert b["span"] == dict(t=6, a=7, b=9) and not b.get("renamed")
+    assert a["renamed"] and a["exact"] is None and a["exact_was"] == "noor:5" and a["span"] == dict(t=0, a=1, b=4)   # the words changed: the link is gone
+    assert b["span"] == dict(t=4, a=7, b=9) and not b.get("renamed")
     assert c["added"] and c["name"] == "سعید بن المسیب" and c["kind"] == "name" and c["span"] == dict(t=12, a=13, b=16) and not c["imam_hint"]
     assert ch["speaker"] is None and "no_sanad" not in ch["flags"]
     # bad spans are ignored, the collector can be neither dropped nor moved, an added place can be dropped by its id
@@ -483,8 +484,32 @@ def test_chain_edits_no_two_places_share_a_word_and_each_keeps_its_automatic_rea
     ch2 = identity.text_chain(_REC)
     identity.apply_chain_edits([ch2], texts, {"v02:9#t": dict(span={"1": dict(t=1, a=1, b=4)}, drop=[2])})
     e1 = next(e for e in ch2["elems"] if e["i"] == 1)
-    assert e1["span"] == dict(t=1, a=1, b=4) and e1["span_auto"] == dict(t=0, a=1, b=4)
+    assert e1["span"] == dict(t=0, a=1, b=4) and e1["span_auto"] == dict(t=0, a=1, b=4)
     assert "chain_overlap" not in ch2["flags"] and "removed" not in ch2 and 2 not in [e["i"] for e in ch2["elems"]]
+
+
+def test_a_transmission_phrase_fills_the_words_between_names_unless_the_user_chose_some_of_them():
+    toks, words, n_sanad = identity.hadith_words(_REC)
+    texts = {"v02:9": (toks, words, n_sanad)}
+
+    def run(ed):
+        ch = identity.text_chain(_REC)
+        identity.apply_chain_edits([ch], texts, {"v02:9#t": ed})
+        return {e["i"]: e for e in ch["elems"]}
+    by = run(dict(add=[dict(t=0, a=13, b=16)]))
+    assert by[2]["term"] == "عن" and by[3]["term"] == "عن" and not by[3].get("renamed")                  # a phrase alone changes no name
+    assert by[1000]["term"] == "عن" and by[1000]["span"]["t"] == 12                                      # «رضي الله عنه» is ابن عباس's
+    # the user's choice: a word of the gap, or nothing; kept only while it lies in the gap
+    by = run(dict(drop=[2], term={"3": [4, 5], "1": [1, 1]}))
+    assert by[3]["term"] == "عن" and by[3]["span"] == dict(t=4, te=5, a=7, b=9) and by[1]["term"] is None
+    by = run(dict(drop=[2], term={"3": [0, 7]}))                                                      # reaches into the name before: default
+    assert by[3]["term"] == "عن ابیه عن"
+    # a name in the matn after one in the sanad: the phrase starts with the matn
+    rec = dict(_REC, sanad="حَدَّثَنَا يَحْيَى بْنُ سَعِيدٍ قَالَ", matn="سَمِعْتُ سَعِيدَ بْنَ الْمُسَيَّبِ يَقُولُ")
+    toks, words, n_sanad = identity.hadith_words(rec)
+    ch = identity.text_chain(rec)
+    identity.apply_chain_edits([ch], {"v02:9": (toks, words, n_sanad)}, {"v02:9#t": dict(add=[dict(t=n_sanad, a=n_sanad + 1, b=n_sanad + 4)])})
+    assert next(e for e in ch["elems"] if e["i"] == 1000)["term"] == "سمعت"
 
 
 def test_is_transmit_marks_phrases_and_their_prepositions():

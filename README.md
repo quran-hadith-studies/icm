@@ -713,11 +713,16 @@ What every step also offers (added 2026-10-13):
   there, a click inside shortens it (a narrator not found in the text is located by the first word clicked);
   a plain word clicked with nothing selected only SUGGESTS a narrator (marked, grown by clicking the words next to it) and
   nothing changes until «افزودن» is pressed. The transmission
-  phrase in front of a name is found by itself (transmission words before it). A removal means the same everywhere: «✕ حذف» here (saved
+  phrase of a name is, by default, every word between it and the name before it in the text (`identity.fill_terms`;
+  not reaching back over the start of the matn, and a blessing such as «رضي الله عنه» after the name before stays with
+  that name: the phrase then starts at the first transmission word). In «✎ انتخاب لفظ نقل» mode (names cannot change
+  there) a click on a word between two names makes it the phrase of the name after it; clicks beside it extend it, on
+  it shorten it; «همه‌ی میانه» / «بی‌لفظ نقل». Saved as `term: {i: [t, e]}`; a choice whose gap changed (a name moved,
+  added or removed next to it) falls back to the default, in the editor at once and on the server. A removal means the same everywhere: «✕ حذف» here (saved
   with «ذخیره») and «حذف از سند» on step 4's main page or an accepted «حذف از سند» suggestion (identities.drops, saved with
   «تأیید راویان»; `identity.merge_drops` folds them into the chain's `drop` before identify) both take the place out of the
   chain. A removal alone keeps the chain's order. Closing with unsaved edits asks (save / discard / go on). Saved as `parts.chain[aid] = {span: {i: {t, a, b}}, add:
-  [{t, a, b}], drop: [i]}` (`identity.apply_chain_edits`, before `apply_renames`, which it overrides for the same
+  [{t, a, b}], drop: [i], term: {i: [t, e]}}` (the `t` of a span is no longer read: phrases come from `fill_terms`) (`identity.apply_chain_edits`, before `apply_renames`, which it overrides for the same
   place). Place ids never change: an added place is `1000 + its position in add`, for good, so every `aid|i` key of
   the identities decision stays valid; the chain is reordered by text position (a place not found in the text stays
   behind the one before it; the collector stays first and cannot be edited); a place whose words changed loses the
