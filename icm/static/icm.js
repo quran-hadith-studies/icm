@@ -895,8 +895,8 @@ const panels = {
       const ed = { span: { ...(saved.span || {}) }, add: (saved.add || []).map(s => ({ ...s })), drop: [...(saved.drop || [])] };
       const nSaved = ed.add.length;                     // a saved add keeps its id for good; an unsaved one can simply be taken back
       let sel = selI != null ? selI : null, anchor = null, mode = 'idle', pend = null, note = '', shown = T.n_sanad + PAGE;
-      /* mode: idle | pick (first word of a new place clicked) | confirm (a new place awaits «افزودن») | name (re-pick the name
-         of `sel`) | term (click the first word of the phrase of `sel`) | pterm (the same for the pending place) */
+      /* mode: idle | pick (first word of a new place clicked) | confirm (a new place awaits «افزودن») | name (re-pick the
+         boundaries of `sel`: its name, the phrase before it follows) | pterm (the first word of the phrase of the pending place) */
       const places = () => {
         const byI = Object.fromEntries(ch.elems.map(e => [e.i, e]));
         const out = ch.elems.filter(e => e.i < ADD0).map(e => ({ e, i: e.i, span: ed.span[e.i] || auto[e.i] || null, user: !!ed.span[e.i], coll: e.role === 'collector', idDrop: drops.has(`${ch.aid}|${e.i}`) }));
@@ -905,8 +905,8 @@ const panels = {
         out.forEach(p => { p.dropped = ed.drop.includes(p.i); });
         return out;
       };
-      const ordered = () => {                           // the server's rule: by position in the text; a place not found stays behind the one before it
-        const ps = places().filter(p => !p.dropped), pos = new Map(); let last = -1;
+      const ordered = (all = places()) => {             // the server's rule: by position in the text; a place not found stays behind the one before it
+        const ps = all.filter(p => !p.dropped), pos = new Map(); let last = -1;
         ps.forEach((p, k) => { if (p.added) pos.set(p, [p.span.a, 1, k]); else if (p.coll) pos.set(p, [-2, 0, k]); else { if (p.span) last = p.span.a; pos.set(p, [last, 0, k]); } });
         return ps.sort((x, y) => { const a = pos.get(x), b = pos.get(y); return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
       };
@@ -914,8 +914,8 @@ const panels = {
       const nameOf = p => p.span ? T.words.slice(p.span.a, p.span.b).join(' ') : p.e ? p.e.raw || p.e.name : p.raw || '';
       const termOf = p => p.span ? T.words.slice(p.span.t, p.span.a).join(' ') : (p.e && p.e.term) || p.term || '';
       const at = j => live().find(p => j >= p.span.t && j < p.span.b);
-      const inName = j => live().some(p => j >= p.span.a && j < p.span.b);
-      const autoTerm = a => { let t = a; while (t > 0 && a - t < 4 && T.tflag[t - 1] && !inName(t - 1)) t--; return t; };
+      const inName = (j, me) => live().some(p => p.i !== me && j >= p.span.a && j < p.span.b);
+      const autoTerm = (a, me) => { let t = a; while (t > 0 && a - t < 4 && T.tflag[t - 1] && !inName(t - 1, me)) t--; return t; };
       const clampT = (t, a, me) => Math.max(t, ...live().filter(p => p.i !== me && p.span.b <= a).map(p => p.span.b));   // the phrase never reaches into the place before
       const selP = () => sel == null ? null : places().find(p => p.i === sel) || null;
       const setSpan = (p, s) => { if (p.added) ed.add[p.i - ADD0] = s; else ed.span[p.i] = s; };
@@ -924,18 +924,20 @@ const panels = {
       const clickTok = j => {
         note = '';
         const p = at(j), s = selP();
-        if (mode === 'term' || mode === 'pterm') {
-          const tgt = mode === 'term' ? s.span : pend;
-          if (j > tgt.a) note = 'آغاز لفظ نقل باید پیش از نام باشد (یا خود نام، اگر لفظ نقلی ندارد).';
-          else if (mode === 'term') setSpan(s, { ...s.span, t: clampT(j, s.span.a, s.i) }); else pend.t = clampT(j, pend.a, null);
-          mode = mode === 'term' ? 'idle' : 'confirm'; return draw();
+        if (mode === 'pterm') {             // the first word of the phrase of the narrator about to be added
+          if (j > pend.a) note = 'آغاز لفظ نقل باید پیش از نام باشد (یا خود نام، اگر لفظ نقلی ندارد).';
+          else pend.t = clampT(j, pend.a, null);
+          mode = 'confirm'; return draw();
         }
         if (mode === 'name' || mode === 'pick') {
           if (anchor === null) { anchor = j; return draw(); }
           const a = Math.min(anchor, j), b = Math.max(anchor, j) + 1; anchor = null;
           const clash = live().find(q => q.i !== sel && a < q.span.b && q.span.a < b);
           if (clash) { note = `این واژه‌ها با «${nameOf(clash)}» هم‌پوشانی دارند؛ نخست مرز آن را تغییر دهید یا حذفش کنید.`; mode = 'idle'; return draw(); }
-          if (mode === 'name') { setSpan(s, { t: clampT(s.span.t < a ? s.span.t : a, a, s.i), a, b }); mode = 'idle'; }
+          if (mode === 'name') {            // the phrase before the new name is found again; only the end moved: it stays as it was
+            const t = a === s.span.a ? s.span.t : clampT(autoTerm(a, s.i), a, s.i);
+            setSpan(s, { t, a, b }); mode = 'idle';
+          }
           else { pend = { t: autoTerm(a), a, b }; mode = 'confirm'; }
           return draw();
         }
@@ -966,7 +968,7 @@ const panels = {
       } }, 'ذخیره و محاسبه‌ی دوباره‌ی راویان');
       const btn = (t, f, cls) => el('button', { type: 'button', class: 'small' + (cls ? ' ' + cls : ''), onclick: f }, t);
       const draw = () => {
-        const ps = places(), ord = ordered(), lab = new Array(T.tokens.length).fill(null);
+        const ps = places(), ord = ordered(ps), lab = new Array(T.tokens.length).fill(null);   // the same objects, so a place's index in `ord` is its number
         ps.forEach(p => { if (!p.span) return; const k = ord.indexOf(p); for (let j = p.span.t; j < p.span.b; j++) if (!p.dropped || !lab[j]) lab[j] = { p, k, nm: j >= p.span.a }; });
         const n = Math.min(T.tokens.length, Math.max(shown, ...ps.filter(p => p.span).map(p => p.span.b + 20), pend ? pend.b + 20 : 0));
         const kids = [];
@@ -986,8 +988,7 @@ const panels = {
         const s = selP();
         let tb;
         if (mode === 'pick' || (mode === 'name' && anchor !== null)) tb = ['واپسین واژه‌ی نام را بزنید.', btn('لغو', () => { anchor = null; mode = 'idle'; draw(); })];
-        else if (mode === 'name') tb = [el('span', {}, 'نام ', el('b', { class: 'ar' }, nameOf(s)), ': نخستین و واپسین واژه‌ی تازه‌اش را بزنید.'), btn('لغو', () => { mode = 'idle'; draw(); })];
-        else if (mode === 'term') tb = [el('span', {}, 'لفظ نقلِ ', el('b', { class: 'ar' }, nameOf(s)), ': نخستین واژه‌اش را بزنید (یا خود نام را، اگر لفظ نقلی ندارد).'), btn('لغو', () => { mode = 'idle'; draw(); })];
+        else if (mode === 'name') tb = [el('span', {}, 'مرز «', el('b', { class: 'ar' }, nameOf(s)), '»: نخستین و واپسین واژه‌ی نام را بزنید؛ لفظ نقلِ پیش از آن خودکار پیدا می‌شود.'), btn('لغو', () => { mode = 'idle'; draw(); })];
         else if (mode === 'pterm') tb = ['نخستین واژه‌ی لفظ نقل را بزنید (یا خود نام را).', btn('لغو', () => { mode = 'confirm'; draw(); })];
         else if (mode === 'confirm') tb = [el('span', {}, 'افزودن راوی ', el('b', { class: 'ar' }, T.words.slice(pend.a, pend.b).join(' ')),
             pend.t < pend.a ? [' با لفظ نقل ', el('b', { class: 'ar' }, T.words.slice(pend.t, pend.a).join(' '))] : ' (بی‌لفظ نقل)'),
@@ -1000,7 +1001,7 @@ const panels = {
           else if (s.idDrop) tb.push(el('span', { class: 'muted' }, 'در بخش ۳ «حذف از سند» شده است.'));
           else if (s.dropped) tb.push(btn('بازگرداندن', () => { ed.drop = ed.drop.filter(i => i !== s.i); draw(); }));
           else {
-            if (s.span) tb.push(btn('✎ مرز نام', () => { mode = 'name'; anchor = null; draw(); }), btn('✎ آغاز لفظ نقل', () => { mode = 'term'; draw(); }));
+            if (s.span) tb.push(btn('✎ تغییر مرز', () => { mode = 'name'; anchor = null; draw(); }));
             if (s.user) tb.push(btn('بازگشت به خودکار', () => { delete ed.span[s.i]; draw(); }));
             tb.push(btn('حذف راوی', () => { if (s.added && s.i - ADD0 >= nSaved) ed.add.splice(s.i - ADD0, 1); else ed.drop.push(s.i); sel = null; draw(); }, 'danger'));
           }
@@ -1012,8 +1013,8 @@ const panels = {
         fill(unanch, un.length ? [el('div', { class: 'small muted' }, un.some(p => !p.removed) ? 'در متن پیدا نشد (این جا فقط حذف‌شدنی؛ نام و لفظ نقلشان را در بخش ۳ تغییر دهید) یا پیش‌تر حذف شده:' : 'پیش‌تر حذف شده (با زدن، بازگرداندنی):'),
           el('div', { class: 'chain' }, un.map(p => el('button', { type: 'button', class: 'nc ' + (p.dropped ? 'drop' : 'none') + (p.i === sel ? ' pk pk2' : ''), onclick: () => { sel = p.i; mode = 'idle'; draw(); } },
             el('span', { class: 'n ar' }, nameOf(p)), el('span', { class: 'id' }, p.dropped ? (p.removed ? 'حذف‌شده' : 'حذف') : termOf(p) ? 'پس از «' + termOf(p) + '»' : ''))))] : null);
-        fill(prev, el('div', { class: 'small muted' }, 'سند پس از ذخیره (به ترتیب متن):'), el('div', { class: 'chain' }, ord.flatMap((p, k) => [k ? el('span', { class: 'tm' }, termOf(p) || '←') : null,
-          el('button', { type: 'button', class: 'nc ' + (p.added || p.user ? 'user' : p.e ? stOf(stateOf(ch, p.e)) : 'none') + (p.i === sel ? ' pk pk2' : ''), onclick: () => { sel = p.i; mode = 'idle'; draw(); } },
+        fill(prev, el('div', { class: 'small muted' }, 'سند پس از ذخیره (به ترتیب متن؛ رنگ هر راوی همان رنگ نامش در متن است):'), el('div', { class: 'chain edprev' }, ord.flatMap((p, k) => [k ? el('span', { class: 'tm' }, termOf(p) || '←') : null,
+          el('button', { type: 'button', style: `--h:${hue(k)}`, class: 'nc ' + (p.added || p.user ? 'user' : p.e ? stOf(stateOf(ch, p.e)) : 'none') + (p.i === sel ? ' pk pk2' : ''), onclick: () => { sel = p.i; mode = 'idle'; draw(); } },
             el('span', { class: 'n ar' }, nameOf(p)), el('span', { class: 'id' }, p.added ? 'جدید' : p.user ? '✎ مرز تازه' : p.e ? ST[stOf(stateOf(ch, p.e))] : ''))])));
         ok.disabled = !changed() || mode === 'confirm' || anchor !== null;
       };
