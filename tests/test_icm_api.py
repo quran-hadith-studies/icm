@@ -225,3 +225,68 @@ if __name__ == "__main__":
                 import traceback; traceback.print_exc()
                 fails += 1; print("FAIL", name, repr(e))
     sys.exit(1 if fails else 0)
+
+
+def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        W0 = "v02:800316143"
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid)
+        T = c.get(f"/icm/api/hadith/{W0}/tokens", params={"pid": pid}, headers=H("alice")).json()
+        assert len(T["tokens"]) == len(T["words"]) == len(T["tflag"]) and 0 <= T["n_sanad"] <= len(T["tokens"]) and T["chains"] == []   # no narrators yet
+        assert T["words"][0] == "41" and not any(w.endswith(("،", ":", ".")) for w in T["words"])
+        S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [x["wid"] for x in S["candidates"][:2]]}}, headers=H("alice"))
+        pipeline.advance(pid)
+        T = c.get(f"/icm/api/hadith/{W0}/tokens", params={"pid": pid}, headers=H("alice")).json()
+        assert T["chains"]
+        assert c.get("/icm/api/hadith/bad/tokens").status_code == 400 and c.get("/icm/api/hadith/v02:1/tokens").status_code == 404
+        I = c.get(f"/icm/api/project/{pid}/runs/current/identify").json()
+        ch = next(x for x in I["chains"] if x["wid"] == W0)
+        aid, n = ch["aid"], len(T["tokens"])
+        spans = next(x for x in T["chains"] if x["aid"] == aid)["spans"]
+        assert set(spans) == {str(e["i"]) for e in ch["elems"]} and spans["0"] is None            # the collector is never in the text
+        found = [e for e in ch["elems"] if spans[str(e["i"])]]
+        assert found, "the rule-based chain of the seed should be found in its own sanad"
+        e1 = found[0]
+        s1 = spans[str(e1["i"])]
+        for bad in ({"chain": [1]}, {"chain": {"x|1": {}}}, {"chain": {aid: {"drop": "1"}}}, {"chain": {aid: {"add": [{"t": 0, "a": 2, "b": 1}]}}},
+                    {"chain": {aid: {"add": [{"t": 0, "a": 0, "b": n + 1}]}}}, {"chain": {aid: {"span": {"x": {"t": 0, "a": 0, "b": 1}}}}},
+                    {"chain": {aid: {"span": {"1": {"t": 0, "a": 0}}}}}, {"chain": {aid: {"extra": 1}}}, {"chain": {"v02:1#t": {"drop": [1]}}}):
+            assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
+        # add the last two words of the text as a narrator, move the first found name by one word, drop nothing
+        good = {"chain": {aid: {"add": [{"t": n - 2, "a": n - 2, "b": n}], "span": {str(e1["i"]): {"t": s1["t"], "a": s1["a"], "b": s1["b"] + 1}}, "drop": [], "foo": None}},
+                "renames": {f"{aid}|{e1['i']}": {"name": "x", "term": ""}}}
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"chain": {aid: {"add": [], "span": {}, "drop": []}}}}, headers=H("alice")).status_code == 200
+        assert "chain" not in project.decision(pid, "parts")                                      # emptied: not stored
+        r = c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": good}, headers=H("alice"))
+        assert r.status_code == 400                                                                 # "foo" is not a key
+        del good["chain"][aid]["foo"]
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": good}, headers=H("alice")).status_code == 200
+        got = project.decision(pid, "parts")["chain"]
+        assert got == {aid: {"add": good["chain"][aid]["add"], "span": good["chain"][aid]["span"]}}
+        pipeline.advance(pid)
+        I2 = c.get(f"/icm/api/project/{pid}/runs/current/identify").json()
+        assert I2["chain_in"] == got
+        ch2 = next(x for x in I2["chains"] if x["aid"] == aid)
+        ids = [e["i"] for e in ch2["elems"]]
+        assert ids[-1] == 1000 and sorted(ids[:-1]) == sorted(e["i"] for e in ch["elems"])        # ids kept; the added place is last (end of the matn)
+        new = ch2["elems"][-1]
+        assert new["added"] and new["span"] == {"t": n - 2, "a": n - 2, "b": n} and new["raw"] == " ".join(T["words"][n - 2:n])
+        moved = next(e for e in ch2["elems"] if e["i"] == e1["i"])
+        assert moved["renamed"] and moved["span"]["b"] == s1["b"] + 1 and moved["name"] != "x"     # the span wins over the rename of the same place
+        T2 = c.get(f"/icm/api/hadith/{W0}/tokens", params={"pid": pid}, headers=H("alice")).json()
+        assert next(x for x in T2["chains"] if x["aid"] == aid)["spans"]["1000"] == new["span"]
+        # the added place takes an override like any other, and can be dropped by its id
+        assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"choices": {}, "overrides": {f"{aid}|1000": "none"}}}, headers=H("alice")).status_code == 200
+        good["chain"][aid]["drop"] = [1000, e1["i"]]
+        assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": good}, headers=H("alice")).status_code == 200
+        pipeline.advance(pid)
+        I3 = c.get(f"/icm/api/project/{pid}/runs/current/identify").json()
+        ids3 = [e["i"] for e in next(x for x in I3["chains"] if x["aid"] == aid)["elems"]]
+        assert 1000 not in ids3 and e1["i"] not in ids3 and len(ids3) == len(ids) - 2
+    finally:
+        shutil.rmtree(d)

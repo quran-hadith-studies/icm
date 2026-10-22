@@ -390,3 +390,84 @@ def test_renames_set_where_a_name_begins_and_ends_in_one_place():
     assert b["name"] == "زید بن علی" and not b.get("renamed")
     assert (coll["kind"], coll["name"], coll["term"]) == ("collector", "زید", None)
     assert identity.apply_renames(ch, None) == 0
+
+
+# ---------------------------------------------------------------------------
+# the chain in its text: anchoring, and the user's edits (parts.chain)
+# ---------------------------------------------------------------------------
+_REC = dict(wid="v02:9", corpus="v02", hid=9, author="مالک", death=179,
+            sanad="حَدَّثَنَا يَحْيَى بْنُ سَعِيدٍ عَنْ أَبِيهِ عَنِ ابْنِ عَبَّاسٍ رَضِيَ اللهُ عَنْهُ",
+            matn="عَنْ سَعِيدِ بْنِ الْمُسَيَّبِ قَالَ: إِنَّمَا الْأَعْمَالُ بِالنِّيَّاتِ")
+
+
+def test_hadith_words_keeps_the_raw_spelling_sanad_first():
+    toks, words, n = identity.hadith_words(_REC)
+    assert n == 12 and toks[:3] == ["حدثنا", "یحیی", "بن"] and words[1] == "يَحْيَى" and len(toks) == len(words)
+    assert words[16] == "قَالَ" and words[-1] == "بِالنِّيَّاتِ"                                      # edge punctuation is not part of a word; harakat are
+    assert toks[n:n + 4] == ["عن", "سعید", "بن", "المسیب"]
+    assert identity.hadith_words(dict(_REC, sanad=None))[2] == 0
+
+
+def test_anchor_elems_finds_each_place_after_the_one_before_without_honorifics():
+    toks, _, _ = identity.hadith_words(_REC)
+    ch = identity.text_chain(_REC)
+    names = [(e["i"], e["kind"], e["name"]) for e in ch["elems"]]
+    assert names[0] == (0, "collector", "مالک") and names[1][2] == "یحیی بن سعید" and names[2][1] == "relative"
+    sp = identity.anchor_elems(toks, ch["elems"])
+    assert sp[0] is None                                                   # the collector is the book's author, not in the text
+    assert sp[1] == dict(t=0, a=1, b=4)                                    # «حدثنا» + «یحیی بن سعید»
+    assert sp[2] == dict(t=4, a=5, b=6)                                    # «عن» + «ابیه»
+    assert sp[3] == dict(t=6, a=7, b=9)                                    # «عن» + «ابن عباس» (the blessing after it is not the name)
+    # ابن≡بن, ابی≡ابو; a name not in the text; a place without a transmission word
+    el = [dict(i=0, name="x", raw="x", term=None, kind="collector", role="collector", exact=None, cands=[]),
+          dict(i=1, name="بن عباس", raw="بن عباس", term="عن", kind="name", exact=None, cands=[]),
+          dict(i=2, name="فلان", raw="فلان", term="عن", kind="name", exact=None, cands=[]),
+          dict(i=3, name="سعید بن المسیب", raw="سعید بن المسیب عليه السلام", term=None, kind="name", exact=None, cands=[])]
+    sp = identity.anchor_elems(toks, el)
+    assert sp == {0: None, 1: dict(t=6, a=7, b=9), 2: None, 3: dict(t=13, a=13, b=16)}
+    assert identity.anchor_elems(["ابو", "محمد"], [dict(i=5, name="ابی محمد", raw="ابی محمد", term=None, kind="name")]) == {5: dict(t=0, a=0, b=2)}
+
+
+def test_chain_edits_add_from_the_matn_drop_and_move_keep_place_ids():
+    toks, words, _ = identity.hadith_words(_REC)
+    ch = identity.text_chain(_REC)
+    ch["elems"][1]["exact"] = "noor:5"
+    texts = {"v02:9": (toks, words)}
+    edits = {"v02:9#t": dict(add=[dict(t=12, a=13, b=16)], drop=[2], span={"1": dict(t=1, a=1, b=4)}),
+             "other#t": dict(drop=[1])}
+    n = identity.apply_chain_edits([ch], texts, edits)
+    assert n == 3
+    got = [(e["i"], e["raw"], e["term"]) for e in ch["elems"]]
+    assert got == [(0, "مالک", None), (1, "يَحْيَى بْنُ سَعِيدٍ", None), (3, "ابن عباس", "عن"), (1000, "سَعِيدِ بْنِ الْمُسَيَّبِ", "عن")]
+    a, b, c = ch["elems"][1], ch["elems"][2], ch["elems"][3]
+    assert a["renamed"] and a["exact"] is None and a["exact_was"] == "noor:5" and a["span"] == dict(t=1, a=1, b=4)   # the words changed: the link is gone
+    assert b["span"] == dict(t=6, a=7, b=9) and not b.get("renamed")
+    assert c["added"] and c["name"] == "سعید بن المسیب" and c["kind"] == "name" and c["span"] == dict(t=12, a=13, b=16) and not c["imam_hint"]
+    assert ch["speaker"] is None and "no_sanad" not in ch["flags"]
+    # bad spans are ignored, the collector can be neither dropped nor moved, an added place can be dropped by its id
+    ch2 = identity.text_chain(_REC)
+    identity.apply_chain_edits([ch2], texts, {"v02:9#t": dict(add=[dict(t=0, a=3, b=2), dict(t=12, a=13, b=16), dict(t=13, a=13, b=99)],
+                                                              drop=[0, 1001], span={"0": dict(t=0, a=1, b=2), "9": dict(t=0, a=1, b=2)})})
+    assert [e["i"] for e in ch2["elems"]] == [0, 1, 2, 3] and ch2["elems"][0]["kind"] == "collector" and not ch2["elems"][0].get("renamed")
+    assert identity.apply_chain_edits([ch2], texts, None) == 0
+
+
+def test_chain_edits_order_follows_the_text_and_unfound_places_stay_behind_their_predecessor():
+    toks, words, _ = identity.hadith_words(_REC)
+    el = lambda i, name, **kw: dict(i=i, name=name, raw=name, term=None, kind="name", exact=None, cands=[], **kw)
+    ch = dict(aid="v02:9#s", wid="v02:9", source="noor_slots", speaker=dict(kind="imam", elem=2), quoted_work=None, flags=[],
+              elems=[el(0, "مالک", role="collector"), el(1, "یحیی بن سعید"), el(2, "کسی که در متن نیست"), el(3, "ابن عباس"), el(4, "نام ناپیدای دیگر")])
+    identity.apply_chain_edits([ch], {"v02:9": (toks, words)}, {"v02:9#s": dict(add=[dict(t=4, a=5, b=6), dict(t=12, a=13, b=16)])})
+    # «ابیه» (added, at 5) comes between «یحیی بن سعید» (1) and «ابن عباس» (7); the unfound places stick to the place before them
+    assert [e["i"] for e in ch["elems"]] == [0, 1, 2, 1000, 3, 4, 1001]
+    assert ch["speaker"]["elem"] is None
+    # a one-place chain with no speaker is flagged
+    ch3 = dict(aid="v02:9#s", wid="v02:9", source="noor_slots", speaker=None, quoted_work=None, flags=[], elems=[el(0, "مالک", role="collector"), el(1, "یحیی بن سعید")])
+    identity.apply_chain_edits([ch3], {"v02:9": (toks, words)}, {"v02:9#s": dict(drop=[1])})
+    assert [e["i"] for e in ch3["elems"]] == [0] and ch3["flags"] == ["no_sanad"]
+
+
+def test_is_transmit_marks_phrases_and_their_prepositions():
+    from icm import sanad_parse
+    assert sanad_parse.is_transmit(None, "حدثنا") and sanad_parse.is_transmit("حدثنا", "عن") and sanad_parse.is_transmit(None, "وعن")
+    assert sanad_parse.is_transmit("قرات", "علی") and not sanad_parse.is_transmit("یحیی", "علی") and not sanad_parse.is_transmit(None, "سعید")

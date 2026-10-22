@@ -15,6 +15,7 @@ import copy
 from typing import Dict, Optional
 
 from . import align as align_mod, corpus, identity, narrator_versions, paths, project
+from . import sanad_parse
 from . import search as search_mod
 from . import suggest as suggest_mod
 from .text import strip_tags, token_offsets, tokens
@@ -95,6 +96,28 @@ def hadith(wid: str) -> Optional[dict]:
         if rec.get(k):
             rec[k] = strip_tags(rec[k])
     return rec
+
+
+def hadith_tokens(wid: str, pid: Optional[str] = None) -> Optional[dict]:
+    """The whole text of a hadith as the chain editor needs it: ``tokens`` (the sanad's first, ``n_sanad`` of them),
+    the raw spelling of each (``words``), which are transmission words (``tflag``), and, for a project, where every
+    place of its chains stands in them (``chains``: aid -> {i: {t, a, b} | None}; the user's spans where they set them)."""
+    rec = corpus.get(wid)
+    if rec is None:
+        return None
+    toks, words, n_sanad = identity.hadith_words(rec)
+    tflag = [1 if sanad_parse.is_transmit(toks[j - 1] if j else None, toks[j]) else 0 for j in range(len(toks))]
+    chains = []
+    I = project.run_stage(pid, "current", "identify") if pid else None
+    for ch in (I or {}).get("chains", []):
+        if ch["wid"] != wid:
+            continue
+        spans = identity.anchor_elems(toks, ch["elems"])
+        for e in ch["elems"]:
+            if "span" in e:                                    # an edited chain: the stage already holds the user's spans
+                spans[e["i"]] = e["span"]
+        chains.append(dict(aid=ch["aid"], spans={str(i): s for i, s in spans.items()}))
+    return dict(wid=wid, n_sanad=n_sanad, tokens=toks, words=words, tflag=tflag, chains=chains)
 
 
 def hadiths(wids) -> Dict[str, dict]:

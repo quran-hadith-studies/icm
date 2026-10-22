@@ -172,6 +172,18 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(400, "bad id")
         return project.projects_of(wid)
 
+    @r.get("/api/hadith/{wid}/tokens")
+    def hadith_tokens(wid: str, pid: Optional[str] = None):
+        """The whole text as words, with the places of a project's chains in it, for the step-4 chain editor."""
+        if not WID_RE.match(wid):
+            raise HTTPException(400, "bad id")
+        if pid:
+            _project(pid)
+        out = serve.hadith_tokens(wid, pid)
+        if out is None:
+            raise HTTPException(404, "not found")
+        return out
+
     @r.get("/api/hadith/{wid}")
     def hadith(wid: str):
         if not WID_RE.match(wid):
@@ -569,11 +581,39 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 isinstance(k, str) and PLACE_RE.match(k) and isinstance(v, dict) and isinstance(v.get("name"), str) and 0 < len(v["name"].strip()) <= 200
                 and isinstance(v.get("term", ""), str) and len(v.get("term", "")) <= 200 for k, v in renames.items())):
             raise HTTPException(400, "renames must map a place <aid>|<i> to {name, term}")
+        chain, chain_out = pl.get("chain", {}) or {}, {}
+        bad_chain = HTTPException(400, "chain must map a chain id to {span: {<i>: {t, a, b}}, add: [{t, a, b}], drop: [<i>]} within the text's tokens")
+        if not (isinstance(chain, dict) and len(chain) <= 2000):
+            raise bad_chain
+        int_ok = lambda x: isinstance(x, int) and not isinstance(x, bool) and x >= 0
+        for aid, ed in chain.items():
+            if not (isinstance(aid, str) and 0 < len(aid) <= 200 and "|" not in aid and WID_RE.match(aid.split("#")[0])
+                    and isinstance(ed, dict) and set(ed) <= {"span", "add", "drop"}):
+                raise bad_chain
+            rec = corpus.get(aid.split("#")[0])
+            if rec is None:
+                raise bad_chain
+            top = len(identity.hadith_words(rec)[0])
+            sp, add, drop = ed.get("span") or {}, ed.get("add") or [], ed.get("drop") or []
+            if not (isinstance(sp, dict) and len(sp) <= 200 and all(isinstance(k, str) and k.isdigit() and identity._span_ok(v, top) for k, v in sp.items())
+                    and isinstance(add, list) and len(add) <= 50 and all(identity._span_ok(v, top) for v in add)
+                    and isinstance(drop, list) and len(drop) <= 250 and all(int_ok(i) for i in drop)):
+                raise bad_chain
+            one = {}
+            if sp:
+                one["span"] = {k: dict(t=v["t"], a=v["a"], b=v["b"]) for k, v in sp.items()}
+            if add:
+                one["add"] = [dict(t=v["t"], a=v["a"], b=v["b"]) for v in add]
+            if drop:
+                one["drop"] = sorted(set(drop))
+            if one:
+                chain_out[aid] = one
         out = dict(seed=None if seed == auto else seed, seed_confirmed=conf,
                    extras_added=[dict(wid=a["wid"], span=a["span"]) for a in added], extras_dropped=sorted(set(dropped)),
                    slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
         for key, val in (("words", {k: {w: m for w, m in v.items() if m} for k, v in words.items()}), ("unit_cls", ucls),
-                         ("renames", {k: dict(name=v["name"].strip(), term=v.get("term", "").strip()) for k, v in renames.items()})):
+                         ("renames", {k: dict(name=v["name"].strip(), term=v.get("term", "").strip()) for k, v in renames.items()}),
+                         ("chain", chain_out)):
             val = {k: v for k, v in val.items() if v}
             if val:                                         # only then, so older decisions and their stage keys stay as they were
                 out[key] = val

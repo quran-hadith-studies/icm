@@ -29,7 +29,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from narrators.common import STOP, bare, name_tokens
 from . import config, corpus, hadithai, narrator_versions, sanad_parse
-from .text import norm
+from .text import norm, strip_tags, token_offsets, tokens
 
 _IMAMS = json.load(open(config.HERE + "/narrators/data/imam_reigns.json", encoding="utf-8"))["imams"]
 INFALLIBLE_IDS = {v["ravi_id"] for k, v in _IMAMS.items() if v.get("ravi_id") and k not in ("unspecified", "lam_yarwi")}
@@ -658,12 +658,151 @@ def apply_renames(chains: Sequence[dict], renames: Optional[dict]) -> int:
     return n
 
 
-def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None) -> dict:
+# ---------------------------------------------------------------------------
+# the chain in its text: where each place stands (token spans), and the user's reading of it (parts.chain)
+# ---------------------------------------------------------------------------
+ADDED_BASE = 1000                     # a place the user added is 1000 + its position in parts.chain[aid].add, for good
+_EQUIV = {"ابن": "بن", "ابی": "ابو", "ابا": "ابو"}
+_EDGE_PUNCT = re.compile(r"^[\s،,.:;؛؟?!«»()\[\]{}\"'\-–—/]+|[\s،,.:;؛؟?!«»()\[\]{}\"'\-–—/]+$")   # not \W: harakat are not word characters
+
+
+def hadith_words(rec: dict):
+    """(tokens, words, n_sanad): the whole text of a hadith as ``tokens(sanad) + tokens(matn)``, with the raw spelling
+    of each token (the normalised token when several tokens come from one raw word), and how many are the sanad's."""
+    toks: List[str] = []
+    words: List[str] = []
+    n_sanad = 0
+    for seg in ("sanad", "matn"):
+        s = strip_tags(rec.get(seg) or "")
+        tk, offs = tokens(s), token_offsets(s)
+        for j, t in enumerate(tk):
+            o = offs[j] if j < len(offs) else None
+            w = s[o[0]:o[1]] if o and not (j and offs[j - 1][0] == o[0]) else t
+            words.append(_EDGE_PUNCT.sub("", w) or w)
+        toks += tk
+        if seg == "sanad":
+            n_sanad = len(tk)
+    return toks, words, n_sanad
+
+
+def _akey(t: str) -> str:
+    return _EQUIV.get(t, t)
+
+
+def _find(keys: List[str], nm: List[str], start: int) -> Optional[int]:
+    n = len(nm)
+    for p in range(start, len(keys) - n + 1):
+        if keys[p:p + n] == nm:
+            return p
+    return None
+
+
+def anchor_elems(toks: List[str], elems: Sequence[dict]) -> Dict[int, Optional[dict]]:
+    """``{i: {t, a, b} | None}``: where each place of a chain stands in ``toks`` (``hadith_words``), left to right, each
+    after the one before: the name as written without honorifics (ابن≡بن, ابی/ابا≡ابو), the transmission phrase
+    [t, a) in front of it when its words are there. The collector (the book's author) is never looked for."""
+    keys = [_akey(t) for t in toks]
+    out: Dict[int, Optional[dict]] = {}
+    cur = 0
+    for e in elems:
+        if e.get("role") == "collector" or e.get("kind") == "collector":
+            out[e["i"]] = None
+            continue
+        nm = [_akey(t) for t in sanad_parse._strip_honorific(norm(e.get("raw") or e.get("name") or "").split())[0]]
+        a = _find(keys, nm, cur) if nm else None
+        if a is None:
+            out[e["i"]] = None
+            continue
+        b = a + len(nm)
+        tm = [_akey(t) for t in norm(e.get("term") or "").split()]
+        t = a - len(tm) if tm and a - len(tm) >= cur and keys[a - len(tm):a] == tm else a
+        out[e["i"]] = dict(t=t, a=a, b=b)
+        cur = b
+    return out
+
+
+def _span_ok(s, top: int) -> bool:
+    return (isinstance(s, dict) and all(isinstance(s.get(k), int) and not isinstance(s.get(k), bool) for k in ("t", "a", "b"))
+            and 0 <= s["t"] <= s["a"] < s["b"] <= top)
+
+
+def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Optional[dict]) -> int:
+    """The user's reading of a chain in its text (``parts.chain``, keyed by chain ``aid``): ``span`` ``{i: {t, a, b}}``
+    moves the boundaries of a place (transmission phrase [t, a), name [a, b), in the tokens of ``hadith_words``);
+    ``add`` ``[{t, a, b}]`` are places the user added (the k-th is place ``1000 + k``, for good); ``drop`` ``[i]``
+    removes places. Place ids never change, so decisions keyed by ``aid|i`` stay valid; the chain is reordered by
+    position in the text (a place not found in the text stays behind the one before it). A place whose words the
+    user changed loses the source's link (kept as ``exact_was``). The collector is left alone. ``texts`` maps wid ->
+    (tokens, words). The removed places are kept in ``ch["removed"]`` (so the editor can restore them). Returns how
+    many places changed."""
+    n = 0
+    for ch in chains:
+        ed = (edits or {}).get(ch["aid"])
+        if not ed or ch["wid"] not in texts:
+            continue
+        toks, words = texts[ch["wid"]]
+        spans = anchor_elems(toks, ch["elems"])
+        for e in ch["elems"]:
+            e["span"] = spans.get(e["i"])
+
+        def set_words(e: dict, s: dict):
+            raw = " ".join(words[s["a"]:s["b"]])
+            e.update(raw=raw, name=" ".join(norm(raw).split()), term=" ".join(norm(" ".join(words[s["t"]:s["a"]])).split()) or None,
+                     span=dict(t=s["t"], a=s["a"], b=s["b"]), renamed=True, kind="collector" if e.get("kind") == "collector" else "name",
+                     imam_hint=s["b"] < len(toks) and toks[s["b"]] in sanad_parse.IMAM_HON)
+            if e.get("exact"):
+                e["exact_was"], e["exact"] = e["exact"], None
+            for k in ("hai", "alts", "amb"):
+                e.pop(k, None)
+
+        by_i = {e["i"]: e for e in ch["elems"]}
+        for i, s in (ed.get("span") or {}).items():
+            e = by_i.get(int(i))
+            if e is None or e.get("role") == "collector" or not _span_ok(s, len(toks)):
+                continue
+            set_words(e, s)
+            n += 1
+        added = []
+        for k, s in enumerate(ed.get("add") or []):
+            if not _span_ok(s, len(toks)):
+                continue
+            e = _elem(ADDED_BASE + k, "", None, "name", added=True)
+            set_words(e, s)
+            added.append(e)
+            n += 1
+        drop = {int(i) for i in (ed.get("drop") or [])}
+        orig = {id(e): k for k, e in enumerate(ch["elems"])}
+        keep = [e for e in ch["elems"] if e["i"] not in drop or e.get("role") == "collector"]
+        n += len(ch["elems"]) - len(keep)
+        ch["removed"] = [dict(i=e["i"], raw=e["raw"], name=e["name"], term=e["term"], span=e.get("span"))      # so the editor can restore them
+                         for e in ch["elems"] + added if e["i"] in drop and e.get("role") != "collector"]
+        added = [e for e in added if e["i"] not in drop]
+        pos: Dict[int, float] = {}
+        last = -1
+        for e in keep:
+            if e.get("role") == "collector":
+                pos[id(e)] = -2
+                continue
+            if e.get("span"):
+                last = e["span"]["a"]
+            pos[id(e)] = last
+        for e in added:
+            pos[id(e)] = e["span"]["a"]
+        ch["elems"] = sorted(keep + added, key=lambda e: (pos[id(e)], 1 if e.get("added") else 0, orig.get(id(e), 10 ** 9)))
+        if ch.get("speaker"):
+            ch["speaker"]["elem"] = None                   # written by the parser, read nowhere; stale after a reorder
+        if len(ch["elems"]) < 2 and not ch.get("speaker") and "no_sanad" not in ch["flags"]:
+            ch["flags"].append("no_sanad")
+    return n
+
+
+def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, chain_edits: Optional[dict] = None) -> dict:
     """identities.json: chains with candidates, and the name cards to decide.
 
     ``wits`` are witness records (``corpus.get``) of the selected witnesses (copies excluded). ``version`` is a
     ``narrator_versions.Version`` (None: raw, every id apart). ``renames`` are the user's corrections of where a name
-    begins and ends in a place (``apply_renames``)."""
+    begins and ends in a place (``apply_renames``); ``chain_edits`` their reading of whole chains in the text
+    (``apply_chain_edits``), which wins over a rename of the same place."""
     version = version or narrator_versions.RAW
     chains: List[dict] = []
     trad = {w["wid"]: (w.get("tradition") or ("sunni" if w["corpus"] == "kg" else "shia")) for w in wits}
@@ -673,6 +812,11 @@ def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None) ->
         if not ch:
             flags.append(dict(kind="no_chain", ref=w["wid"], message="no isnad could be read for this witness"))
         chains.extend(ch)
+    if chain_edits:
+        wids = {aid.split("#")[0] for aid in chain_edits}
+        apply_chain_edits(chains, {w["wid"]: hadith_words(w)[:2] for w in wits if w["wid"] in wids}, chain_edits)
+        moved = {f"{aid}|{i}" for aid, ed in chain_edits.items() for i in (ed.get("span") or {})}
+        renames = {k: v for k, v in (renames or {}).items() if k not in moved}
     apply_renames(chains, renames)
     for ch in chains:                                  # «أبيه عليه السلام» in Noor's slots, «حدثني أبي» ...
         for e in ch["elems"]:

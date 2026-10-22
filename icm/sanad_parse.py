@@ -60,6 +60,12 @@ def _strip_honorific(toks: List[str]):
     return toks, None
 
 
+def is_transmit(prev: Optional[str], tok: str) -> bool:
+    """Whether ``tok`` (a normalised token) is a transmission word («حدثنا», «عن», «وعن»), or the preposition that
+    joins the one before it («قرأت علی»)."""
+    return tok in TRANSMIT or tok in _PROCLITIC or (prev in PREP and tok in PREP[prev])
+
+
 def _starts_with(toks: List[str], phrases: List[str]) -> bool:
     s = " ".join(toks)
     return any(s == p or s.startswith(p + " ") for p in phrases)

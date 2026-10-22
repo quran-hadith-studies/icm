@@ -703,6 +703,21 @@ What every step also offers (added 2026-10-13):
   (`icm/export.py`) is the wizard page itself with the step's stages, full texts, narrator cards and help inlined;
   `icm.js` reads `window.ICM_STATIC` instead of the API, keeps a virtual address (a `file://` page cannot change its
   URL) and is read-only. The whole-project file of a 78-witness family is about 5 MB.
+* **Chain editor (step 4, «ویرایش سند», 2026-10-22).** The chains ICM reads stop where the corpus's sanad/matn split
+  does, so a narrator named inside the matn («… عن يحيى بن سعيد عن سعيد بن المسيب قال …») is missed, and a source's
+  name boundaries can be wrong. The editor shows the whole hadith as words (`GET /api/hadith/<wid>/tokens?pid=`:
+  `tokens` = `tokens(sanad) + tokens(matn)`, their raw spelling, which are transmission words, and where each place of
+  the project's chains stands, `identity.anchor_elems`, computed when served). The user clicks the first and the last
+  word of a name to add a place (the phrase before it is found automatically), clicks a coloured name to re-pick its
+  boundaries, move the start of its phrase, or remove it. Saved as `parts.chain[aid] = {span: {i: {t, a, b}}, add:
+  [{t, a, b}], drop: [i]}` (`identity.apply_chain_edits`, before `apply_renames`, which it overrides for the same
+  place). Place ids never change: an added place is `1000 + its position in add`, for good, so every `aid|i` key of
+  the identities decision stays valid; the chain is reordered by text position (a place not found in the text stays
+  behind the one before it; the collector stays first and cannot be edited); a place whose words changed loses the
+  source's link (`exact_was`); removed places stay in `chain.removed` so the editor can restore them. Only projects
+  with a non-empty `parts.chain` get a new identify hash (no stage version bump). Noor chains anchor only partly (the
+  v02 text is hadith.ai's, not Noor's; about half the names), KG chains not at all (canonical names): those places are
+  listed under the text and can only be removed.
 * **Merge and split (step 4).** «یکی کردن» joins any two identities of the project, name-only places included
   (`merges` now take `noor:`, `kg:`, `split:`, `name:`, `rel:`, `anon:` ids; `identity.with_node_ids` tells the page
   the id of a name-only place). «جدا کردن» moves ticked places of an identity to a new person: `overrides[place] =

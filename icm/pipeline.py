@@ -78,8 +78,10 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         say("identify", 0.4, "finding the narrators")
         V = project.narrator_version(pid)
         ren = pdec.get("renames") or None                         # step 4: where a name begins and ends (only then, so keys stay)
-        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([ren] if ren else []))
-        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A, V, ren), hashes)
+        ced = pdec.get("chain") or None                           # step 4: places added, removed or re-bounded in the text
+        k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([ren] if ren else []),
+                    *([ced] if ced else []))
+        I = _get_or_run(pid, "identify", k_ident, lambda: _identify(S, A, V, ren, ced), hashes)
         iddec = project.decision(pid, "identities")
         if not iddec:
             return _finish(pid, vers, hashes, "draft", "identities")
@@ -123,11 +125,12 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         raise
 
 
-def _identify(S: dict, A: dict, V: narrator_versions.Version, renames: Optional[dict] = None) -> dict:
+def _identify(S: dict, A: dict, V: narrator_versions.Version, renames: Optional[dict] = None, chain_edits: Optional[dict] = None) -> dict:
     wids = [S["seed"]["wid"]] + [w["wid"] for w in A["witnesses"] if w["wid"] != S["seed"]["wid"]]
     recs = corpus.get_many(wids)
-    I = identity.build([recs[w] for w in wids if w in recs], V, renames)
+    I = identity.build([recs[w] for w in wids if w in recs], V, renames, chain_edits)
     I["renames_in"] = renames or {}
+    I["chain_in"] = chain_edits or {}
     I["suggestions"] = suggest_mod.suggest(I, V)
     I["narrator_version"] = V.info()
     return I
