@@ -98,7 +98,8 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         if iddec.get("splits"):                                   # likewise: people the user split off an identity
             iddec_in["splits"] = iddec["splits"]
         k_graph = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
-        if project.stage_get(pid, "graph", k_graph) is None and phdec.get("build") != k_graph:
+        gone = phdec.get("deleted") == k_graph                    # step 5 «حذف شجره»: the cached tree stays on disk but is not shown until it is ordered again
+        if (project.stage_get(pid, "graph", k_graph) is None or gone) and phdec.get("build") != k_graph:
             return _finish(pid, vers, hashes, "draft", "phylogeny", graph_hash=k_graph)    # step 5 orders the tree by hand
         G = _get_or_run(pid, "graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S, V), hashes)
         if phdec.get("confirmed") != k_graph:

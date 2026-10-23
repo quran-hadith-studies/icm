@@ -135,6 +135,15 @@ def test_the_tree_is_built_only_when_step_5_orders_it():
         q = pipeline.advance(pid)                                                       # ordered: the tree exists, the analysis waits for the confirmation
         assert q["step"] == "phylogeny" and q["graph_hash"] == p["graph_hash"]
         assert project.run_stage(pid, "current", "graph") is not None
+        gh = p["graph_hash"]                                                            # «حذف شجره»: only the owner, only the graph on screen
+        assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"deleted": gh}}, headers=H("bob")).status_code == 403
+        assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"deleted": "nope"}}, headers=H("alice")).status_code == 409
+        assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"deleted": gh}}, headers=H("alice")).status_code == 200
+        q = pipeline.advance(pid)
+        assert q["step"] == "phylogeny" and q["graph_hash"] == gh and project.run_stage(pid, "current", "graph") is None
+        assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"build": gh}}, headers=H("alice")).status_code == 200
+        pipeline.advance(pid)                                                           # ordered again: the cached tree is back
+        assert project.run_stage(pid, "current", "graph") is not None
     finally:
         shutil.rmtree(d)
 

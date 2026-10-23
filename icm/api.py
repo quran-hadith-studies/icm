@@ -528,6 +528,13 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 if pl["build"] != p.get("graph_hash"):
                     raise HTTPException(409, "the graph changed; build the one on screen")
                 out["build"] = pl["build"]
+            if pl.get("deleted"):                        # step 5 drops the tree on screen (only while it is not confirmed)
+                prev = project.decision(pid, "phylogeny") or {}
+                if pl["deleted"] != p.get("graph_hash"):
+                    raise HTTPException(409, "the graph changed; delete the one on screen")
+                if prev.get("confirmed") == pl["deleted"] or p.get("step") not in ("phylogeny",):
+                    raise HTTPException(409, "the tree is already confirmed; it cannot be deleted")
+                out["deleted"] = pl["deleted"]
             if pl.get("confirmed"):
                 if pl["confirmed"] != p.get("graph_hash"):
                     raise HTTPException(409, "the graph changed; confirm the one on screen")

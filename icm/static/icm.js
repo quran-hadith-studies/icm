@@ -1553,7 +1553,13 @@ const panels = {
         el('button', { class: 'primary', onclick: async () => {
           await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: dec.dates || {}, preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); reload(c.pid);
         } }, 'تأیید شجره و اجرای تحلیل')) : el('span', { class: 'muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تأیید کند.'),
-        P.project.step === 'done' ? el('p', { class: 'small muted' }, 'تحلیل این شجره انجام شده است.') : null)].filter(Boolean));
+        P.project.step === 'done' ? el('p', { class: 'small muted' }, 'تحلیل این شجره انجام شده است.') : null),
+      /* the tree can be dropped while it is the latest thing done (step 4 is then open again, or the tree is ordered anew) */
+      c.can && !c.readonly && P.project.step === 'phylogeny' ? card('حذف شجره', el('p', { class: 'small muted' }, 'شجره‌ی فعلی حذف می‌شود؛ تصمیم‌های مرحله‌ی ۴ دست‌نخورده می‌مانند و هر وقت خواستید می‌توانید دوباره شجره را بسازید.'),
+        el('div', { class: 'toolbar' }, el('button', { class: 'danger', onclick: async ev => {
+          if (!confirm('شجره‌ی فعلی حذف شود؟')) return; ev.currentTarget.disabled = true;
+          await post(`/project/${c.pid}/decide/phylogeny`, { payload: { deleted: P.project.graph_hash, dates: dec.dates || {}, chain_edits: dec.chain_edits || {}, preset: dec.preset || null, compute: dec.compute || 'browser' } });
+          reloadAt(c.pid, 'phylogeny'); } }, 'حذف شجره'))) : null].filter(Boolean));
   },
 
   /* ----- 6: analysis ----- */
