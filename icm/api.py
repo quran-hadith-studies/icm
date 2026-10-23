@@ -135,6 +135,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
 
     @r.get("", response_class=HTMLResponse)
     @r.get("/", response_class=HTMLResponse)
+    @r.get("/new", response_class=HTMLResponse)
     @r.get("/p/{pid}", response_class=HTMLResponse)
     @r.get("/p/{pid}/{step}", response_class=HTMLResponse)
     @r.get("/p/{pid}/r/{run}", response_class=HTMLResponse)

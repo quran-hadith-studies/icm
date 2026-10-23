@@ -148,6 +148,7 @@ const PSTEP = { search: 'جستجو', selection: 'انتخاب شاهدها', id
 
 function route() {
   const m = here().slice(BASE.length).split('/').filter(Boolean);
+  if (m[0] === 'new' && !STATIC) return { new: true };
   if (m[0] !== 'p' || !m[1]) return STATIC ? { pid: STATIC.route.pid, run: STATIC.route.run, step: STATIC.route.step } : {};
   const r = m[2] === 'r' ? { pid: m[1], run: m[3] || null, step: m[4] || null } : { pid: m[1], run: null, step: m[2] || null };
   if (STATIC) r.run = STATIC.route.run;              // an exported page shows the one run it was made from
@@ -168,13 +169,30 @@ async function render() {
   who.replaceChildren(STATIC ? el('span', { class: 'small' }, `نسخه‌ی ذخیره‌شده (${fa(STATIC.generated)})، فقط خواندنی${STATIC.narrator_version ? ' · پایگاه راویان: ' + (STATIC.narrator_version.label_fa || (STATIC.narrator_version.name === 'raw' ? 'خام' : STATIC.narrator_version.name)) : ''}`)
     : ME.user ? `${ME.user}${ME.admin ? ' (مدیر)' : ''}` : el('a', { href: '/account/login?next=' + encodeURIComponent(location.pathname) }, 'ورود'));
   const r = route();
-  try { r.pid ? await project(r.pid, r.run) : await home(); }
+  document.querySelectorAll('.navs a.nav').forEach(a => a.classList.toggle('on', !r.pid && a.getAttribute('href') === (r.new ? BASE + '/new' : BASE)));
+  try { r.pid ? await project(r.pid, r.run) : r.new ? await newProject() : await home(); }
   catch (e) { setTitle(e.status === 404 ? 'پیدا نشد' : 'خطا'); $app.replaceChildren(el('div', { class: 'card err', role: 'alert' }, 'خطا: ' + e.message, ' ', el('a', { href: BASE || '/' , onclick: ev => { ev.preventDefault(); go('/'); } }, 'بازگشت به فهرست پروژه‌ها'))); }
 }
 
-/* ---------- home ---------- */
+/* ---------- home: the projects ---------- */
 async function home() {
+  const pre = new URLSearchParams(query()).get('seed');
+  if (pre) { setUrl(BASE + '/new?seed=' + encodeURIComponent(pre), false); return newProject(); }     // the old link «/icm?seed=…»
+  setTitle('پروژه‌ها');
   const idx = await api('/index');
+  $app.replaceChildren(
+    el('div', { class: 'card' }, el('h2', {}, 'پروژه‌ها'), help('home'),
+      el('div', { class: 'toolbar' }, el('button', { class: 'primary', disabled: !ME.user, title: ME.user ? '' : 'برای ساخت پروژه وارد شوید', onclick: () => go('/new') }, 'پروژه‌ی تازه')),
+      idx.projects.length ? el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی'].map(t => el('th', {}, t)))), el('tbody', {},
+        idx.projects.map(p => el('tr', {}, el('td', {}, el('a', { href: `${BASE}/p/${p.pid}`, onclick: ev => { ev.preventDefault(); go('/p/' + p.pid); } }, p.title)),
+          el('td', { dir: 'ltr', class: 'small' }, p.seed), el('td', {}, p.owner), el('td', {}, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status)),
+          el('td', {}, PSTEP[p.step] || (STEPS.find(s => s[0] === p.step) || [0, p.step])[1]), el('td', { class: 'small muted', dir: 'ltr' }, p.updated.replace('T', ' ').slice(0, 16)))))))
+        : el('p', { class: 'empty-state' }, 'هنوز پروژه‌ای نیست؛ با «پروژه‌ی تازه» یک حدیث را جستجو کنید.')));
+}
+
+/* ---------- new project: search a hadith to start from ---------- */
+async function newProject() {
+  setTitle('پروژه‌ی تازه');
   const q = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث، نشانی /h/i/… یا چند کلمه از متن', id: 'q', 'aria-label': 'جستجوی حدیث مبدأ' });
   const out = el('div');
   const go_ = async () => {
@@ -186,15 +204,11 @@ async function home() {
   const pre = new URLSearchParams(query()).get('seed');
   if (pre) { q.value = pre; setTimeout(go_, 0); }
   $app.replaceChildren(
-    el('div', { class: 'card' }, el('h2', {}, 'شروع از یک حدیث'), help('home'),
+    el('p', { class: 'small' }, el('a', { href: BASE || '/', onclick: ev => { ev.preventDefault(); go('/'); } }, '← فهرست پروژه‌ها')),
+    el('div', { class: 'card' }, el('h2', {}, 'پروژه‌ی تازه: شروع از یک حدیث'), help('new'),
       el('p', { class: 'muted' }, 'یک حدیث را انتخاب کنید؛ سامانه خانواده‌ی آن را می‌یابد، شما شاهدها و راویان را تأیید می‌کنید و در پایان قدیمی‌ترین منبع قابل‌بازیابی برآورد می‌شود.'),
-      el('div', { class: 'toolbar' }, q, el('button', { class: 'primary', onclick: go_ }, 'جستجو')), out),
-    el('div', { class: 'card' }, el('h2', {}, 'پروژه‌ها'),
-      idx.projects.length ? el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی'].map(t => el('th', {}, t)))), el('tbody', {},
-        idx.projects.map(p => el('tr', {}, el('td', {}, el('a', { href: `${BASE}/p/${p.pid}`, onclick: ev => { ev.preventDefault(); go('/p/' + p.pid); } }, p.title)),
-          el('td', { dir: 'ltr', class: 'small' }, p.seed), el('td', {}, p.owner), el('td', {}, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status)),
-          el('td', {}, PSTEP[p.step] || (STEPS.find(s => s[0] === p.step) || [0, p.step])[1]), el('td', { class: 'small muted', dir: 'ltr' }, p.updated.replace('T', ' ').slice(0, 16)))))))
-        : el('p', { class: 'empty-state' }, 'هنوز پروژه‌ای نیست؛ از بالا یک حدیث را جستجو کنید.')));
+      el('div', { class: 'toolbar' }, q, el('button', { class: 'primary', onclick: go_ }, 'جستجو')), out));
+  if (!pre) q.focus();
 }
 function hadithRow(h) {
   return el('tr', {},

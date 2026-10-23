@@ -671,6 +671,9 @@ and posts it with the same token; the awaiting page notices and moves on. Fallba
 The app quits by itself (browser-window fallback only) after 5 minutes with no window open and nothing running (no console to close on Windows). Windows is untested on real hardware. (more in `~/.icm_app/config.json` → `"servers"`). It warns when its model code differs from the server's (`model` digest
 in the input). The token is valid only while the project waits for that run's key. Provenance kind: `desktop`.
 
+`/icm` is the list of projects; `/icm/new[?seed=<wid>]` is the page that searches a hadith and creates a project from it
+(`/icm?seed=…` still works and opens the same page).
+
 Every step has its own address: `/icm/p/<pid>/<step>` (`seed`, `selection`, `alignment`, `identities`, `phylogeny`,
 `analysis`) and `/icm/p/<pid>/r/<run>/<step>` for an earlier run; `/icm/p/<pid>` opens the step that waits for the user.
 
