@@ -183,3 +183,12 @@ details.fullt>summary{display:inline-block}
 }
 .toolbar input[type=text]{flex:1 1 260px}
 @media (max-width:700px){main .card table td.ar{min-width:180px}}
+/* project pages: the step tabs sit in the site header (in place of its subtitle), the project itself is one short line */
+body.inproj header.top .sub{display:none}
+.hsteps{display:flex;align-items:center;gap:3px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;min-width:0;max-width:100%}
+.hsteps[hidden]{display:none}
+.hsteps .step{flex:none;min-width:0;padding:3px 10px;border-radius:99px;white-space:nowrap}
+.hsteps .stepinfo{display:inline-flex;flex:none}.hsteps .stepinfo .info{margin-inline:0 4px}
+.card.pcard{padding-block:6px}
+.pcard h1{margin:0;font-size:15px;font-weight:600}
+@media (max-width:700px){.hsteps{order:2;flex-basis:100%}body.inproj header.top{position:static}}
