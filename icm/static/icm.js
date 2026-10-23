@@ -987,41 +987,16 @@ const panels = {
         dateBox(ch, e, s));
       if (!isSplit) fetchDeaths([id]).then(more => { if (more) draw(); });
     };
-    /* which words of this place are the name and which the transmission phrase («قرأت على» + «أبو محمد»): the user's reading
-       replaces the parser's (parts.renames, keyed by place); the candidates are recomputed from the new name */
-    const renameOpen = new Set();
+    /* a place renamed with the old «✎ نام و لفظ نقل» box (parts.renames): only a note and its reset are left here; the name and
+       its phrase are now edited in «✎ ویرایش سند» */
     const renameBox = (ch, e) => {
       const occ = `${ch.aid}|${e.i}`, mine = (pdec.renames || {})[occ];
-      if (e.exact || e.kind === 'anon') return null;
-      const note = e.renamed ? el('span', { class: 'small userc' }, `✎ شما تعیین کرده‌اید — لفظ نقل: «${e.term || '—'}»، نام: «${e.raw || e.name}»`) : null;
-      if (!c.can || STATIC) return note ? el('div', {}, note) : null;
-      const open = renameOpen.has(occ);
-      const head = el('div', { class: 'toolbar small', style: 'margin-top:0' }, el('span', { class: 'muted' }, `لفظ نقل: «${e.term || '—'}»`),
-        el('button', { class: 'small', onclick: () => { open ? renameOpen.delete(occ) : renameOpen.add(occ); drawEd(); } }, open ? 'بستن' : '✎ نام و لفظ نقل'), note,
-        mine ? el('button', { class: 'small', onclick: async () => {
+      if (e.exact || e.kind === 'anon' || !e.renamed) return null;
+      return el('div', { class: 'toolbar small', style: 'margin-top:0' }, el('span', { class: 'userc' }, `✎ شما تعیین کرده‌اید — لفظ نقل: «${e.term || '—'}»، نام: «${e.raw || e.name}»`),
+        mine && c.can && !STATIC ? el('button', { class: 'small', onclick: async () => {
           if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ اصلاح نام نامزدها را دوباره می‌سازد.');
           await saveParts(c.pid, d => { const r = { ...d.renames }; delete r[occ]; return { renames: r }; }, `rename ${occ} reset`); reloadAt(c.pid, 'identities');
         } }, 'بازگشت به خواندن خودکار') : null);
-      if (!open) return el('div', {}, head);
-      const pre = e.term ? e.term.split(' ') : [], hid = pre.slice(0, Math.max(0, pre.length - 10));       // a long term is shown by its last words
-      const tw = [...pre.slice(hid.length), ...(e.raw || e.name).split(' ')];
-      let sel = [pre.length - hid.length, tw.length], anchor = null;
-      const box = el('div', { class: 'ar pedit pick' }), prev = el('div', { class: 'small' });
-      const ok = el('button', { class: 'small primary' }, 'ذخیره و محاسبه‌ی دوباره‌ی نامزدها');
-      const name = () => tw.slice(sel[0], sel[1]).join(' '), term = () => [...hid, ...tw.slice(0, sel[0])].join(' ');
-      const draw2 = () => {
-        box.replaceChildren(...tw.flatMap((_, i) => [i ? ' ' : '', el('button', { type: 'button', class: 'tok' + (i >= sel[0] && i < sel[1] ? ' sel' : ' out') + (anchor === i ? ' anc' : ''), style: `--h:${hue(2)}`,
-          onclick: () => { if (anchor === null) { anchor = i; sel = [i, i + 1]; } else { sel = [Math.min(anchor, i), Math.max(anchor, i) + 1]; anchor = null; } draw2(); } }, tw[i])]));
-        prev.replaceChildren('لفظ نقل: ', el('b', { class: 'ar' }, term() || '—'), ' — نام راوی: ', el('b', { class: 'ar' }, name()),
-          sel[1] < tw.length ? el('span', { class: 'muted' }, ` — واژه‌های پس از نام کنار گذاشته می‌شوند: ${tw.slice(sel[1]).join(' ')}`) : '');
-        ok.disabled = anchor !== null || sel[0] >= sel[1];
-      };
-      ok.onclick = async () => {
-        if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ اصلاح نام نامزدها را دوباره می‌سازد.');
-        await saveParts(c.pid, d => ({ renames: { ...d.renames, [occ]: { name: name(), term: term() } } }), `rename ${occ}`); reloadAt(c.pid, 'identities');
-      };
-      draw2();
-      return el('div', {}, head, el('div', { class: 'small muted' }, 'نخستین و واپسین واژه‌ی نام راوی را بزنید؛ واژه‌های پیش از آن «لفظ نقل» می‌شوند (مثلاً در «قرأت على أبو محمد»: نام فقط «أبو محمد» است).'), box, prev, el('div', { class: 'toolbar' }, ok));
     };
 
     /* ---- the chain in its text («ویرایش سند»): one popup for the chain of a hadith. The list is the chain as it stands, in text
@@ -1319,10 +1294,9 @@ const panels = {
         el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, relOnly(cd) ? cname({ ...cd, name: e.raw || e.name }) : e.raw || e.name)),
           el('span', { class: 'chip ' + stOf(s) }, ST[stOf(s)] + (s.here ? ' — فقط همین جا' : '')),
           el('span', { class: 'small muted' }, `در ${wtitle(ch.wid)} · بهترین نامزد: ${TIER[cd.tier] || cd.tier}`), el('span', { class: 'grow' }),
+          c.can && !STATIC && !isGap(e) ? el('button', { class: 'small', title: 'افزودن راوی از هر جای متن (سند یا متن)، حذف این راوی، یا جابه‌جایی مرز نام و لفظ نقل روی خود متن', onclick: () => chainEditor(ch, e.i) }, '✎ ویرایش سند در متن کامل') : null,
           el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
         help('step4.name'),
-        c.can && !STATIC && !isGap(e) ? el('div', { class: 'small' }, el('button', { class: 'small', onclick: () => chainEditor(ch, e.i) }, '✎ ویرایش سند در متن کامل'),
-          el('span', { class: 'muted' }, ' افزودن راوی از هر جای متن (سند یا متن)، حذف این راوی، یا جابه‌جایی مرز نام و لفظ نقل روی خود متن.')) : null,
         renameBox(ch, e),
         el('h3', {}, relOnly(cd) ? 'نسبت، نه نام' : n > 1 ? `این نام در ${fa(n)} جا آمده است` : 'این نام فقط همین جا آمده است'),
         relOnly(cd) ? el('p', { class: 'small muted' }, `«${e.raw || e.name}» نام نیست، نسبت است (پدر، جد، برادر… راوی پیشین)، پس در هر سند کس دیگری است و جداگانه تعیین می‌شود. پیشنهادها از سندهای نور آمده‌اند که برای همان راوی پیشین همین نسبت را به نام آورده‌اند (پدر و جد امامان از جدول امامان). «عن أبيه عن جده» یعنی پدرِ همان پدر.`) : null,
