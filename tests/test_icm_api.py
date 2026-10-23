@@ -108,6 +108,33 @@ def test_permissions_and_validation():
                     {"splits": {"x": {"label": "a"}}}, {"merges": [["name:a|b", "noor:1"]]}, {"dates": {"split:a": [1, 2]}}):
             assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
         assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"confirmed": "nope"}}, headers=H("alice")).status_code == 409
+        assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"build": "nope"}}, headers=H("alice")).status_code == 409
+    finally:
+        shutil.rmtree(d)
+
+
+def test_the_tree_is_built_only_when_step_5_orders_it():
+    from icm import pipeline, search
+    a, d = app()
+    try:
+        c = TestClient(a)
+        pid = c.post("/icm/api/project", json={"seed": "v02:800316143"}, headers=H("alice")).json()["pid"]
+        p = pipeline.advance(pid)
+        S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        sel = [S["seed"]["wid"]] + [x["wid"] for x in S["candidates"] if search.preselected(x)]
+        assert c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice")).status_code == 200
+        p = pipeline.advance(pid)
+        assert p["step"] == "identities"
+        assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"choices": {}}}, headers=H("alice")).status_code == 200
+        p = pipeline.advance(pid)                                                       # saved: step 5, but no tree yet
+        assert p["step"] == "phylogeny" and p["status"] == "draft" and p["graph_hash"]
+        assert project.run_stage(pid, "current", "graph") is None
+        assert c.get(f"/icm/api/project/{pid}/runs/current/graph").status_code == 404
+        assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"build": p["graph_hash"]}}, headers=H("bob")).status_code == 403
+        assert c.post(f"/icm/api/project/{pid}/decide/phylogeny", json={"payload": {"build": p["graph_hash"]}}, headers=H("alice")).status_code == 200
+        q = pipeline.advance(pid)                                                       # ordered: the tree exists, the analysis waits for the confirmation
+        assert q["step"] == "phylogeny" and q["graph_hash"] == p["graph_hash"]
+        assert project.run_stage(pid, "current", "graph") is not None
     finally:
         shutil.rmtree(d)
 

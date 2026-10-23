@@ -4,8 +4,8 @@
 
 Stages are cached by the hash of their inputs (``project.stage_put``); a repeated call recomputes nothing.
 The wizard order is: search -> [selection] -> alignment + identities (candidates) -> [identities]
--> graph -> [phylogeny, confirmed for exactly this graph] -> analysis. The ``parts`` decision (the user's
-segmentation: the seed's parts, extra parts, slots in witnesses) never blocks: it changes search and alignment
+-> [phylogeny: ``build`` = the key of the graph step 5 orders] -> graph -> [phylogeny, confirmed for exactly this graph]
+-> analysis. The ``parts`` decision (the user's segmentation: the seed's parts, extra parts, slots in witnesses) never blocks: it changes search and alignment
 when it is made, and its confirmations are read by the pages only.
 """
 from __future__ import annotations
@@ -98,6 +98,8 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         if iddec.get("splits"):                                   # likewise: people the user split off an identity
             iddec_in["splits"] = iddec["splits"]
         k_graph = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
+        if project.stage_get(pid, "graph", k_graph) is None and phdec.get("build") != k_graph:
+            return _finish(pid, vers, hashes, "draft", "phylogeny", graph_hash=k_graph)    # step 5 orders the tree by hand
         G = _get_or_run(pid, "graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S, V), hashes)
         if phdec.get("confirmed") != k_graph:
             return _finish(pid, vers, hashes, "draft", "phylogeny", graph_hash=k_graph)

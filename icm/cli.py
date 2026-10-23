@@ -32,7 +32,7 @@ def _auto(pid: str, user: str) -> dict:
         elif p["step"] == "identities":
             project.add_decision(pid, "identities", dict(choices={}), user, "auto")
         elif p["step"] == "phylogeny":
-            project.add_decision(pid, "phylogeny", dict(confirmed=p["graph_hash"]), user, "auto")
+            project.add_decision(pid, "phylogeny", dict(build=p["graph_hash"], confirmed=p["graph_hash"]), user, "auto")
         else:
             return p
         p = pipeline.advance(pid)

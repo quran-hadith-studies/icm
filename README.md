@@ -723,7 +723,7 @@ What every step also offers (added 2026-10-13):
   it shorten it; «همه‌ی میانه» / «بی‌لفظ نقل». Saved as `term: {i: [t, e]}`; a choice whose gap changed (a name moved,
   added or removed next to it) falls back to the default, in the editor at once and on the server. A removal means the same everywhere: «✕ حذف» here (saved
   with «ذخیره») and «حذف از سند» on step 4's main page or an accepted «حذف از سند» suggestion (identities.drops, saved with
-  «تأیید راویان»; `identity.merge_drops` folds them into the chain's `drop` before identify) both take the place out of the
+  «ذخیره»; `identity.merge_drops` folds them into the chain's `drop` before identify) both take the place out of the
   chain. A removal alone keeps the chain's order. Closing with unsaved edits asks (save / discard / go on). Saved as `parts.chain[aid] = {span: {i: {t, a, b}}, add:
   [{t, a, b}], drop: [i], term: {i: [t, e]}}` (the `t` of a span is no longer read: phrases come from `fill_terms`) (`identity.apply_chain_edits`, before `apply_renames`, which it overrides for the same
   place). Place ids never change: an added place is `1000 + its position in add`, for good, so every `aid|i` key of

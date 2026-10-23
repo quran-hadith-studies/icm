@@ -524,6 +524,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             if compute not in ("browser", "helper", "server"):
                 raise HTTPException(400, "unknown compute mode")
             out = dict(dates=dates, chain_edits=edits, preset=preset, compute=compute)
+            if pl.get("build"):                          # step 5 orders the tree of exactly this graph key
+                if pl["build"] != p.get("graph_hash"):
+                    raise HTTPException(409, "the graph changed; build the one on screen")
+                out["build"] = pl["build"]
             if pl.get("confirmed"):
                 if pl["confirmed"] != p.get("graph_hash"):
                     raise HTTPException(409, "the graph changed; confirm the one on screen")

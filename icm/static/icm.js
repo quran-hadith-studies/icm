@@ -797,7 +797,7 @@ const panels = {
       return { sts, st, txt, nund, tip: ['exact', 'auto', 'user', 'und', 'none', 'anon', 'drop'].filter(k => n(k)).map(k => `${fa(n(k))} ${ST[k]}`).join('، ') + (nund ? `، ${fa(nund)} بی‌تاریخ` : '') };
     };
 
-    const ST = { exact: 'قطعی (از منبع)', auto: 'خودکار (بازبینی‌نشده)', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم', drop: 'حذف می‌شود (با تأیید راویان)' };
+    const ST = { exact: 'قطعی (از منبع)', auto: 'خودکار (بازبینی‌نشده)', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم', drop: 'حذف می‌شود (با ذخیره)' };
     const chip = (ch, e) => {
       if (isGap(e)) return el('span', { class: 'gapm', title: 'جایی که منبع راوی‌ای را نیاورده است' }, '‹' + e.name.replace('موضع ', '').replace('اسم مبهم', 'بی‌نام') + '›');
       const s = stateOf(ch, e), cd = cards[e.card], st = stOf(s), occ = `${ch.aid}|${e.i}`;
@@ -926,7 +926,7 @@ const panels = {
         const name = [me, x.id].sort((a, b) => rankOf(a) - rankOf(b) || (a < b ? -1 : 1))[0];
         fill(prev, el('div', { class: 'help' }, el('b', {}, 'یکی کردن: '), el('span', { class: 'ar' }, mine.label), ` (${fa(mine.n)} جا) = `, el('span', { class: 'ar' }, x.label), ` (${fa(x.n)} جا)`,
           warn.map(w => el('div', { class: 'small', style: 'color:var(--warn)' }, '⚠ ' + w)),
-          el('div', { class: 'small muted' }, 'در شجره هر دو یک گره می‌شوند با شناسه‌ی ', el('span', { dir: 'ltr' }, name), '. با «تأیید راویان» ذخیره می‌شود و «واگرد» دارد.'),
+          el('div', { class: 'small muted' }, 'در شجره هر دو یک گره می‌شوند با شناسه‌ی ', el('span', { dir: 'ltr' }, name), '. با «ذخیره» ثبت می‌شود و «واگرد» دارد.'),
           el('div', { class: 'toolbar' }, el('button', { class: 'primary small', onclick: () => { merges.push([me, x.id]); draw(); } }, 'تأیید یکی کردن'),
             /^(noor|kg):/.test(x.id) ? el('button', { class: 'small', onclick: () => narratorCard(x.id) }, 'کارت راوی') : null,
             el('button', { class: 'small', onclick: () => fill(prev) }, 'انصراف'))));
@@ -993,7 +993,7 @@ const panels = {
       const head = el('div', { class: 'toolbar small', style: 'margin-top:0' }, el('span', { class: 'muted' }, `لفظ نقل: «${e.term || '—'}»`),
         el('button', { class: 'small', onclick: () => { open ? renameOpen.delete(occ) : renameOpen.add(occ); drawEd(); } }, open ? 'بستن' : '✎ نام و لفظ نقل'), note,
         mine ? el('button', { class: 'small', onclick: async () => {
-          if (dirty()) return alert('نخست تغییرهای این مرحله را با «تأیید راویان» ذخیره کنید؛ اصلاح نام نامزدها را دوباره می‌سازد.');
+          if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ اصلاح نام نامزدها را دوباره می‌سازد.');
           await saveParts(c.pid, d => { const r = { ...d.renames }; delete r[occ]; return { renames: r }; }, `rename ${occ} reset`); reloadAt(c.pid, 'identities');
         } }, 'بازگشت به خواندن خودکار') : null);
       if (!open) return el('div', {}, head);
@@ -1011,7 +1011,7 @@ const panels = {
         ok.disabled = anchor !== null || sel[0] >= sel[1];
       };
       ok.onclick = async () => {
-        if (dirty()) return alert('نخست تغییرهای این مرحله را با «تأیید راویان» ذخیره کنید؛ اصلاح نام نامزدها را دوباره می‌سازد.');
+        if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ اصلاح نام نامزدها را دوباره می‌سازد.');
         await saveParts(c.pid, d => ({ renames: { ...d.renames, [occ]: { name: name(), term: term() } } }), `rename ${occ}`); reloadAt(c.pid, 'identities');
       };
       draw2();
@@ -1168,7 +1168,7 @@ const panels = {
       let asking = false;                               // the window is being closed with unsaved edits: save / discard / go on
       const askBox = el('div', {});
       const save = async () => {
-        if (dirty()) return alert('نخست تغییرهای این مرحله را با «تأیید راویان» ذخیره کنید؛ ویرایش سند راویان و نامزدها را دوباره می‌سازد.');
+        if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ ویرایش سند راویان و نامزدها را دوباره می‌سازد.');
         ok.disabled = true;
         try {
           await saveParts(c.pid, d => {
@@ -1271,7 +1271,7 @@ const panels = {
       if (s.st === 'drop') return fill(part3,
         el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, e.raw || e.name)),
           el('span', { class: 'chip none' }, ST.drop), el('span', { class: 'grow' }), el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
-        el('p', {}, `این راوی (در ${wtitle(ch.wid)}) با «تأیید راویان» از سند برداشته می‌شود: از سند، از «ویرایش سند» و از شجره بیرون می‌رود، همان‌گونه که با «✕ حذف» در «ویرایش سند».`),
+        el('p', {}, `این راوی (در ${wtitle(ch.wid)}) با «ذخیره» از سند برداشته می‌شود: از سند، از «ویرایش سند» و از شجره بیرون می‌رود، همان‌گونه که با «✕ حذف» در «ویرایش سند».`),
         c.can ? el('button', { class: 'small', onclick: () => { drops.delete(occ); draw(); } }, 'بازگرداندن به سند') : null);
       const here = relOnly(cd) || n === 1 ? true : scopeHere || !!s.here;
       const val = here ? overrides[occ] : choices[cd.key], curId = s.id;
@@ -1316,7 +1316,7 @@ const panels = {
         c.can ? el('div', { class: 'toolbar' },
           el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setTimeout(() => setVal(cd, occ, here, v)); else if (v) alert('قالب شناسه نادرست است'); } }),
           val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default && !relOnly(cd) || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null,
-          el('span', { class: 'grow' }), el('button', { class: 'small', title: 'این راوی از سند برداشته می‌شود، همان‌گونه که با «✕ حذف» در «ویرایش سند»؛ با «تأیید راویان» اعمال می‌شود و تا آن زمان «بازگرداندن به سند» آن را پس می‌آورد. (واژه‌ی سند یا تکه‌ای از متن که نام خوانده شده است)', onclick: () => { drops.add(occ); draw(); } }, 'حذف از سند')) : null,
+          el('span', { class: 'grow' }), el('button', { class: 'small', title: 'این راوی از سند برداشته می‌شود، همان‌گونه که با «✕ حذف» در «ویرایش سند»؛ با «ذخیره» اعمال می‌شود و تا آن زمان «بازگرداندن به سند» آن را پس می‌آورد. (واژه‌ی سند یا تکه‌ای از متن که نام خوانده شده است)', onclick: () => { drops.add(occ); draw(); } }, 'حذف از سند')) : null,
         mergeSplit(ch, e),
         dateBox(ch, e, s));
       if (s.id || cands.length) fetchDeaths([s.id, ...cands.map(k => k.id)].filter(Boolean)).then(more => { if (more) draw(); });
@@ -1338,7 +1338,7 @@ const panels = {
           el('span', { class: 'muted' }, isPerson ? `تاریخی که بنویسید برای «${labelOf(s.id, e, cards[e.card])}» در همه‌ی سندها به کار می‌رود${/^split:/.test(k) ? '' : ' و بر تاریخ پایگاه مقدم است'}.`
             : 'این نام به شخصی پیوند نخورده است؛ تاریخ برای همین نام (گره «فقط نام») در شجره به کار می‌رود.')),
         el('div', { class: 'toolbar' }, 'سال هجری: ', lo, hi, mine && c.can ? el('button', { class: 'small', onclick: () => set(null, null) }, 'پاک کردن') : null,
-          el('span', { class: 'small muted' }, 'یک سال یا یک بازه؛ با «تأیید راویان» ذخیره می‌شود.'))];
+          el('span', { class: 'small muted' }, 'یک سال یا یک بازه؛ با «ذخیره» ثبت می‌شود.'))];
     };
 
     const status = el('div', { class: 'small' }), save = el('div', { class: 'toolbar actionbar' }), listSum = el('div', { class: 'small muted' });
@@ -1347,11 +1347,20 @@ const panels = {
       fill(status, `${fa(Object.keys(cards).length)} نام برای تصمیم: ${fa(n.auto)} خودکار، ${fa(n.user)} انتخاب کاربر، ${fa(n.und)} بی‌تصمیم. `,
         el('span', { class: 'muted' }, `${fa(I.stats.exact)} از ${fa(I.stats.elements)} جای سند را خود منبع به راوی‌ای پیوند داده است (قطعی). `),
         dec.version ? el('span', { class: 'muted' }, `آخرین تصمیم ذخیره‌شده: نسخه‌ی ${fa(dec.version)}، ${dec.user}${dec.note === 'auto' ? ' (پذیرش خودکار)' : ''}.`) : null);
-      fill(save, [c.can ? el('button', { class: 'primary', onclick: async () => {
+      /* «ذخیره» keeps the decision and stays here; «مرحله‌ی بعد» saves what is unsaved and opens step 5, where the tree is ordered */
+      const saveIt = async () => {
         const nu = counts().und;
-        if (nu && !confirm(`${fa(nu)} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`)) return;
-        await post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides, dates, merges, drops: [...drops], dismissed: [...dismissed], splits } }); reload(c.pid);
-      } }, 'تأیید راویان و ساخت شجره') : el('span', { class: 'muted small' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.'),
+        if (nu && !confirm(`${fa(nu)} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`)) return false;
+        await post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides, dates, merges, drops: [...drops], dismissed: [...dismissed], splits } });
+        return true;
+      };
+      const busy = b => { b.disabled = true; return b; };
+      fill(save, [c.can ? [
+        el('button', { class: 'primary', disabled: !!dec.version && !dirty(), onclick: async ev => { const b = busy(ev.currentTarget); if (await saveIt()) reloadAt(c.pid, 'identities'); else b.disabled = false; } }, 'ذخیره'),
+        el('button', { onclick: async ev => { const b = busy(ev.currentTarget);
+          if (!dec.version || dirty()) { if (!(await saveIt())) { b.disabled = false; return; } }
+          cache.clear(); go(stepUrl(c.pid, null, 'phylogeny')); } }, 'مرحله‌ی بعد: شجره ←')]
+        : el('span', { class: 'muted small' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.'),
         dirty() ? el('span', { class: 'small', style: 'color:var(--warn)' }, 'تغییرهای ذخیره‌نشده') : null]);
     };
 
@@ -1390,7 +1399,7 @@ const panels = {
       if (p.op === 'drop') { drops.add(sg.occ); return draw(); }
       if (p.op === 'merge') { merges.push([...p.pair]); return draw(); }
       if (p.op === 'exclude') {
-        if (dirty()) return alert('نخست تغییرهای این مرحله را با «تأیید راویان» ذخیره کنید؛ کنار گذاشتن شاهد مرحله‌ی ۲ را دوباره اجرا می‌کند.');
+        if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ کنار گذاشتن شاهد مرحله‌ی ۲ را دوباره اجرا می‌کند.');
         if (!confirm(`«${wtitle(p.wid)}» از شاهدهای برگزیده (مرحله‌ی ۲) کنار گذاشته شود؟ انتخاب‌های این مرحله می‌مانند.`)) return;
         const sel = await api(`/project/${c.pid}/decision/selection`);
         await post(`/project/${c.pid}/decide/selection`, { payload: { selected: (sel.selected || []).filter(w => w !== p.wid) } }); reload(c.pid);
@@ -1426,7 +1435,7 @@ const panels = {
       all.forEach(sg => (by[sg.kind] ||= []).push(sg));
       const nGone = all.filter(sg => dismissed.has(sg.id) && !applied(sg)).length;
       const open = all.filter(sg => !applied(sg) && !dismissed.has(sg.id)).length;
-      fill(sugBox, el('div', { class: 'small muted' }, all.length ? `${fa(open)} پیشنهاد باز از ${fa(all.length)}. پذیرفته‌ها مانند انتخاب شما ثبت می‌شوند؛ ردشده‌ها دیگر نشان داده نمی‌شوند. همه با «تأیید راویان» ذخیره می‌شوند.` : 'پیشنهادی نیست.',
+      fill(sugBox, el('div', { class: 'small muted' }, all.length ? `${fa(open)} پیشنهاد باز از ${fa(all.length)}. پذیرفته‌ها مانند انتخاب شما ثبت می‌شوند؛ ردشده‌ها دیگر نشان داده نمی‌شوند. همه با «ذخیره» ثبت می‌شوند.` : 'پیشنهادی نیست.',
         nGone ? [' ', el('label', {}, el('input', { type: 'checkbox', checked: showDismissed, onchange: ev => { showDismissed = ev.target.checked; drawSug(); } }), ` نمایش ${fa(nGone)} ردشده`)] : null),
         SUG.filter(([k]) => by[k]).map(([k, title, help]) => {
           const rows = by[k].filter(sg => showDismissed || !dismissed.has(sg.id) || applied(sg)), nOpen = rows.filter(sg => !applied(sg) && !dismissed.has(sg.id)).length;
@@ -1487,8 +1496,19 @@ const panels = {
 
   /* ----- 5: phylogeny ----- */
   async phylogeny(main, c) {
-    const G = await stage(c.pid, c.runId, 'graph');
+    const G = await stage(c.pid, c.runId, 'graph').catch(e => e.status === 404 ? null : Promise.reject(e));
     const dec = await api(`/project/${c.pid}/decision/phylogeny`);
+    if (!G) {                 // the tree is built when the user orders it, from the step-4 decisions saved so far
+      const gh = P.project.graph_hash, building = !!P.job;
+      return main.replaceChildren(card('ساخت شجره', help('step5.build'),
+        el('p', { class: 'small' }, 'راویان در مرحله‌ی ۴ ذخیره شده‌اند، اما شجره هنوز ساخته نشده است. شجره با همان تصمیم‌های ذخیره‌شده ساخته می‌شود؛ اگر هنوز می‌خواهید چیزی را عوض کنید، ',
+          el('a', { href: BASE + stepUrl(c.pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'identities')); } }, 'به مرحله‌ی ۴ برگردید'), '.'),
+        building ? el('p', { class: 'small muted' }, 'در حال کار… این صفحه خودش به‌روز می‌شود.')
+          : c.can && !c.readonly && gh ? el('div', { class: 'toolbar' }, el('button', { class: 'primary', onclick: async ev => { ev.currentTarget.disabled = true;
+            await post(`/project/${c.pid}/decide/phylogeny`, { payload: { build: gh, dates: dec.dates || {}, chain_edits: dec.chain_edits || {}, preset: dec.preset || null, compute: dec.compute || 'browser' } });
+            reloadAt(c.pid, 'phylogeny'); } }, 'ساخت شجره'))
+          : el('span', { class: 'muted' }, c.readonly ? 'در این نسخه شجره ساخته نشده بود.' : 'فقط سازنده‌ی پروژه یا مدیر می‌تواند شجره را بسازد.')));
+    }
     /* the parts not yet confirmed (step 3) and the seed's segmentation (step 2): a reminder, never a block */
     const [A5, S5, pd5] = await Promise.all([stage(c.pid, c.runId, 'align').catch(() => null), stage(c.pid, c.runId, 'search').catch(() => null), api(`/project/${c.pid}/decision/parts`)]);
     const unconf = A5 && A5.clauses.length && A5.clauses[0].key ? A5.clauses.filter(cl => partStatus(cl, pd5, A5.witnesses).k !== 'auto') : [];
