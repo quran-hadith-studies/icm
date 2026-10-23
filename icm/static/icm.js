@@ -142,6 +142,7 @@ const FLAG_FA = {
   unit_constant: 'واحدی که نگه داشته یا ساخته‌اید در همه‌ی شاهدها یک حالت دارد؛ به مدل نمی‌رود.' };
 const flagText = f => FLAG_FA[f.kind] ? (f.kind === 'chronology' ? FLAG_FA[f.kind] + ' — ' + f.message : FLAG_FA[f.kind]) : f.message;
 let ME = { user: null, admin: false }, timer = null;
+let pageDirty = null;      // a step with unsaved work sets it (() => true while unsaved): the page is then not redrawn under it
 const SITE_TITLE = 'تحلیل منبع حدیث';
 const setTitle = (...parts) => { document.title = [...parts.filter(Boolean), SITE_TITLE].join(' — '); };
 const PSTEP = { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', analysis: 'تحلیل', done: 'پایان' };
@@ -162,7 +163,7 @@ window.addEventListener('popstate', render);
 
 /* ---------- top level ---------- */
 async function render() {
-  clearTimeout(timer);
+  clearTimeout(timer); pageDirty = null;
   setTitle();
   ME = await api('/me').catch(() => ME);
   const who = document.getElementById('who');
@@ -263,17 +264,21 @@ async function project(pid, run) {
   const draw = async () => {
     setTitle(pname, (STEPS.find(x => x[0] === step) || [0, ''])[1].replace(/^[۰-۹]+\s*/, ''));
     if (typeof setDl === 'function') setDl();
-    main.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
+    main.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…')); pageDirty = null;
     try { await panels[step](main, { pid, p, runId, can, readonly }); }
     catch (e) { main.replaceChildren(el('div', { class: 'card' }, e.status === 404 ? 'این مرحله هنوز آماده نیست.' : 'خطا: ' + e.message)); }
   };
   await draw();
   if (P.job || p.status === 'running') {
+    /* one redraw when the work is over (not at every change of state on the way), where the reader was; never over unsaved work */
     const poll = async () => {
       const q = await api('/project/' + pid).catch(() => null);
-      if (q && (q.project.step !== p.step || q.project.status !== p.status || q.project.current_run !== p.current_run || (!q.job && P.job))) { cache.clear(); render(); return; }
       if (q) { P = q; statusBox(status, q.project, pid); }
-      timer = setTimeout(poll, 3000);
+      if (!q || q.job || q.project.status === 'running') { timer = setTimeout(poll, 3000); return; }
+      const redraw = async () => { const y = scrollY; cache.clear(); await render(); scrollTo(0, y); };
+      if (!(pageDirty && pageDirty())) return redraw();
+      status.append(el('div', { class: 'toolbar small', style: 'color:var(--accent)' }, 'محاسبه تمام شد؛ با «ذخیره» این صفحه به‌روز می‌شود.',
+        el('button', { class: 'small', onclick: redraw }, 'به‌روزرسانی اکنون (تغییرهای ذخیره‌نشده از دست می‌روند)')));
     };
     timer = setTimeout(poll, 3000);
   }
@@ -765,7 +770,7 @@ const panels = {
       return sts.includes('und') ? 'und' : sts.includes('user') || sts.includes('drop') ? 'user' : 'auto';
     };
     const counts = () => { const n = { auto: 0, user: 0, und: 0 }; Object.values(cards).forEach(cd => n[cardState(cd)]++); return n; };
-    const dirty = () => JSON.stringify([choices, overrides, dates, merges, [...drops].sort(), [...dismissed].sort(), splits])
+    const dirty = pageDirty = () => JSON.stringify([choices, overrides, dates, merges, [...drops].sort(), [...dismissed].sort(), splits])
       !== JSON.stringify([saved.choices, saved.overrides, saved.dates, saved.merges, [...saved.drops].sort(), [...saved.dismissed].sort(), saved.splits]);
     /* death dates: the user's, else the databases' (fetched per id), else the work's author for a collector */
     const known = {}, asked = new Set();
@@ -877,7 +882,8 @@ const panels = {
         chs.map((ch, j) => el('div', { class: 'chain' }, chs.length > 1 ? el('span', { class: 'small muted' }, `سند ${fa(j + 1)}:`) : null,
           ch.elems.flatMap((e, i) => [i ? el('span', { class: 'tm' }, e.term || '←') : null, chip(ch, e)]),
           ch.speaker ? [el('span', { class: 'tm' }, ch.speaker.term || '←'), el('span', { class: 'nc spk' }, el('span', { class: 'n ar' }, ch.speaker.kind === 'prophet' ? 'پیامبر (ص)' : (ch.speaker.raw || 'امام')), el('span', { class: 'id' }, 'گوینده'))] : null,
-          c.can && !STATIC ? el('button', { class: 'small', style: 'margin-inline-start:6px', title: 'افزودن راوی از هر جای متن، حذف راوی، یا جابه‌جایی مرز نام و لفظ نقل', onclick: () => chainEditor(ch) }, '✎ ویرایش سند') : null)),
+          c.can && !STATIC ? el('button', { class: 'small', style: 'margin-inline-start:6px', title: 'افزودن راوی از هر جای متن، حذف راوی، یا جابه‌جایی مرز نام و لفظ نقل', onclick: () => chainEditor(ch) }, '✎ ویرایش سند') : null,
+          c.can && !STATIC && chainEdited(ch) ? el('button', { class: 'small', style: 'margin-inline-start:6px', title: 'همه‌ی ویرایش‌های این سند پاک می‌شود و سند به خواندن خودکار برمی‌گردد (انتخاب هویت راویان می‌ماند)', onclick: ev => resetChain(ch, ev.currentTarget) }, '↺ سند خودکار') : null)),
         chainPending ? el('div', { class: 'small', style: 'color:var(--accent)' }, 'ویرایش سند ثبت شد؛ راویان و نامزدها دوباره ساخته می‌شوند و این صفحه به‌روز می‌شود.') : null,
         el('p', { class: 'small muted' }, pick ? 'نام برگزیده زرد است؛ جاهای دیگرش و گزینه‌هایش در بخش ۳.' : 'یک نام را بزنید تا جاهای دیگرش و گزینه‌هایش را ببینید. نام‌های «قطعی» را منبع تعیین کرده است (با زدن، کارت راوی باز می‌شود).'),
         fullDetails(cur, pickName(cur), 'سند و متن کامل این حدیث' + (pick ? ' (نام برگزیده رنگی است)' : ''), openFull, 'chain:' + cur));
@@ -1030,6 +1036,27 @@ const panels = {
     const TOKS = new Map();
     const tokensOf = wid => { if (!TOKS.has(wid)) TOKS.set(wid, api(`/hadith/${encodeURIComponent(wid)}/tokens?pid=${encodeURIComponent(c.pid)}`).catch(e => { TOKS.delete(wid); throw e; })); return TOKS.get(wid); };
     const ADD0 = 1000, PAGE = 400;
+    /* «↺ سند خودکار»: the chain of a hadith goes back to the automatic reading. Its saved edits (parts.chain, the renames of its
+       places) and its places removed in step 4 («حذف از سند») go; so do «فقط همین جا» choices of places that were added */
+    const ofChain = (ch, o) => o.slice(0, o.lastIndexOf('|')) === ch.aid;
+    const chainEdited = ch => !!(pdec.chain || {})[ch.aid] || Object.keys(pdec.renames || {}).some(o => ofChain(ch, o)) || saved.drops.some(o => ofChain(ch, o));
+    const resetChain = async (ch, b) => {
+      if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ بازگشت سند راویان و نامزدها را دوباره می‌سازد.');
+      if (!confirm(`سندِ ${wtitle(ch.wid)} به خواندن خودکار برگردد؟ همه‌ی ویرایش‌های آن (راویان افزوده یا حذف‌شده، مرز نام‌ها، لفظ‌های نقل) پاک می‌شود. انتخاب هویت راویان می‌ماند.`)) return;
+      b.disabled = true;
+      try {
+        const dr = saved.drops.filter(o => !ofChain(ch, o));
+        const ov = Object.fromEntries(Object.entries(saved.overrides).filter(([o]) => !ofChain(ch, o) || +o.slice(o.lastIndexOf('|') + 1) < ADD0));
+        if (dr.length !== saved.drops.length || Object.keys(ov).length !== Object.keys(saved.overrides).length)
+          await post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides: ov, dates, merges, drops: dr, dismissed: [...dismissed], splits } });
+        if ((pdec.chain || {})[ch.aid] || Object.keys(pdec.renames || {}).some(o => ofChain(ch, o)))
+          await saveParts(c.pid, d => {
+            const chain = { ...d.chain }, renames = Object.fromEntries(Object.entries(d.renames || {}).filter(([o]) => !ofChain(ch, o)));
+            delete chain[ch.aid]; return { chain, renames };
+          }, `chain ${ch.aid} reset`);
+        reloadAt(c.pid, 'identities');
+      } catch (e) { b.disabled = false; alert(e.message); }
+    };
     const chainEditor = async (ch, selI, removeSel) => {
       if (!c.can || STATIC) return;
       modal(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
@@ -1348,9 +1375,9 @@ const panels = {
         el('span', { class: 'muted' }, `${fa(I.stats.exact)} از ${fa(I.stats.elements)} جای سند را خود منبع به راوی‌ای پیوند داده است (قطعی). `),
         dec.version ? el('span', { class: 'muted' }, `آخرین تصمیم ذخیره‌شده: نسخه‌ی ${fa(dec.version)}، ${dec.user}${dec.note === 'auto' ? ' (پذیرش خودکار)' : ''}.`) : null);
       /* «ذخیره» keeps the decision and stays here; «مرحله‌ی بعد» saves what is unsaved and opens step 5, where the tree is ordered */
-      const saveIt = async () => {
+      const saveIt = async ask => {          // ask: only on the way to step 5 (a plain «ذخیره» just keeps the work)
         const nu = counts().und;
-        if (nu && !confirm(`${fa(nu)} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`)) return false;
+        if (ask && nu && !confirm(`${fa(nu)} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`)) return false;
         await post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides, dates, merges, drops: [...drops], dismissed: [...dismissed], splits } });
         return true;
       };
@@ -1358,7 +1385,7 @@ const panels = {
       fill(save, [c.can ? [
         el('button', { class: 'primary', disabled: !!dec.version && !dirty(), onclick: async ev => { const b = busy(ev.currentTarget); if (await saveIt()) reloadAt(c.pid, 'identities'); else b.disabled = false; } }, 'ذخیره'),
         el('button', { onclick: async ev => { const b = busy(ev.currentTarget);
-          if (!dec.version || dirty()) { if (!(await saveIt())) { b.disabled = false; return; } }
+          if (!dec.version || dirty()) { if (!(await saveIt(true))) { b.disabled = false; return; } }
           cache.clear(); go(stepUrl(c.pid, null, 'phylogeny')); } }, 'مرحله‌ی بعد: شجره ←')]
         : el('span', { class: 'muted small' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.'),
         dirty() ? el('span', { class: 'small', style: 'color:var(--warn)' }, 'تغییرهای ذخیره‌نشده') : null]);
@@ -1500,7 +1527,8 @@ const panels = {
     const dec = await api(`/project/${c.pid}/decision/phylogeny`);
     if (!G) {                 // the tree is built when the user orders it, from the step-4 decisions saved so far
       const gh = P.project.graph_hash, building = !!P.job;
-      return main.replaceChildren(card('ساخت شجره', help('step5.build'),
+      const [I5, id5] = await Promise.all([stage(c.pid, c.runId, 'identify').catch(() => null), api(`/project/${c.pid}/decision/identities`).catch(() => ({}))]);
+      return main.replaceChildren(card('ساخت شجره', help('step5.build'), !c.readonly && I5 ? undNote(c.pid, undecidedKeys(I5, id5), I5, false) : null,
         el('p', { class: 'small' }, 'راویان در مرحله‌ی ۴ ذخیره شده‌اند، اما شجره هنوز ساخته نشده است. شجره با همان تصمیم‌های ذخیره‌شده ساخته می‌شود؛ اگر هنوز می‌خواهید چیزی را عوض کنید، ',
           el('a', { href: BASE + stepUrl(c.pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'identities')); } }, 'به مرحله‌ی ۴ برگردید'), '.'),
         building ? el('p', { class: 'small muted' }, 'در حال کار… این صفحه خودش به‌روز می‌شود.')
@@ -1510,7 +1538,9 @@ const panels = {
           : el('span', { class: 'muted' }, c.readonly ? 'در این نسخه شجره ساخته نشده بود.' : 'فقط سازنده‌ی پروژه یا مدیر می‌تواند شجره را بسازد.')));
     }
     /* the parts not yet confirmed (step 3) and the seed's segmentation (step 2): a reminder, never a block */
-    const [A5, S5, pd5] = await Promise.all([stage(c.pid, c.runId, 'align').catch(() => null), stage(c.pid, c.runId, 'search').catch(() => null), api(`/project/${c.pid}/decision/parts`)]);
+    const [A5, S5, pd5, I5] = await Promise.all([stage(c.pid, c.runId, 'align').catch(() => null), stage(c.pid, c.runId, 'search').catch(() => null), api(`/project/${c.pid}/decision/parts`),
+      stage(c.pid, c.runId, 'identify').catch(() => null)]);
+    const undN = () => c.readonly ? null : undNote(c.pid, G.undecided || [], I5, true);
     const unconf = A5 && A5.clauses.length && A5.clauses[0].key ? A5.clauses.filter(cl => partStatus(cl, pd5, A5.witnesses).k !== 'auto') : [];
     const seedUnconf = S5 && !seedPartsState(S5, pd5).confirmed;
     const toStep = (k, t) => el('a', { href: BASE + stepUrl(c.pid, null, k), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, k)); } }, t);
@@ -1544,12 +1574,12 @@ const panels = {
     main.replaceChildren(...[
       card('شجره‌ی انتقال ثبت‌شده', help('step5.graph'), el('p', { class: 'muted small' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند، ${fa(G.stats.name_only)} فقط نام‌اند.`,
           (G.dropped || []).length ? [` ${fa(G.dropped.length)} جای سند که نام نبود حذف شد: `, G.dropped.map((o, j) => [j ? '، ' : '', step4(o.slice(0, o.lastIndexOf('|')).split('#')[0], o, fa(j + 1))])] : null),
-        graphSvg(G)),
+        undN(), graphSvg(G)),
       flagsCard,
       undated.length ? card('راویان بی‌تاریخ', help('step5.undated'), el('p', { class: 'small' }, `${fa(undated.length)} راوی تاریخ وفات ندارند و تاریخشان از روی جایشان در سندها برآورد شده است. `,
         'هر نام را بزنید تا در ', el('b', {}, 'مرحله‌ی ۴'), ' باز شود و در بخش ۳ «تاریخ وفات» را بنویسید.'),
         el('div', { class: 'small undl' }, undated.map(([n]) => nodeLink(n)))) : null,
-      card('تأیید', help('step5.confirm'), partsNote, c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset, ' محاسبه: ', computeSel,
+      card('تأیید', help('step5.confirm'), partsNote, undN(), c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset, ' محاسبه: ', computeSel,
         el('button', { class: 'primary', onclick: async () => {
           await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: dec.dates || {}, preset: preset.value || null, compute: computeSel.value } }); if (computeSel.value === 'browser') sessionStorage.setItem('icm_auto', c.pid); reload(c.pid);
         } }, 'تأیید شجره و اجرای تحلیل')) : el('span', { class: 'muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تأیید کند.'),
@@ -1769,6 +1799,22 @@ const sameJ = (a, b) => JSON.stringify(a == null ? null : a) === JSON.stringify(
 const partsBase = d => ({ seed: d.seed ?? null, seed_confirmed: d.seed_confirmed ?? null, extras_added: d.extras_added || [],
   extras_dropped: d.extras_dropped || [], slots: d.slots || {}, confirmed: d.confirmed || {},
   words: d.words || {}, unit_cls: d.unit_cls || {}, units: d.units || {}, renames: d.renames || {}, chain: d.chain || {} });   // words, unit_cls, units: step 3 per-word corrections and edits of the variation units; renames, chain: step 4 name/term spans, places added/removed/re-bounded
+/* the names that go into the tree with no identity (name only), as identity.resolve finds them: the cards of places with no
+   drop, override, source link, choice or default */
+const undecidedKeys = (I, d) => {
+  const ch = d.choices || {}, ov = d.overrides || {}, dr = new Set(d.drops || []), out = new Set();
+  I.chains.forEach(c => c.elems.forEach(e => { const occ = `${c.aid}|${e.i}`, cd = I.cards[e.card];
+    if (dr.has(occ) || occ in ov || e.exact || e.kind === 'anon' || !cd) return;
+    if (e.kind === 'relative' && e.cands[0] && e.cands[0].derived && !(e.card in ch)) return;
+    if (!(cd.key in ch) && !cd.default) out.add(cd.key); }));
+  return [...out];
+};
+/* step 5: a reminder (never a block) of the names step 4 left undecided */
+const undNote = (pid, keys, I, built) => keys.length ? el('p', { class: 'small', style: 'color:var(--warn)' },
+  `${fa(keys.length)} نام در مرحله‌ی ۴ بی‌تصمیم مانده است و بدون هویت (فقط نام) ${built ? 'در شجره آمده است' : 'به شجره می‌رود'}`,
+  I ? [': ', el('span', {}, keys.slice(0, 8).map(k => (I.cards[k] || {}).name || k).join('، ')), keys.length > 8 ? ' و …' : ''] : '',
+  '. برای تعیین هویتشان ', el('a', { href: BASE + stepUrl(pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(pid, null, 'identities')); } }, 'به مرحله‌ی ۴ برگردید'),
+  built ? ' و شجره را دوباره بسازید.' : '.') : null;
 async function saveParts(pid, patch, note) {
   const d = partsBase(await api(`/project/${pid}/decision/parts`));
   await post(`/project/${pid}/decide/parts`, { payload: { ...d, ...patch(d) }, note: note || '' });
