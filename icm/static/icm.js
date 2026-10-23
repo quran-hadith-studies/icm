@@ -182,8 +182,8 @@ async function home() {
   setTitle('پروژه‌ها');
   const idx = await api('/index');
   $app.replaceChildren(
-    el('div', { class: 'card' }, el('h2', {}, 'پروژه‌ها'), help('home'),
-      el('div', { class: 'toolbar' }, el('button', { class: 'primary', disabled: !ME.user, title: ME.user ? '' : 'برای ساخت پروژه وارد شوید', onclick: () => go('/new') }, 'پروژه‌ی تازه')),
+    el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin:0' }, el('h2', { style: 'margin:0' }, 'پروژه‌ها'),
+        el('button', { class: 'primary', disabled: !ME.user, title: ME.user ? '' : 'برای ساخت پروژه وارد شوید', onclick: () => go('/new') }, 'پروژه‌ی تازه')), help('home'),
       idx.projects.length ? el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی'].map(t => el('th', {}, t)))), el('tbody', {},
         idx.projects.map(p => el('tr', {}, el('td', {}, el('a', { href: `${BASE}/p/${p.pid}`, onclick: ev => { ev.preventDefault(); go('/p/' + p.pid); } }, p.title)),
           el('td', { dir: 'ltr', class: 'small' }, p.seed), el('td', {}, p.owner), el('td', {}, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status)),
@@ -241,9 +241,12 @@ async function project(pid, run) {
   const tabs = SHOWN.map(([k, t]) => reached(k)
     ? el('a', { class: 'step' + (step === k ? ' cur' : '') + (k === cur && !run ? ' now' : ''), href: BASE + stepUrl(pid, run, k), title: k === cur && !run ? 'مرحله‌ای که منتظر شماست' : '',
         onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); if (step === k) return;
-          step = k; setUrl(BASE + stepUrl(pid, run, k), true); tabs.forEach(e => e.classList.toggle('cur', e.dataset.k === k)); draw(); } }, t)
+          closePop(); step = k; setUrl(BASE + stepUrl(pid, run, k), true); tabs.forEach(e => e.classList.toggle('cur', e.dataset.k === k)); draw(); } }, t)
     : el('div', { class: 'step off', title: 'هنوز به این مرحله نرسیده‌اید' }, t));
   tabs.forEach((e, i) => e.dataset.k = SHOWN[i][0]);
+  /* the header shows the current step alone; a click on it lists all the steps under it */
+  const stepBtn = el('button', { type: 'button', class: 'step cur hcur', 'aria-haspopup': 'menu', title: 'مرحله‌ها',
+    onclick: ev => { ev.stopPropagation(); popover(stepBtn, el('nav', { class: 'steplist', 'aria-label': 'مرحله‌ها' }, tabs)); } });
   const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('select', { 'aria-label': 'نسخه‌ی اجرا', onchange: ev => go(stepUrl(pid, ev.target.value === 'current' ? null : ev.target.value, step)) },
     el('option', { value: 'current' }, 'نسخه‌ی کنونی'), P.runs.slice().reverse().map(r => el('option', { value: r.run, selected: r.run === run }, `${r.run} — ${r.created.replace('T', ' ').slice(0, 16)}`)));
   /* one self-contained HTML file of this step or of the whole project (export.py) */
@@ -253,8 +256,8 @@ async function project(pid, run) {
   const setDl = () => { dlStep.href = `${API}/project/${pid}/runs/${runId}/export/${step}.html`; dlAll.href = `${API}/project/${pid}/runs/${runId}/export/all.html`; };
   const exportSel = STATIC ? null : el('span', { class: 'toolbar', style: 'margin:0' }, dlStep, dlAll);
   setDl();
-  /* the project on one short line (owner, downloads, decisions and log behind its (i)); the step tabs go into the site header,
-     and a step may put its own title, counts and help behind an (i) right after its tab (c.setInfo) */
+  /* the project on one short line (owner, downloads, decisions and log behind its (i)); the current step goes into the site
+     header (the others open under it), and a step may put its own title, counts and help behind an (i) right after it (c.setInfo) */
   const status = el('div'), main = el('div'), stepInfo = el('span', { class: 'stepinfo' });
   $app.replaceChildren(
     el('div', { class: 'card pcard' }, el('div', { class: 'toolbar', style: 'margin:0' },
@@ -262,13 +265,14 @@ async function project(pid, run) {
       info(() => projInfo(p, exportSel), { modal: true, title: 'سازنده، دانلود، تصمیم‌ها و گزارش اجرا' }), el('span', { class: 'grow' }),
       el('label', { class: 'small muted' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), status),
     main);
-  headSteps(tabs, stepInfo);
+  headSteps([stepBtn], stepInfo);
   statusBox(status, p, pid);
   const draw = async () => {
     setTitle(pname, (STEPS.find(x => x[0] === step) || [0, ''])[1].replace(/^[۰-۹]+\s*/, ''));
     if (typeof setDl === 'function') setDl();
     main.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…')); pageDirty = null;
-    stepInfo.replaceChildren(); (tabs.find(e => e.dataset.k === step) || tabs[tabs.length - 1]).after(stepInfo);
+    stepInfo.replaceChildren(); stepBtn.classList.toggle('now', step === cur && !run);
+    stepBtn.replaceChildren((SHOWN.find(x => x[0] === step) || SHOWN[0])[1], el('span', { class: 'caret', 'aria-hidden': 'true' }, ' ▾'));
     const setInfo = (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title }));
     try { await panels[step](main, { pid, p, runId, can, readonly, setInfo }); }
     catch (e) { main.replaceChildren(el('div', { class: 'card' }, e.status === 404 ? 'این مرحله هنوز آماده نیست.' : 'خطا: ' + e.message)); }
@@ -288,7 +292,7 @@ async function project(pid, run) {
     timer = setTimeout(poll, 3000);
   }
 }
-/* the step tabs of an open project sit in the site header, in place of its subtitle; null: no project open */
+/* the current step of an open project sits in the site header, in place of its subtitle; null: no project open */
 function headSteps(tabs, extra) {
   const nav = document.getElementById('hsteps'); if (!nav) return;
   nav.replaceChildren(...(tabs || []), ...(tabs && extra ? [extra] : []));
