@@ -873,10 +873,10 @@ const panels = {
       if (!cur) { fill(part2, el('h2', {}, '۲. راویان حدیث'), el('p', { class: 'muted' }, 'از فهرست بالا یک حدیث را برگزینید.')); return; }
       const h = hadith(cur), w = W.find(x => x.wid === cur) || h || {}, chs = byWid[cur], k = order.indexOf(cur), hs = hstate(cur);
       fill(part2, 
-        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۲. راویان ', el('button', { class: 'lnk', style: 'font-size:inherit;font-weight:700', title: 'متن کامل', onclick: () => hadithModal(cur, pickName(cur)) }, wtitle(cur))),
+        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۲. راویان ', el('button', { class: 'lnk', style: 'font-size:inherit;font-weight:700', title: 'متن کامل', onclick: () => hadithModal(cur, pickName(cur)) }, wtitle(cur)),
+            ' ', info(() => [el('h3', {}, 'بخش ۲: سند حدیث برگزیده'), help('step4.chain', true)], { modal: true, title: 'توضیحات بخش ۲' })),
           el('span', { class: 'chip ' + hs.st, title: hs.tip }, hs.txt), el('span', { class: 'grow' }),
           el('button', { class: 'small', disabled: k <= 0, onclick: () => setCur(order[k - 1]) }, '→ قبلی'), el('button', { class: 'small', disabled: k >= order.length - 1, onclick: () => setCur(order[k + 1]) }, 'بعدی ←')),
-        help('step4.chain'),
         el('div', { class: 'small muted' }, [w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', SRC[chs[0].source], hs.tip].filter(Boolean).join(' · ')),
         chs.some(ch => ch.flags.length) ? el('div', { class: 'small', style: 'color:var(--warn)', title: chs.flatMap(ch => ch.flags).join(' ') }, '⚠ سند ناقص یا نامعمول خوانده شد') : null,
         chs.map((ch, j) => el('div', { class: 'chain' }, chs.length > 1 ? el('span', { class: 'small muted' }, `سند ${fa(j + 1)}:`) : null,
@@ -885,7 +885,6 @@ const panels = {
           c.can && !STATIC ? el('button', { class: 'small', style: 'margin-inline-start:6px', title: 'افزودن راوی از هر جای متن، حذف راوی، یا جابه‌جایی مرز نام و لفظ نقل', onclick: () => chainEditor(ch) }, '✎ ویرایش سند') : null,
           c.can && !STATIC && chainEdited(ch) ? el('button', { class: 'small', style: 'margin-inline-start:6px', title: 'همه‌ی ویرایش‌های این سند پاک می‌شود و سند به خواندن خودکار برمی‌گردد (انتخاب هویت راویان می‌ماند)', onclick: ev => resetChain(ch, ev.currentTarget) }, '↺ سند خودکار') : null)),
         chainPending ? el('div', { class: 'small', style: 'color:var(--accent)' }, 'ویرایش سند ثبت شد؛ راویان و نامزدها دوباره ساخته می‌شوند و این صفحه به‌روز می‌شود.') : null,
-        el('p', { class: 'small muted' }, pick ? 'نام برگزیده زرد است؛ جاهای دیگرش و گزینه‌هایش در بخش ۳.' : 'یک نام را بزنید تا جاهای دیگرش و گزینه‌هایش را ببینید. نام‌های «قطعی» را منبع تعیین کرده است (با زدن، کارت راوی باز می‌شود).'),
         fullDetails(cur, pickName(cur), 'سند و متن کامل این حدیث' + (pick ? ' (نام برگزیده رنگی است)' : ''), openFull, 'chain:' + cur));
     };
 
@@ -1661,7 +1660,7 @@ function help(key, inner) {
   if (!window.ICMHelp) return null;
   if (!inner) return ICMHelp.block(key);
   const b = ICMHelp.block(key); if (!b) return null;
-  b.open = true; b.querySelector('summary').remove(); return b;
+  return el('div', { class: 'helpblk' }, b.querySelector('dl'));     // a <details> without its summary would show the browser's «Details»
 }
 /* full texts: the record of /api/hadith (sanad and matn without markup) and the hadith's page on the site */
 const FULL = new Map();
