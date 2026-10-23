@@ -191,6 +191,6 @@ body.inproj header.top .sub{display:none}
 .hsteps .stepinfo{display:inline-flex;flex:none}.hsteps .stepinfo .info{margin-inline:0 4px}
 .card.pcard{padding-block:6px}
 .pcard h1{margin:0;font-size:15px;font-weight:600}
-@media (max-width:700px){.hsteps{order:2;flex-basis:100%}body.inproj header.top{position:static}}
 .hcur{font:inherit;font-size:12.5px}.hcur.now::after{content:none}.hcur.now .caret::before{content:'● ';color:var(--warn)}
 .steplist{display:flex;flex-direction:column;gap:4px;min-width:170px}.steplist .step{flex:none;text-align:start}
+@media (max-width:700px){button.info{min-height:0;min-width:0}}
