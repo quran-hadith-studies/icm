@@ -250,8 +250,13 @@ async function project(pid, run) {
   /* the header shows the current step alone; a click on it lists all the steps under it */
   const stepBtn = el('button', { type: 'button', class: 'step cur hcur', 'aria-haspopup': 'menu', title: 'مرحله‌ها',
     onclick: ev => { ev.stopPropagation(); popover(stepBtn, el('nav', { class: 'steplist', 'aria-label': 'مرحله‌ها' }, tabs)); } });
+  /* earlier runs worth opening: only those that reached the analysis, numbered in order and named short */
+  const done = P.runs.filter(r => r.stages && r.stages.infer);
   const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('select', { 'aria-label': 'نسخه‌ی اجرا', onchange: ev => go(stepUrl(pid, ev.target.value === 'current' ? null : ev.target.value, step)) },
-    el('option', { value: 'current' }, 'نسخه‌ی کنونی'), P.runs.slice().reverse().map(r => el('option', { value: r.run, selected: r.run === run }, `${r.run} — ${r.created.replace('T', ' ').slice(0, 16)}`)));
+    el('option', { value: 'current' }, 'نسخه‌ی کنونی'),
+    done.map((r, i) => [r, i]).reverse().filter(([r]) => r.run !== p.current_run || r.run === run)
+      .map(([r, i]) => el('option', { value: r.run, selected: r.run === run }, `اجرای ${fa(i + 1)} · ${new Date(r.created).toLocaleDateString('fa-IR', { day: 'numeric', month: 'long' })}`)),
+    run && !done.some(r => r.run === run) ? el('option', { value: run, selected: true }, 'اجرای قدیمی') : null);
   /* one self-contained HTML file of this step or of the whole project (export.py) */
   /* one self-contained HTML file of this step or of the whole project (export.py) */
   const dlStep = el('a', { class: 'btn small', download: '', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت' }, 'دانلود HTML این مرحله');
@@ -259,16 +264,17 @@ async function project(pid, run) {
   const setDl = () => { dlStep.href = `${API}/project/${pid}/runs/${runId}/export/${step}.html`; dlAll.href = `${API}/project/${pid}/runs/${runId}/export/all.html`; };
   const exportSel = STATIC ? null : el('span', { class: 'toolbar', style: 'margin:0' }, dlStep, dlAll);
   setDl();
-  /* the project on one short line (owner, downloads, decisions and log behind its (i)); the current step goes into the site
-     header (the others open under it), and a step may put its own title, counts and help behind an (i) right after it (c.setInfo) */
+  /* the project on one short line (owner, downloads, decisions and log behind its (i)); after the version comes the current step
+     (the others open under it), and a step may put its own title, counts and help behind an (i) right after it (c.setInfo) */
   const status = el('div'), main = el('div'), stepInfo = el('span', { class: 'stepinfo' });
   $app.replaceChildren(
     el('div', { class: 'card pcard' }, el('div', { class: 'toolbar', style: 'margin:0' },
       el('h1', {}, pname), el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status),
       info(() => projInfo(p, exportSel), { modal: true, title: 'سازنده، دانلود، تصمیم‌ها و گزارش اجرا' }), el('span', { class: 'grow' }),
-      el('label', { class: 'small muted' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), status),
+      el('label', { class: 'small muted' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null,
+      el('span', { class: 'pstep' }, stepBtn, stepInfo)), status),
     main);
-  headSteps([stepBtn], stepInfo);
+  headSteps(null);
   statusBox(status, p, pid);
   const draw = async () => {
     setTitle(pname, (STEPS.find(x => x[0] === step) || [0, ''])[1].replace(/^[۰-۹]+\s*/, ''));
