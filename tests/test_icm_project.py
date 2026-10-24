@@ -125,3 +125,62 @@ if __name__ == "__main__":
                 import traceback; traceback.print_exc()
                 fails += 1; print("FAIL", name, repr(e))
     sys.exit(1 if fails else 0)
+
+
+def test_versions_are_independent_copies():
+    d = _tmp()
+    try:
+        pid = project.create("v02:1", "u")["pid"]
+        project.add_decision(pid, "selection", dict(selected=["v02:1", "v02:2"]), "u")
+        project.add_decision(pid, "selection", dict(selected=["v02:1", "v02:3"]), "u")       # an edit: same version, no new one
+        B = project.branches(pid)
+        assert [b["name"] for b in B["versions"]] == ["نسخه‌ی ۱"] and B["active"] == "1"
+        assert [h["version"] for h in project.history(pid, "selection")] == [1, 2]
+        p = project.load(pid)
+        p.update(status="draft", step="identities", current_run="r1")
+        project.save(p)
+        b2 = project.add_branch(pid, "1", "تجربه", "u")
+        project.activate(pid, b2)
+        assert project.decision(pid, "selection")["selected"] == ["v02:1", "v02:3"]          # copied
+        assert project.load(pid)["current_run"] == "r1"                                       # with its state
+        project.add_decision(pid, "selection", dict(selected=["v02:9"]), "u")                # changes the copy only
+        project.add_decision(pid, "identities", dict(choices={}), "u")
+        assert [h["version"] for h in project.history(pid, "selection")] == [1, 2, 3]
+        p = project.load(pid)
+        p.update(step="phylogeny", current_run="r2")
+        project.save(p)
+        project.activate(pid, "1")
+        assert project.decision(pid, "selection")["selected"] == ["v02:1", "v02:3"]          # the source is untouched
+        assert project.versions(pid)["identities"] == 0
+        assert project.load(pid)["current_run"] == "r1"
+        project.add_decision(pid, "selection", dict(selected=["v02:5"]), "u")                # and later edits of the source...
+        project.activate(pid, b2)
+        assert project.decision(pid, "selection")["selected"] == ["v02:9"]                   # ...never reach the copy
+        assert project.load(pid)["current_run"] == "r2" and project.load(pid)["step"] == "phylogeny"
+        assert [h["version"] for h in project.history(pid, "selection")] == [1, 2, 3]
+        try:
+            project.delete_branch(pid, b2)
+            assert False, "the active version was deleted"
+        except ValueError:
+            pass
+        project.rename_branch(pid, "1", "اصلی")
+        project.delete_branch(pid, "1")
+        assert [b["name"] for b in project.branches(pid)["versions"]] == ["تجربه"]
+        assert project.decision(pid, "selection", 4)["selected"] == ["v02:5"]                # its files stay on disk
+    finally:
+        shutil.rmtree(d)
+
+
+def test_a_project_from_before_versions_is_one_version():
+    d = _tmp()
+    try:
+        pid = project.create("v02:1", "u")["pid"]
+        for n, sel in ((1, ["v02:1"]), (2, ["v02:2"])):
+            project.atomic_write(os.path.join(project.pdir(pid), "decisions", "selection", f"{n:04d}.json"), dict(selected=sel, version=n, user="u"))
+        assert "branches" not in project.load(pid)
+        assert project.versions(pid)["selection"] == 2
+        assert [h["version"] for h in project.history(pid, "selection")] == [1, 2]
+        assert project.add_decision(pid, "selection", dict(selected=["v02:3"]), "u") == 3
+        assert project.load(pid)["branches"][0]["heads"]["selection"] == 3
+    finally:
+        shutil.rmtree(d)

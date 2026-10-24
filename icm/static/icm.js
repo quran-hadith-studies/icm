@@ -82,7 +82,9 @@ const ERR_FA = [[/^no such project/i, 'چنین پروژه‌ای نیست.'], [
   [/^you have (\d+) unfinished/i, (m) => `شما ${fa(m[1])} پروژه‌ی ناتمام دارید؛ نخست یکی را به پایان ببرید.`], [/^unknown narrator database version/i, 'پایگاه راویان ناشناخته است.'],
   [/^the graph changed/i, 'شجره تغییر کرده است؛ شجره‌ی روی صفحه را دوباره تأیید کنید.'], [/^the search has not run yet/i, 'جستجو هنوز اجرا نشده است.'],
   [/^unknown preset|^unknown compute mode/i, 'گزینه‌ی نامعتبر.'], [/^not found$/i, 'پیدا نشد.'], [/^bad id/i, 'شناسه‌ی نامعتبر.'],
-  [/^the result is not consistent/i, 'نتیجه با شجره‌ی این پروژه نمی‌خواند.'], [/^chain must map/i, 'ویرایش سند نامعتبر است (مرزها باید درون متن و به ترتیب باشند).']];
+  [/^the result is not consistent/i, 'نتیجه با شجره‌ی این پروژه نمی‌خواند.'], [/^chain must map/i, 'ویرایش سند نامعتبر است (مرزها باید درون متن و به ترتیب باشند).'],
+  [/^a computation is running for this project/i, 'محاسبه‌ای برای این پروژه در جریان است؛ پس از پایان آن نسخه را عوض کنید.'], [/^the active version cannot be deleted/i, 'نسخه‌ی فعال را نمی‌توان حذف کرد.'],
+  [/^no such version/i, 'چنین نسخه‌ای نیست.'], [/^a version needs a name/i, 'نسخه نام می‌خواهد.']];
 function faErr(m) {
   m = String(m || '');
   if (/[\u0600-\u06FF]/.test(m)) return m;
@@ -250,14 +252,14 @@ async function project(pid, run) {
   /* the header shows the current step alone; a click on it lists all the steps under it */
   const stepBtn = el('button', { type: 'button', class: 'step cur hcur', 'aria-haspopup': 'menu', title: 'مرحله‌ها',
     onclick: ev => { ev.stopPropagation(); popover(stepBtn, el('nav', { class: 'steplist', 'aria-label': 'مرحله‌ها' }, tabs)); } });
-  /* earlier runs worth opening: only those that reached the analysis, numbered in order and named short */
-  const done = P.runs.filter(r => r.stages && r.stages.infer);
-  const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('select', { 'aria-label': 'نسخه‌ی اجرا', onchange: ev => go(stepUrl(pid, ev.target.value === 'current' ? null : ev.target.value, step)) },
-    el('option', { value: 'current' }, 'نسخه‌ی کنونی'),
-    done.map((r, i) => [r, i]).reverse().filter(([r]) => r.run !== p.current_run || r.run === run)
-      .map(([r, i]) => el('option', { value: r.run, selected: r.run === run }, `اجرای ${fa(i + 1)} · ${new Date(r.created).toLocaleDateString('fa-IR', { day: 'numeric', month: 'long' })}`)),
-    run && !done.some(r => r.run === run) ? el('option', { value: run, selected: true }, 'اجرای قدیمی') : null);
-  /* one self-contained HTML file of this step or of the whole project (export.py) */
+  /* the versions (named sets of decisions; every edit changes the active one only): pick one, or ☰ for the list */
+  const B = P.branches || { active: null, versions: [] };
+  const viewed = run && B.versions.find(b => b.current_run === run);
+  const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('span', { class: 'toolbar', style: 'margin:0;gap:4px' },
+    el('select', { 'aria-label': 'نسخه', onchange: ev => pickVersion(pid, ev.target.value, step) },
+      run && !viewed ? el('option', { value: '', selected: true }, `اجرای ${run.split('-')[0]} (قدیمی)`) : null,
+      B.versions.map(b => el('option', { value: b.id, selected: viewed ? b === viewed : !run && b.id === B.active }, b.name + (b.id === B.active ? ' ✓' : '')))),
+    el('button', { type: 'button', class: 'small', title: 'نسخه‌ها: فهرست، فعال کردن، ساختن و حذف', 'aria-label': 'نسخه‌ها', onclick: () => versionsModal(pid, step) }, '☰'));
   /* one self-contained HTML file of this step or of the whole project (export.py) */
   const dlStep = el('a', { class: 'btn small', download: '', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت' }, 'دانلود HTML این مرحله');
   const dlAll = el('a', { class: 'btn small', download: '', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت' }, 'دانلود کل پروژه');
@@ -311,9 +313,64 @@ function headSteps(tabs, extra) {
 function projInfo(p, exportSel) {
   return [el('h3', {}, 'پروژه'), el('p', {}, 'سازنده: ', el('b', {}, p.owner)),
     ...(exportSel ? [el('h3', {}, 'دانلود'), exportSel, help('export', true)] : []),
-    el('h3', {}, `تصمیم‌ها و گزارش اجرا (${fa(P.runs.length)} اجرا، هیچ نسخه‌ای پاک نمی‌شود)`),
-    ...Object.entries(P.decisions).map(([s, list]) => el('div', { class: 'small' }, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی', narrators: 'پایگاه راویان' }[s] + ': ', list.length ? list.map(d => `v${fa(d.version)} (${d.user})`).join('، ') : '—')),
+    el('h3', {}, `تصمیم‌های نسخه‌ی «${(P.branches && (P.branches.versions.find(b => b.id === P.branches.active) || {}).name) || ''}» و گزارش اجرا`),
+    ...Object.entries(P.decisions).map(([s, list]) => el('div', { class: 'small' }, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی', narrators: 'پایگاه راویان' }[s] + ': ', list.length ? list.map(d => `#${fa(d.version)} (${d.user})`).join('، ') : '—')),
     el('div', { class: 'log' }, P.log.slice().reverse().map(l => el('div', {}, `${l.ts.slice(11, 19)} ${l.stage}: ${l.msg}`)))];
+}
+/* a version picked in the project bar: the active one is the live page; another becomes active (owner, admin), or is shown read-only */
+async function pickVersion(pid, bid, step) {
+  const B = P.branches, b = B.versions.find(x => x.id === bid);
+  if (!b) return;
+  if (bid === B.active) return go(stepUrl(pid, null, step));
+  if (ME.user && (ME.user === P.project.owner || ME.admin)) {
+    try { await post(`/project/${pid}/versions/${bid}/activate`, {}); } catch (e) { alert(e.message); return render(); }
+    return reloadAt(pid, step);
+  }
+  if (b.current_run) go(stepUrl(pid, b.current_run, step)); else render();
+}
+/* ☰ next to the version picker: every version, which one is active, a new one copied from any of them, rename, delete */
+function versionsModal(pid, step) {
+  const can = ME.user && (ME.user === P.project.owner || ME.admin);
+  const box = el('div', { class: 'helpbox' });
+  const when = t => (t ? fa(t.replace('T', ' ').slice(0, 16)) : '—');
+  const draw = async () => {
+    try { P = await api('/project/' + pid); } catch (e) { box.replaceChildren(el('p', {}, 'خطا: ' + e.message)); return; }
+    const B = P.branches, byId = Object.fromEntries(B.versions.map(b => [b.id, b]));
+    const act = async (path, body, after) => {
+      try { await post(`/project/${pid}/versions${path}`, body || {}); } catch (e) { alert(e.message); return draw(); }
+      after ? after() : draw();
+    };
+    const name = el('input', { type: 'text', maxlength: 60, placeholder: `نسخه‌ی ${fa(1 + Math.max(...B.versions.map(b => +b.id)))}`, style: 'min-width:12em' });
+    const base = el('select', { 'aria-label': 'بر پایه‌ی' }, B.versions.map(b => el('option', { value: b.id, selected: b.id === B.active }, b.name)));
+    const row = b => {
+      const isA = b.id === B.active, nameCell = el('td', {}, el('b', {}, b.name), isA ? el('span', { class: 'chip finalized', style: 'margin-inline-start:6px' }, 'فعال') : null);
+      const rename = () => {
+        const inp = el('input', { type: 'text', maxlength: 60, value: b.name });
+        nameCell.replaceChildren(inp, el('button', { class: 'small', onclick: () => act(`/${b.id}/rename`, { name: inp.value }) }, 'ذخیره'),
+          el('button', { class: 'small', onclick: draw }, 'انصراف'));
+        inp.focus();
+      };
+      return el('tr', isA ? { style: 'background:color-mix(in srgb,var(--accent) 7%,transparent)' } : {}, nameCell,
+        el('td', { class: 'small' }, b.base ? (byId[b.base] ? `از «${byId[b.base].name}»` : 'از نسخه‌ای حذف‌شده') : '—'),
+        el('td', { class: 'small muted' }, el('span', { style: 'white-space:nowrap' }, when(b.created)), b.user ? ' ' + b.user : ''),
+        el('td', { class: 'small muted', style: 'white-space:nowrap' }, when(b.changed)),
+        el('td', { class: 'small' }, PSTEP[b.step] || '—'),
+        el('td', {}, el('span', { class: 'toolbar', style: 'margin:0;gap:4px' },
+          can && !isA ? el('button', { class: 'small primary', onclick: () => act(`/${b.id}/activate`, {}, () => reloadAt(pid, step)) }, 'فعال کردن') : null,
+          !isA && b.current_run ? el('button', { class: 'small', title: 'بی‌آنکه فعال شود، فقط‌خواندنی', onclick: () => { closeModal(); go(stepUrl(pid, b.current_run, step)); } }, 'دیدن') : null,
+          can ? el('button', { class: 'small', title: 'نسخه‌ی تازه‌ای با همه‌ی تصمیم‌های این نسخه', onclick: () => { base.value = b.id; name.value = `رونوشت ${b.name}`.slice(0, 60); name.focus(); name.select(); } }, 'رونوشت') : null,
+          can ? el('button', { class: 'small', onclick: rename }, 'تغییر نام') : null,
+          can && !isA ? el('button', { class: 'small danger', onclick: () => confirm(`نسخه‌ی «${b.name}» حذف شود؟`) && act(`/${b.id}/delete`) }, 'حذف') : null)));
+    };
+    box.replaceChildren(el('h3', {}, 'نسخه‌ها ', help('versions', false, true)),
+      el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ['نام', 'بر پایه‌ی', 'ساخته‌شده', 'آخرین تغییر', 'مرحله', ''].map(t => el('th', {}, t)))),
+        el('tbody', {}, B.versions.map(row)))),
+      can ? el('div', { class: 'toolbar', style: 'margin-top:12px' }, el('b', {}, 'نسخه‌ی تازه:'), name, el('label', { class: 'small' }, 'بر پایه‌ی ', base),
+        el('button', { class: 'primary', onclick: () => act('', { base: base.value, name: name.value.trim() || name.placeholder }, () => reloadAt(pid, step)) }, '+ ساختن و فعال کردن')) : null);
+  };
+  modal(box);
+  box.append(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
+  draw();
 }
 /* the project's state, under its title: progress while a job runs, errors (decisions and log are behind its (i)) */
 function statusBox(box, p, pid) {
@@ -327,6 +384,8 @@ function statusBox(box, p, pid) {
 }
 
 /* the narrator database versions (step 2); an exported page has no such endpoint */
+/* a step's decision: the active version's, or (a read-only page) the one the shown run was computed with */
+const decOf = (c, step) => api(`/project/${c.pid}/decision/${step}${c.readonly ? '?run=' + encodeURIComponent(c.runId) : ''}`);
 const narratorVersions = () => api('/narrator-versions').catch(() => []);
 const verLine = v => {
   const e = v.eval || {}, d = e.noor_kg_death, parts = [];
@@ -343,7 +402,7 @@ let NV = null;              // the narrator version of the run on screen (step 4
 
 const panels = {
   async seed(main, c) {
-    const [S, pd] = await Promise.all([stage(c.pid, c.runId, 'search'), api(`/project/${c.pid}/decision/parts`)]);
+    const [S, pd] = await Promise.all([stage(c.pid, c.runId, 'search'), decOf(c, 'parts')]);
     main.replaceChildren(card(['حدیث مبدأ', partsHelp()], help('step1.seed'), hadithBlock(S.seed, true),
       el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)', S.clause_owners ? 'گوینده (hadith.ai)' : null].filter(Boolean).map(t => el('th', {}, t))),
         S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text),
@@ -354,9 +413,9 @@ const panels = {
   /* ----- 2: search and selection ----- */
   async selection(main, c) {
     const S = await stage(c.pid, c.runId, 'search');
-    const dec = await api(`/project/${c.pid}/decision/selection`);
-    const sdec = await api(`/project/${c.pid}/decision/search`);
-    const pd = await api(`/project/${c.pid}/decision/parts`);
+    const dec = await decOf(c, 'selection');
+    const sdec = await decOf(c, 'search');
+    const pd = await decOf(c, 'parts');
     const pre = new Set(['witness', 'variant', 'extended', 'abridged']);
     const presel = x => pre.has(x.suggested) && !x.reference;      // a Dorar quotation without isnad is not pre-selected
     const sel = new Set(dec.selected || S.candidates.filter(presel).map(x => x.wid));
@@ -467,7 +526,7 @@ const panels = {
 
   /* ----- 4: alignment ----- */
   async alignment(main, c) {
-    const [A, S, pd] = await Promise.all([stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search'), api(`/project/${c.pid}/decision/parts`)]);
+    const [A, S, pd] = await Promise.all([stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search'), decOf(c, 'parts')]);
     const seed = A.seed, W = A.witnesses;
     const grid = Object.fromEntries(A.grids.map(g => [g.clause, g]));
     const old = A.units.some(u => u.cols === undefined);       // written by the aligner before stage version 2
@@ -522,7 +581,7 @@ const panels = {
     const dropWit = async (ev, w) => {
       ev.stopPropagation();
       if (!confirm(`«${w.title || w.wid}» از شاهدهای برگزیده (مرحله‌ی ۲) کنار گذاشته شود؟ هم‌ترازی بی آن دوباره ساخته می‌شود؛ هر وقت خواستید در مرحله‌ی ۲ دوباره تیکش بزنید.`)) return;
-      const sel = await api(`/project/${c.pid}/decision/selection`), gone = new Set([w.wid, ...(w.copies || [])]);
+      const sel = await decOf(c, 'selection'), gone = new Set([w.wid, ...(w.copies || [])]);
       await post(`/project/${c.pid}/decide/selection`, { payload: { selected: (sel.selected || W.map(x => x.wid)).filter(x => !gone.has(x)) } }); reload(c.pid);
     };
     const nameCell = (w, i) => el('td', { class: 'nm', title: [w.title, w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', w.wid,
@@ -772,7 +831,7 @@ const panels = {
      then its options and a search of both narrator databases */
   async identities(main, c) {
     const [I, A, S, dec, phd, pdec] = await Promise.all([stage(c.pid, c.runId, 'identify'), stage(c.pid, c.runId, 'align'), stage(c.pid, c.runId, 'search'),
-      api(`/project/${c.pid}/decision/identities`), api(`/project/${c.pid}/decision/phylogeny`), api(`/project/${c.pid}/decision/parts`)]);
+      decOf(c, 'identities'), decOf(c, 'phylogeny'), decOf(c, 'parts')]);
     const nonEmpty = o => (o && Object.keys(o).length ? o : null);
     const renPending = !sameJ(nonEmpty(pdec.renames), nonEmpty(I.renames_in));     // name/term corrections saved but not in these candidates yet
     const chainPending = !sameJ(nonEmpty(pdec.chain), nonEmpty(I.chain_in));       // chain edits (places added/removed/re-bounded) likewise
@@ -1408,7 +1467,7 @@ const panels = {
       fill(status, `${fa(Object.keys(cards).length)} نام:`,
         chip('auto', `${fa(n.auto)} خودکار`), chip('user', `${fa(n.user)} انتخاب کاربر`), chip('und', `${fa(n.und)} بی‌تصمیم`),
         chip('exact', `قطعی ${fa(I.stats.exact)} از ${fa(I.stats.elements)} جا`, `${fa(I.stats.exact)} از ${fa(I.stats.elements)} جای سند را خود منبع به راوی‌ای پیوند داده است`),
-        dec.version ? el('span', { class: 'muted' }, `· ذخیره: نسخه‌ی ${fa(dec.version)}، ${dec.user}${dec.note === 'auto' ? ' (خودکار)' : ''}`) : null);
+        dec.version ? el('span', { class: 'muted' }, `· ذخیره: ${fa((dec.created || '').replace('T', ' ').slice(0, 16))}، ${dec.user}${dec.note === 'auto' ? ' (خودکار)' : ''}`) : null);
       /* «ذخیره» keeps the decision and stays here; «مرحله‌ی بعد» saves what is unsaved and opens step 5, where the tree is ordered */
       const saveIt = async ask => {          // ask: only on the way to step 5 (a plain «ذخیره» just keeps the work)
         const nu = counts().und;
@@ -1463,7 +1522,7 @@ const panels = {
       if (p.op === 'exclude') {
         if (dirty()) return alert('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ کنار گذاشتن شاهد مرحله‌ی ۲ را دوباره اجرا می‌کند.');
         if (!confirm(`«${wtitle(p.wid)}» از شاهدهای برگزیده (مرحله‌ی ۲) کنار گذاشته شود؟ انتخاب‌های این مرحله می‌مانند.`)) return;
-        const sel = await api(`/project/${c.pid}/decision/selection`);
+        const sel = await decOf(c, 'selection');
         await post(`/project/${c.pid}/decide/selection`, { payload: { selected: (sel.selected || []).filter(w => w !== p.wid) } }); reload(c.pid);
       }
     };
@@ -1561,10 +1620,10 @@ const panels = {
   /* ----- 5: phylogeny ----- */
   async phylogeny(main, c) {
     const G = await stage(c.pid, c.runId, 'graph').catch(e => e.status === 404 ? null : Promise.reject(e));
-    const dec = await api(`/project/${c.pid}/decision/phylogeny`);
+    const dec = await decOf(c, 'phylogeny');
     if (!G) {                 // the tree is built when the user orders it, from the step-4 decisions saved so far
       const gh = P.project.graph_hash, building = !!P.job;
-      const [I5, id5] = await Promise.all([stage(c.pid, c.runId, 'identify').catch(() => null), api(`/project/${c.pid}/decision/identities`).catch(() => ({}))]);
+      const [I5, id5] = await Promise.all([stage(c.pid, c.runId, 'identify').catch(() => null), decOf(c, 'identities').catch(() => ({}))]);
       return main.replaceChildren(card('ساخت شجره', help('step5.build'), !c.readonly && I5 ? undNote(c.pid, undecidedKeys(I5, id5), I5, false) : null,
         el('p', { class: 'small' }, 'راویان در مرحله‌ی ۴ ذخیره شده‌اند، اما شجره هنوز ساخته نشده است. شجره با همان تصمیم‌های ذخیره‌شده ساخته می‌شود؛ اگر هنوز می‌خواهید چیزی را عوض کنید، ',
           el('a', { href: BASE + stepUrl(c.pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'identities')); } }, 'به مرحله‌ی ۴ برگردید'), '.'),
@@ -1575,7 +1634,7 @@ const panels = {
           : el('span', { class: 'muted' }, c.readonly ? 'در این نسخه شجره ساخته نشده بود.' : 'فقط سازنده‌ی پروژه یا مدیر می‌تواند شجره را بسازد.')));
     }
     /* the parts not yet confirmed (step 3) and the seed's segmentation (step 2): a reminder, never a block */
-    const [A5, S5, pd5, I5] = await Promise.all([stage(c.pid, c.runId, 'align').catch(() => null), stage(c.pid, c.runId, 'search').catch(() => null), api(`/project/${c.pid}/decision/parts`),
+    const [A5, S5, pd5, I5] = await Promise.all([stage(c.pid, c.runId, 'align').catch(() => null), stage(c.pid, c.runId, 'search').catch(() => null), decOf(c, 'parts'),
       stage(c.pid, c.runId, 'identify').catch(() => null)]);
     const undN = () => c.readonly ? null : undNote(c.pid, G.undecided || [], I5, true);
     const unconf = A5 && A5.clauses.length && A5.clauses[0].key ? A5.clauses.filter(cl => partStatus(cl, pd5, A5.witnesses).k !== 'auto') : [];
@@ -1655,8 +1714,8 @@ const panels = {
 
 function pendingPanel(main, c, prev) {
   const failed = c.p.status === 'failed' && !P.job;
-  main.replaceChildren(card('تحلیل نسخه‌ی تازه', el('p', {}, failed ? 'اجرای نسخه‌ی تازه به خطا خورد (پیام بالای صفحه).' : 'نسخه‌ی تازه ساخته شد و در حال آماده شدن است؛ این صفحه خودش به‌روز می‌شود.'),
-    prev.stages && prev.stages.infer ? el('p', { class: 'small muted' }, 'نتیجه‌ی نسخه‌ی پیشین اینجا نشان داده نمی‌شود؛ ',
+  main.replaceChildren(card('تحلیل با تغییرهای تازه', el('p', {}, failed ? 'اجرا با تغییرهای تازه به خطا خورد (پیام بالای صفحه).' : 'تصمیم‌های این نسخه تغییر کرده است و تحلیل از نو آماده می‌شود؛ این صفحه خودش به‌روز می‌شود.'),
+    prev.stages && prev.stages.infer ? el('p', { class: 'small muted' }, 'نتیجه‌ی پیش از این تغییرها اینجا نشان داده نمی‌شود؛ ',
       el('a', { href: BASE + stepUrl(c.pid, prev.run, 'analysis'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, prev.run, 'analysis')); } }, 'دیدن آن (فقط‌خواندنی)'), '.') : null));
 }
 
@@ -1710,7 +1769,7 @@ async function awaitingPanel(main, c) {
     el('p', { class: 'small muted' }, `دقت: ${aw.preset}. نامزدهای منبع جداگانه و موازی محاسبه می‌شوند؛ بار اول حدود ۱۵ مگابایت (مفسر پایتون و numpy) بارگیری می‌شود.`),
     el('div', { class: 'toolbar' }, btn, c.can ? el('button', { onclick: async () => {
       if (!confirm('محاسبه روی سرور نزدیک یک ساعت طول می‌کشد. ادامه؟')) return;
-      const d = await api(`/project/${c.pid}/decision/phylogeny`);
+      const d = await decOf(c, 'phylogeny');
       await post(`/project/${c.pid}/decide/phylogeny`, { payload: { confirmed: P.project.graph_hash, dates: d.dates || {}, preset: d.preset || null, compute: 'server' } }); reload(c.pid);
     } }, 'اجرا روی سرور (کند)') : null), deskBox, desk, bar, msg));
   if (c.can && sessionStorage.getItem('icm_auto') === c.pid) { sessionStorage.removeItem('icm_auto'); start(); }
@@ -2306,7 +2365,7 @@ function narratorsBox(c, VERS) {
       if (sel.value === cur) return;
       await post(`/project/${c.pid}/decide/narrators`, { payload: { version: sel.value } }); reload(c.pid);
     } }, 'اعمال') : null), desc, line,
-    el('p', { class: 'small muted' }, 'با تغییر پایگاه، مرحله‌های ۴ تا ۶ برای پایگاه تازه از نو محاسبه می‌شوند؛ اجراهای پیشین (با پایگاه پیشین) همچنان در «نسخه» قابل دیدن‌اند. تصمیم‌های شما درباره‌ی راویان می‌مانند.'));
+    el('p', { class: 'small muted' }, 'با تغییر پایگاه، مرحله‌های ۴ تا ۶ برای پایگاه تازه از نو محاسبه می‌شوند. برای نگه داشتن نتیجه‌ی پایگاه پیشین، پیش از تغییر از «نسخه ☰» یک رونوشت بسازید. تصمیم‌های شما درباره‌ی راویان می‌مانند.'));
 }
 async function narratorCard(id) {
   const vname = NV || (P && P.narrator_version) || null;

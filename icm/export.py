@@ -61,12 +61,12 @@ def collect(pid: str, run: str, what: str) -> dict:
     stages = {k: v for k, v in stages.items() if v is not None}
     steps = [st for st in steps if all(s in stages for s in NEEDS[st][:1])]
     p = project.load(pid)
-    vers = project.versions(pid)
-    proj = dict(project=p, versions=vers, runs=[r for r in project.runs(pid) if r["run"] == run], job=None, last_job=None,
+    rr = [r for r in project.runs(pid) if r["run"] == run]
+    vers = dict(project.versions(pid), **(rr[0].get("versions") or {} if rr else {}))     # the decisions this run was computed with (its version's)
+    proj = dict(project=p, versions=vers, runs=rr, job=None, last_job=None,
                 log=(project.read(os.path.join(project.pdir(pid), "log.json"), []))[-30:],
-                decisions={s: [dict(version=n, **{k: d.get(k) for k in ("user", "created", "note")})
-                               for n in range(1, vers[s] + 1) for d in [project.decision(pid, s, n) or {}]] for s in project.STEPS})
-    decisions = {s: project.decision(pid, s) or {} for s in project.STEPS}
+                decisions={s: project.history(pid, s, vers[s]) for s in project.STEPS})
+    decisions = {s: project.decision(pid, s, vers[s]) or {} for s in project.STEPS}
     out: Dict = dict(v=VERSION, what=what, steps=steps, site=SITE, generated=time.strftime("%Y-%m-%d %H:%M"),
                      route=dict(pid=pid, run=run, step=steps[0] if steps else "seed"), project=proj, stages=stages,
                      decisions=decisions, deaths={}, hadith={}, narrators={})

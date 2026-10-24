@@ -1,6 +1,6 @@
 """Projects: one per hadith family. Files under ``<cache>/projects/<pid>/``; nothing is overwritten.
 
-    project.json                         seed, owner, status, step, current_run
+    project.json                         seed, owner, status, step, current_run, branches (the versions), active
     decisions/<step>/<nnnn>.json         append-only, full state each time (search, selection, identities, phylogeny)
     stages/<stage>/<hash>.json           stage outputs, addressed by the hash of their inputs
     runs/<run>/manifest.json             which stage outputs a combination of decisions produced
@@ -8,6 +8,12 @@
 
 A *run* is a combination of decision versions and pipeline version. Stages whose inputs did not change
 between two runs point at the same stage file, so changing an identity never recomputes the search.
+
+A *version* (a branch, ``project.json`` ``branches``) is a named set of decisions: for every step the number of
+its current decision file (``heads``). The user works on the active one; a save writes a new decision file and
+moves only the active version's head. A version made from another copies its heads, and since decision files
+are never changed, later saves on either side never reach the other. The project's own status, step and
+current_run are the active version's; the others keep theirs in ``state`` until they are activated again.
 """
 from __future__ import annotations
 
@@ -125,8 +131,12 @@ def list_projects() -> List[dict]:
     return out
 
 
-# --- decisions ----------------------------------------------------------------------------------
-def version(pid: str, step: str) -> int:
+# --- versions (branches) ------------------------------------------------------------------------
+STATE = ("status", "step", "current_run", "graph_hash", "awaiting", "error")       # the active version's, at the top of project.json
+
+
+def _last(pid: str, step: str) -> int:
+    """The highest decision number written for ``step`` by any version (the next one gets this + 1)."""
     d = os.path.join(pdir(pid), "decisions", step)
     if not os.path.isdir(d):
         return 0
@@ -134,8 +144,94 @@ def version(pid: str, step: str) -> int:
     return max(nums, default=0)
 
 
+def _branches(pid: str, p: dict) -> List[dict]:
+    """The project's versions; a project from before versions is one version over its latest decisions."""
+    if not p.get("branches"):
+        p["branches"] = [dict(id="1", name="نسخه‌ی ۱", created=p.get("created"), user=p.get("owner"), base=None,
+                              heads={s: _last(pid, s) for s in STEPS}, state={})]
+        p["active"] = "1"
+    return p["branches"]
+
+
+def _branch(pid: str, p: dict, bid: Optional[str] = None) -> dict:
+    """A version (default: the active one)."""
+    bs = _branches(pid, p)
+    bid = bid or p.get("active")
+    for b in bs:
+        if b["id"] == bid:
+            return b
+    raise KeyError(bid)
+
+
+def branches(pid: str) -> dict:
+    """The versions as the page lists them: the active one with the project's own state."""
+    p = load(pid) or {}
+    out = []
+    for b in _branches(pid, p):
+        st = {k: p.get(k) for k in STATE} if b["id"] == p["active"] else (b.get("state") or {})
+        out.append(dict({k: b.get(k) for k in ("id", "name", "created", "user", "base", "changed")}, heads=b["heads"],
+                        status=st.get("status"), step=st.get("step"), current_run=st.get("current_run")))
+    return dict(active=p.get("active"), versions=out)
+
+
+def add_branch(pid: str, base: str, name: str, user: str) -> str:
+    """A new version with the decisions of ``base`` (copied: later saves on either one never reach the other)."""
+    with lock(pid):
+        p = load(pid)
+        src = _branch(pid, p, base)
+        bid = str(1 + max(int(b["id"]) for b in p["branches"]))
+        st = {k: p.get(k) for k in STATE} if src["id"] == p["active"] else dict(src.get("state") or {})
+        p["branches"].append(dict(id=bid, name=name, created=now(), user=user, base=src["id"], heads=dict(src["heads"]), state=st))
+        save(p)
+    return bid
+
+
+def activate(pid: str, bid: str) -> dict:
+    """Make ``bid`` the version the project shows and edits: the current one's state goes into its entry, ``bid``'s comes out."""
+    with lock(pid):
+        p = load(pid)
+        new, cur = _branch(pid, p, bid), _branch(pid, p)
+        if new is not cur:
+            cur["state"] = {k: p.get(k) for k in STATE}
+            for k in STATE:
+                p[k] = (new.get("state") or {}).get(k)
+            p["status"] = p["status"] or "draft"
+            new["state"] = {}
+            p["active"] = new["id"]
+            save(p)
+    return p
+
+
+def rename_branch(pid: str, bid: str, name: str) -> None:
+    with lock(pid):
+        p = load(pid)
+        _branch(pid, p, bid)["name"] = name
+        save(p)
+
+
+def delete_branch(pid: str, bid: str) -> None:
+    """Remove a version (its decision files stay on disk, like every file of a project). Never the active one."""
+    with lock(pid):
+        p = load(pid)
+        b = _branch(pid, p, bid)
+        if b["id"] == p["active"]:
+            raise ValueError("the active version cannot be deleted")
+        p["branches"] = [x for x in p["branches"] if x is not b]
+        save(p)
+
+
+# --- decisions ----------------------------------------------------------------------------------
+def version(pid: str, step: str) -> int:
+    """The number of the active version's current decision for ``step`` (0: none)."""
+    return versions(pid)[step]
+
+
 def versions(pid: str) -> Dict[str, int]:
-    return {s: version(pid, s) for s in STEPS}
+    p = load(pid)
+    if p is None:
+        return {s: _last(pid, s) for s in STEPS}
+    heads = _branch(pid, p)["heads"]
+    return {s: int(heads.get(s) or 0) for s in STEPS}
 
 
 def decision(pid: str, step: str, n: Optional[int] = None) -> Optional[dict]:
@@ -143,16 +239,32 @@ def decision(pid: str, step: str, n: Optional[int] = None) -> Optional[dict]:
     return read(os.path.join(pdir(pid), "decisions", step, f"{n:04d}.json")) if n else None
 
 
+def history(pid: str, step: str, head: Optional[int] = None) -> List[dict]:
+    """The decisions behind a version's current one, oldest first (each names the one it replaced; older files: n - 1)."""
+    out, n = [], version(pid, step) if head is None else head
+    while n > 0 and len(out) < 1000:
+        d = decision(pid, step, n) or {}
+        out.append(dict(version=n, **{k: d.get(k) for k in ("user", "created", "note")}))
+        n = int(d.get("prev", n - 1) or 0)
+    return out[::-1]
+
+
 def add_decision(pid: str, step: str, payload: dict, user: str, note: str = "") -> int:
     if step not in STEPS:
         raise ValueError(step)
     with lock(pid):
-        n = version(pid, step) + 1
-        rec = dict(payload, version=n, user=user, created=now(), note=note)
+        p = load(pid)
+        b = _branch(pid, p) if p is not None else None
+        n = _last(pid, step) + 1
+        rec = dict(payload, version=n, user=user, created=now(), note=note, prev=int(b["heads"].get(step) or 0) if b else n - 1)
         path = os.path.join(pdir(pid), "decisions", step, f"{n:04d}.json")
         if os.path.exists(path):
             raise RuntimeError("decision version exists")
         atomic_write(path, rec)
+        if b is not None:                                # only the active version moves on
+            b["heads"][step] = n
+            b["changed"] = rec["created"]
+            save(p)
     return n
 
 

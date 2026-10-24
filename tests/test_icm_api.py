@@ -65,6 +65,38 @@ def test_narrator_versions_endpoint_and_decision_validation():
         shutil.rmtree(d)
 
 
+def test_versions_endpoints():
+    a, d = app()
+    try:
+        c = TestClient(a)
+        pid = project.create("v02:1", "alice")["pid"]
+        project.add_decision(pid, "selection", dict(selected=["v02:1", "v02:2"]), "alice")
+        V = lambda: c.get(f"/icm/api/project/{pid}").json()["branches"]
+        assert [b["id"] for b in V()["versions"]] == ["1"]
+        assert c.post(f"/icm/api/project/{pid}/versions", json={}, headers=H("bob")).status_code == 403
+        r = c.post(f"/icm/api/project/{pid}/versions", json={"base": "1", "name": "  آزمون  "}, headers=H("alice"))
+        assert r.status_code == 200 and V()["active"] == r.json()["id"] == "2"
+        assert [b["name"] for b in V()["versions"]] == ["نسخه‌ی ۱", "آزمون"]
+        project.add_decision(pid, "selection", dict(selected=["v02:7"]), "alice")
+        run = project.write_run(project.load(pid)["pid"], project.versions(pid), {"search": "x"})
+        assert c.get(f"/icm/api/project/{pid}/decision/selection").json()["selected"] == ["v02:7"]
+        assert c.post(f"/icm/api/project/{pid}/versions/2/delete", json={}, headers=H("alice")).status_code == 409     # the active one
+        assert c.post(f"/icm/api/project/{pid}/versions/9/activate", json={}, headers=H("alice")).status_code == 404
+        assert c.post(f"/icm/api/project/{pid}/versions/1/rename", json={"name": " "}, headers=H("alice")).status_code == 400
+        assert c.post(f"/icm/api/project/{pid}/versions/1/rename", json={"name": "اصلی"}, headers=H("alice")).status_code == 200
+        jobs.enqueue(pid)
+        assert c.post(f"/icm/api/project/{pid}/versions/1/activate", json={}, headers=H("alice")).status_code == 409    # a job is queued
+        with jobs._db() as db:
+            db.execute("update jobs set status='done' where pid=?", (pid,))
+        assert c.post(f"/icm/api/project/{pid}/versions/1/activate", json={}, headers=H("alice")).status_code == 200
+        assert c.get(f"/icm/api/project/{pid}/decision/selection").json()["selected"] == ["v02:1", "v02:2"]
+        assert c.get(f"/icm/api/project/{pid}/decision/selection", params={"run": run}).json()["selected"] == ["v02:7"]   # a read-only page of version 2
+        assert c.post(f"/icm/api/project/{pid}/versions/2/delete", json={}, headers=H("alice")).status_code == 200
+        assert [b["name"] for b in V()["versions"]] == ["اصلی"]
+    finally:
+        shutil.rmtree(d)
+
+
 if not os.path.exists(config.V02_DB):
     print("corpus not present: skipped"); sys.exit(0)
 

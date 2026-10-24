@@ -286,15 +286,23 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         vers = project.versions(pid)
         p = dict(p, label=(project.hadith_label(p["seed"]) if p.get("title") == p.get("seed") else p.get("title")))
         return dict(project=p, narrator_version=(project.decision(pid, "narrators") or {}).get("name") or narrator_versions.default_name(), versions=vers, runs=project.runs(pid), job=jobs.active(pid),
+                    branches=project.branches(pid),
                     last_job=(jobs.for_project(pid, 1) or [None])[0], log=(project.read(os.path.join(project.pdir(pid), "log.json"), []))[-30:],
-                    decisions={s: [dict(version=n, **{k: d.get(k) for k in ("user", "created", "note")})
-                                   for n in range(1, vers[s] + 1) for d in [project.decision(pid, s, n) or {}]] for s in project.STEPS})
+                    decisions={s: project.history(pid, s) for s in project.STEPS})
 
     @r.get("/api/project/{pid}/decision/{step}")
-    def decision(pid: str, step: str, v: Optional[int] = None):
+    def decision(pid: str, step: str, v: Optional[int] = None, run: Optional[str] = None):
+        """The active version's decision; ``run``: the one that run was computed with (a read-only page of another version)."""
         _project(pid)
         if step not in project.STEPS:
             raise HTTPException(404)
+        if v is None and run and run != "current":
+            m = next((x for x in project.runs(pid) if x["run"] == run), None)
+            if m is None:
+                raise HTTPException(404, "no such run")
+            v = int((m.get("versions") or {}).get(step) or 0)
+            if not v:
+                return {}
         return project.decision(pid, step, v) or {}
 
     @r.get("/api/project/{pid}/runs/{run}/viewer", response_class=HTMLResponse)
@@ -492,6 +500,58 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     async def rerun(request: Request, pid: str):
         own_project(request, pid)
         jobs.enqueue(pid)
+        return dict(ok=True)
+
+    # -- versions: named sets of decisions; the page edits the active one (project.py «versions») --
+    def _bname(body: dict, default: str = "") -> str:
+        name = re.sub(r"\s+", " ", str(body.get("name") or default)).strip()[:60]
+        if not name:
+            raise HTTPException(400, "a version needs a name")
+        return name
+
+    def _switch(pid: str, bid: str) -> None:
+        if jobs.active(pid):
+            raise HTTPException(409, "a computation is running for this project; switch versions when it is over")
+        project.activate(pid, bid)
+        project.refresh_indexes()
+
+    def _bid(pid: str, bid: str) -> str:
+        if not any(b["id"] == bid for b in project.branches(pid)["versions"]):
+            raise HTTPException(404, "no such version")
+        return bid
+
+    @r.post("/api/project/{pid}/versions")
+    async def version_add(request: Request, pid: str):
+        """A new version copied from ``base`` (default: the active one), made active unless ``activate`` is false."""
+        u, p = own_project(request, pid)
+        body = await request.json()
+        B = project.branches(pid)
+        base = _bid(pid, str(body.get("base") or B["active"]))
+        n = 1 + max(int(b["id"]) for b in B["versions"])
+        bid = project.add_branch(pid, base, _bname(body, "نسخه‌ی " + str(n).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))), u["username"])
+        if body.get("activate", True):
+            _switch(pid, bid)
+        return dict(id=bid)
+
+    @r.post("/api/project/{pid}/versions/{bid}/activate")
+    async def version_activate(request: Request, pid: str, bid: str):
+        own_project(request, pid)
+        _switch(pid, _bid(pid, bid))
+        return dict(ok=True)
+
+    @r.post("/api/project/{pid}/versions/{bid}/rename")
+    async def version_rename(request: Request, pid: str, bid: str):
+        own_project(request, pid)
+        project.rename_branch(pid, _bid(pid, bid), _bname(await request.json()))
+        return dict(ok=True)
+
+    @r.post("/api/project/{pid}/versions/{bid}/delete")
+    async def version_delete(request: Request, pid: str, bid: str):
+        own_project(request, pid)
+        try:
+            project.delete_branch(pid, _bid(pid, bid))
+        except ValueError as e:
+            raise HTTPException(409, str(e))
         return dict(ok=True)
 
     if config.ACCOUNTS:
