@@ -114,7 +114,7 @@ class Ctx:
 
 
 def evidence_to_json(ev: Evidence, with_graphs: bool = True) -> dict:
-    d = dict(source=ev.source, log_Z=ev.log_Z, method=ev.method, n_graphs=ev.n_graphs, ess=ev.ess)
+    d = dict(source=ev.source, log_Z=ev.log_Z, method=ev.method, n_graphs=ev.n_graphs, ess=ev.ess, trace=ev.trace)
     if with_graphs:
         d["graphs"] = [dict(root=g.root, parent=g.parent, anchors=g.anchors) for g in ev.graphs]
         d["log_w"] = list(ev.log_w)
@@ -126,7 +126,7 @@ def evidence_from_json(d: dict) -> Evidence:
     inf = lambda x: float("-inf") if x is None else x
     graphs = [Graph(g["root"], g["parent"], anchors=g["anchors"]) for g in d.get("graphs", [])]
     return Evidence(d["source"], inf(d["log_Z"]), d["method"], d["n_graphs"], float("nan") if d["ess"] is None else d["ess"],
-                    graphs, [inf(x) for x in d.get("log_w", [])])
+                    graphs, [inf(x) for x in d.get("log_w", [])], d.get("trace") or {})
 
 
 def assemble(ctx: Ctx, ev: Dict[str, Evidence], seconds: float, provenance: Optional[dict] = None) -> dict:
@@ -147,6 +147,7 @@ def assemble(ctx: Ctx, ev: Dict[str, Evidence], seconds: float, provenance: Opti
         posterior={names[s]: post.posterior[s] for s in post.sources},
         log_Z={names[s]: post.log_Z[s] for s in post.sources},
         ess={names[s]: post.evidences[s].ess for s in post.sources},
+        trace={s: post.evidences[s].trace for s in post.sources if post.evidences[s].trace},      # by narrator id (SMC only)
         map_source=names[best], map_source_id=best,
         credible_set_95=[names[s] for s in post.credible_set(0.95)], flags=ctx.flags)
     if provenance:

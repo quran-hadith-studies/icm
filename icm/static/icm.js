@@ -1653,7 +1653,8 @@ const panels = {
     top(); addEventListener('resize', top);
     main.replaceChildren(host);
     const align = A ? { seed: A.seed, clauses: A.clauses, grids: A.grids, witnesses: A.witnesses.map(w => w.wid), segments: A.segments } : null;
-    ICMResults.mount(host, D, { R, units: A && A.units, texts, wits: A ? Object.fromEntries(A.witnesses.map(w => [w.wid, { cls: w.cls, ref: w.ref || null }])) : null, clauses: S ? S.clauses.map(x => x.text) : null, nodes: G && G.nodes, narratorCard, align,
+    const aside = A ? [...(A.private_variants || []), ...(A.dropped_units || []).map(u => ({ ...u, why: 'user' }))] : null;
+    ICMResults.mount(host, D, { R, units: A && A.units, aside, texts, wits: A ? Object.fromEntries(A.witnesses.map(w => [w.wid, { cls: w.cls, ref: w.ref || null }])) : null, clauses: S ? S.clauses.map(x => x.text) : null, nodes: G && G.nodes, narratorCard, align,
       openHadith: wid => hadithModal(wid), help: popover, tab: qs.get('tab'), standalone: STATIC ? null : `${API}/project/${c.pid}/runs/${c.runId}/viewer`,
       goStep4: occ => { const q = new URLSearchParams({ h: occ.slice(0, occ.lastIndexOf('|')).split('#')[0], n: occ }); go(stepUrl(c.pid, null, 'identities') + '?' + q); },
       onTab: t => { const u = new URLSearchParams(query()); u.set('tab', t); setUrl(here() + '?' + u); } });

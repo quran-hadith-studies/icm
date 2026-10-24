@@ -6,7 +6,8 @@
           with D.variants), texts {wid: {matn, marks}} (search stage, clause colours), clauses [text], nodes (graph stage),
           narratorCard(nid), goStep4(occ), standalone (url), tab, onTab(tab), help(anchor, body), align (icm.serve.align_view:
           the reconstructed text), full {wid: {sanad, matn, title}} (full texts, standalone page), openHadith(wid),
-          wits {wid: {cls, ref}} (the align stage's witnesses: the step-2 class, a «مثله / نحوه» pointer)
+          wits {wid: {cls, ref}} (the align stage's witnesses: the step-2 class, a «مثله / نحوه» pointer),
+          aside [unit] (the align stage's units that did not reach the model, each with why: private | capped | orthographic | constant | user)
 
    Tabs: نتیجه (the verdict), گام‌به‌گام (what the analysis did, step by step, with what to check at each), درخت (the recorded chains with the model's results on them, and a details panel),
    متن‌ها (the texts, coloured by part, a chosen variant highlighted), مبدأ (every candidate source), درخت بیشینه (how
@@ -122,7 +123,7 @@
       kg: 'راویانی که با اطمینان زیاد یا متوسط به زندگی‌نامه‌ای در پایگاه رجالی پیوند خورده‌اند.',
       tree: 'سندها همان‌گونه که ثبت شده‌اند، از نخستین راوی (راست) تا گردآورنده و کتاب (چپ). نتیجه‌ی مدل روی یال‌هاست: یال آبی در محتمل‌ترین درخت، یال قرمزِ خط‌چین احتمال پسین زیر ۰٫۵. حلقه دور یک راوی یعنی نامزد مبدأ است (اندازه = احتمال)؛ ★ محتمل‌ترین. «مبدأ بی‌نام» در لبه‌ی راست است و طریق‌هایی که در محتمل‌ترین درخت مستقیم به آن می‌رسند با خط‌چین به آن وصل‌اند. روی نام، یال یا نام کتاب بزنید تا جزئیات کنار درخت بیاید.',
       lens: 'یک واحد اختلاف متن را برگزینید: هر راوی به رنگ احتمالِ این‌که متنی که نقل کرده این حالت را داشته باشد درمی‌آید (پررنگ = محتمل)، و کنار نام هر کتاب، آنچه متن خودش دارد. دایره‌ی خط‌چین یعنی این راوی در درخت‌های نمونه‌برداری‌شده نیامده است.',
-      texts: 'متن هر شاهد همان‌گونه که در کتاب آمده. رنگ‌ها بخش‌های حدیث مبدأاند (همان رنگ‌های مرحله‌ی ۴). با برگزیدن یک واحد اختلاف، واژه‌های آن در هر متن نشان داده می‌شود و برچسب کنار هر متن می‌گوید متن چه دارد.',
+      texts: 'متن هر شاهد همان‌گونه که در کتاب آمده. رنگ‌ها بخش‌های حدیث مبدأاند (همان رنگ‌های مرحله‌ی ۳). با برگزیدن یک واحد اختلاف، واژه‌های آن در هر متن نشان داده می‌شود و برچسب کنار هر متن می‌گوید متن چه دارد.',
       sources: 'log Z (لگاریتم «شاهد») احتمال کل داده است اگر این راوی مبدأ باشد، میانگین روی همه‌ی درخت‌ها. −∞ یعنی تحت هیچ درخت نمونه‌برداری‌شده‌ای همه‌ی شاهدها از این راوی قابل دسترسی نیستند (مثلاً پس از او درگذشته‌اند). ESS (اندازه‌ی مؤثر نمونه) کیفیت برآورد را نشان می‌دهد؛ زیر ۱۰ نامطمئن است.',
       map: 'درخت بیشینه‌ی پسین (MAP) محتمل‌ترین درخت انتقال برای مبدأ برتر است. اگر سهمش بزرگ باشد، پسین روی یک ساختار متمرکز است؛ کم بودن شمار درخت‌های متمایز همچنین یعنی نمونه‌گیر روی چند درخت جمع شده و سهم رقیبان نامطمئن است.',
       unsure: 'یال‌های ثبت‌شده‌ای که احتمال پسینشان کمتر از ۰٫۹۹۹ است: جاهایی که مدل استاد دیگری (حذف یک واسطه، هم‌دوره‌ی هم‌طریق یا مبدأ بی‌نام) را محتمل‌تر یا هم‌اندازه می‌داند.',
@@ -241,7 +242,7 @@
         ${direct.length ? `<p class="help">مستقیم زیر مبدأ: ${lst(direct)}</p>` : ''}
         <h3>آیا فقط چون یک گره‌ی اضافه بالای همه است برنده می‌شود؟</h3>
         <p class="help">نه به خودیِ خود. درخت‌های زیر این مبدأ، درختی را هم که همه از ${esc(rn)} می‌گذرند در بر می‌گیرند؛ امتیاز (log Z) میانگینِ همه‌ی درخت‌هاست، نه بهترینشان، و هر طریقی که مستقیم به این مبدأ وصل شود هزینه‌ی پیشین دارد. برتری‌اش از این است که درخت‌هایی با طریق‌های مستقل، سندهای ثبت‌شده را بهتر توضیح می‌دهند.</p>
-        ${late.length ? `<h3>احتیاط</h3><p class="help">برخی «نخستین راویان» به راوی شناخته‌شده‌ای پیوند نخورده‌اند یا متأخرند: نام مؤلفی متأخر، تکه‌ای از متن که به جای نام خوانده شده، یا «موضع إرسال». هیچ راوی کهنی نمی‌تواند بی‌فرضِ افتادگی منبع اینها باشد، پس اینها مبدأ را به بالا می‌رانند و بخشی از قوّت این نتیجه از آن‌هاست. پیشنهادهای مرحله‌ی ۵ بسیاری از آن‌ها را درست می‌کنند: ${lst(late, true)}</p>` : ''}`;
+        ${late.length ? `<h3>احتیاط</h3><p class="help">برخی «نخستین راویان» به راوی شناخته‌شده‌ای پیوند نخورده‌اند یا متأخرند: نام مؤلفی متأخر، تکه‌ای از متن که به جای نام خوانده شده، یا «موضع إرسال». هیچ راوی کهنی نمی‌تواند بی‌فرضِ افتادگی منبع اینها باشد، پس اینها مبدأ را به بالا می‌رانند و بخشی از قوّت این نتیجه از آن‌هاست. پیشنهادهای مرحله‌ی ۴ بسیاری از آن‌ها را درست می‌کنند: ${lst(late, true)}</p>` : ''}`;
     }
 
     /* ---------- گام‌به‌گام: what the analysis did, in order, and what to check at each step ---------- */
@@ -250,23 +251,23 @@
       const W = ctx.wits || {}, CLSFA = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت' };
       const book = ai => `<button type="button" class="lnk ar" data-hadith="${esc(wid(ATT[ai]))}">${esc(ATT[ai].collection || wid(ATT[ai]))}</button>`;
       const lst = (xs, n = 12) => xs.slice(0, n).join('، ') + (xs.length > n ? ` و ${fa(xs.length - n)} مورد دیگر` : '');
-      const card = (n, title, did, body, checks, note) => `<div class="card stp"><h2><span class="stn">${fa(n)}</span> ${title}
+      const out = [];
+      const card = (title, did, body, checks, note) => `<div class="card stp"><h2><span class="stn">${fa(out.length + 1)}</span> ${title}
           ${checks.length ? `<span class="tag me">${fa(checks.length)} مورد برای بازبینی</span>` : '<span class="tag hi">موردی دیده نشد</span>'}</h2>
         <div class="body"><p class="did">${did}</p>${body}
         ${checks.length ? `<details class="chk" open><summary>چه چیزی را بازبینی کنید</summary><ul>${checks.map(c => `<li>${c}</li>`).join('')}</ul></details>` : ''}
         ${note ? `<p class="small muted">${note}</p>` : ''}</div></div>`;
-      const out = [];
 
       /* 1. the texts and chains that reached the model */
       const c1 = [];
       ATT.forEach((a, ai) => {
         const w = W[wid(a)] || {};
-        if (M && !known(ai)) c1.push(`${book(ai)} در هیچ واحدی خوانش معلوم ندارد: متنش در محاسبه اثری ندارد و فقط سندش شمرده می‌شود. اگر متنش از این خانواده نیست، در مرحله‌ی ۴ با «×» کنارش بگذارید.`);
+        if (M && !known(ai)) c1.push(`${book(ai)} در هیچ واحدی خوانش معلوم ندارد: متنش در محاسبه اثری ندارد و فقط سندش شمرده می‌شود. اگر متنش از این خانواده نیست، در مرحله‌ی ۳ با «×» کنارش بگذارید.`);
         else if (w.cls === 'different' || w.cls === 'partial') c1.push(`${book(ai)} در مرحله‌ی ۲ «${CLSFA[w.cls]}» دسته‌بندی شده بود (سامانه از پیش تیکش نزده بود)؛ متنش را با حدیث مبدأ بسنجید. خوانش‌های معلومش: ${fa(known(ai))} از ${fa(M)}.`);
-        if (a.sanad.length < 2) c1.push(`سند ${book(ai)} تنها یک راوی دارد (${nodeBtn(a.sanad[0])})؛ در مرحله‌ی ۵ ببینید آیا نام‌ها درست خوانده شده‌اند.`);
+        if (a.sanad.length < 2) c1.push(`سند ${book(ai)} تنها یک راوی دارد (${nodeBtn(a.sanad[0])})؛ در مرحله‌ی ۴ ببینید آیا نام‌ها درست خوانده شده‌اند.`);
       });
-      out.push(card(1, 'متن‌ها و سندهایی که به مدل رسید',
-        `تحلیل‌گر از هر شاهدِ برگزیده دو چیز برداشت: سندش (زنجیره‌ی راویان، از نخستین راوی تا گردآورنده؛ مرحله‌ی ۵) و خوانش متنش در هر یک از ${fa(M)} واحد اختلاف (مرحله‌ی ۴). «؟» یعنی آن واحد در این متن نامعلوم است (نیامده یا خلاصه شده) و شمرده نمی‌شود. ${fa(ATT.length)} سند از ${fa(new Set(ATT.map(wid)).size)} متن.`,
+      out.push(card('متن‌ها و سندهایی که به مدل رسید',
+        `تحلیل‌گر از هر شاهدِ برگزیده دو چیز برداشت: سندش (زنجیره‌ی راویان، از نخستین راوی تا گردآورنده؛ مرحله‌ی ۴) و خوانش متنش در هر یک از ${fa(M)} واحد اختلاف (مرحله‌ی ۳). «؟» یعنی آن واحد در این متن نامعلوم است (نیامده یا خلاصه شده) و شمرده نمی‌شود. ${fa(ATT.length)} سند از ${fa(new Set(ATT.map(wid)).size)} متن.`,
         `<div class="scroll"><table class="rvt stpt"><thead><tr><th>#</th><th>کتاب</th><th>سند (نخستین راوی … گردآورنده)</th>${D.variants.map((v, k) => `<th class="n" title="${esc(unitName(k))}">و${fa(k + 1)}</th>`).join('')}<th class="n">معلوم</th></tr></thead><tbody>
           ${ATT.map((a, ai) => { const w = W[wid(a)] || {}; return `<tr><td class="n">${fa(ai + 1)}</td><td>${book(ai)}${w.ref ? ` <span class="tag src" title="ارجاع به ${esc(w.ref.ref)}">«${esc(w.ref.marker)}»</span>` : ''}${w.cls && w.cls !== 'seed' ? ` <span class="tag${w.cls === 'different' || w.cls === 'partial' ? ' me' : ''}">${CLSFA[w.cls] || w.cls}</span>` : ''}</td>
             <td class="ar small">${nodeBtn(a.sanad[0])}${a.sanad.length > 2 ? ` … <span class="muted">(${fa(a.sanad.length - 2)} راوی)</span> … ` : a.sanad.length === 2 ? ' ← ' : ''}${a.sanad.length > 1 ? nodeBtn(a.sanad[a.sanad.length - 1]) : ''}</td>
@@ -290,12 +291,24 @@
           if (b.length >= 2 && b.length < maj && cols.size === 1) c2.push(`در واحد ${fa(k + 1)}، حالت «${esc(stateName(k, j))}» فقط در یک کتاب (${esc([...cols][0])}) آمده است: شاید نسخه‌های یک متن‌اند، نه ${fa(b.length)} گواه مستقل.`);
         });
       });
-      if (M) out.push(card(2, 'واحدهای اختلاف متن',
-        'مدل متن‌ها را واژه به واژه نمی‌خواند؛ فقط همین واحدها را می‌بیند (مرحله‌ی ۴). هر شاهد در هر واحد یک حالت دارد؛ واحدی که همه در آن یکسان بودند یا اختلافش فقط در یک متن بود کنار رفته است. هر جا دو حالت در یک شاخه‌ی درخت با هم آمده‌اند، نشانه‌ای است که آن شاخه متن را از یک منبع گرفته است.',
+      const ASIDE = { private: 'اختلاف فقط در یک شاهد', capped: 'بیرون از سقف شمار واحدها', orthographic: 'فقط املایی', constant: 'پس از اصلاح‌ها یک حالت در همه', user: 'شما کنار گذاشتید' };
+      const aside = (ctx.aside || []).filter(u => u.why), asideBy = {};
+      aside.forEach(u => (asideBy[u.why] ||= []).push(u));
+      const awords = u => esc(String(u.name).includes(':') ? String(u.name).slice(String(u.name).indexOf(':') + 1).replace(/\|/g, ' / ') : u.name);
+      const areads = u => { const c = {}; Object.values(u.states || {}).forEach(x => { if (x != null && x >= 0) c[x] = (c[x] || 0) + 1; });
+        return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([x, n]) => `${esc(ulab((u.labels || [])[x] ?? x))} (${fa(n)})`).join('، '); };
+      if (asideBy.capped) c2.push(`${fa(asideBy.capped.length)} واحدِ آگاهی‌بخش به خاطر سقف شمار واحدها به مدل نرسید (پایین، «${ASIDE.capped}»). اگر یکی از آن‌ها برایتان مهم است، در مرحله‌ی ۳ «نگه دار» را بزنید.`);
+      if (M) out.push(card('واحدهای اختلاف متن',
+        'مدل متن‌ها را واژه به واژه نمی‌خواند؛ فقط همین واحدها را می‌بیند (مرحله‌ی ۳). هر شاهد در هر واحد یک حالت دارد؛ واحدی که همه در آن یکسان بودند یا اختلافش فقط در یک متن بود کنار رفته است. هر جا دو حالت در یک شاخه‌ی درخت با هم آمده‌اند، نشانه‌ای است که آن شاخه متن را از یک منبع گرفته است.',
         `<div class="scroll"><table class="rvt"><thead><tr><th>#</th><th>واحد</th><th>نوع</th><th>حالت‌ها (شمار شاهد)</th><th class="n">نامعلوم</th></tr></thead><tbody>
           ${D.variants.map((v, k) => `<tr><td class="n">${fa(k + 1)}</td><td class="ar">${esc(unitName(k))}</td><td>${KIND_FA[presence(k) ? 'presence' : v.cls] || esc(v.cls || '')}</td>
             <td style="--h:${hue(clauseOf(k))}">${v.labels.map((l, j) => `<span class="tag cl ar" title="${esc(ustat[k].by[j].map(ai => ATT[ai].collection).join('، '))}">${esc(stateName(k, j))} (${fa(ustat[k].by[j].length)})</span>`).join('')}</td>
-            <td class="n">${fa(ustat[k].na.length)}</td></tr>`).join('')}</tbody></table></div>`, c2));
+            <td class="n">${fa(ustat[k].na.length)}</td></tr>`).join('')}</tbody></table></div>
+          ${aside.length ? `<details class="aside"><summary class="small">${fa(aside.length)} واحد دیگر کنار گذاشته شد: ${Object.entries(asideBy).map(([w, us]) => `${ASIDE[w] || esc(w)} ${fa(us.length)}`).join('، ')}</summary>
+            <div class="scroll"><table class="rvt"><thead><tr><th>بخش</th><th>واحد</th><th>چرا کنار رفت</th><th>خوانش‌ها (شمار شاهد)</th></tr></thead><tbody>
+            ${aside.map(u => `<tr><td class="n">${u.clause == null ? '—' : fa(u.clause + 1)}</td><td class="ar">${awords(u)}</td><td>${ASIDE[u.why] || esc(u.why)}</td><td class="ar small">${areads(u) || '—'}</td></tr>`).join('')}
+            </tbody></table></div></details>` : ''}`, c2,
+        ctx.aside ? '' : 'واحدهای کنارگذاشته در این نما در دسترس نیستند؛ در مرحله‌ی ۳ دیده می‌شوند.'));
 
       /* 3. the recorded graph and the dates */
       const nids = Object.keys(N).filter(n => n !== UNK), undated = nids.filter(n => !N[n].death || N[n].date_source === 'interpolated');
@@ -311,7 +324,8 @@
         if (e.gap_years < -40) c3.push(`${edgeBtn(k, esc(nm(e.teacher)) + ' ← ' + esc(nm(e.student)))}: شاگرد ${fa(Math.round(-e.gap_years))} سال پیش از استاد درگذشته است؛ تاریخ‌ها یا شناسایی یکی از دو نام را بسنجید.`);
       });
       if (quoting.length) c3.unshift(`${fa(quoting.length)} گردآورنده‌ی متأخر بی‌واسطه از راویی چند سده پیش‌تر نقل کرده‌اند (سندشان از کتابی برداشته شده و کوتاه شده است): ${lst(quoting, 8)}. هر کدام برای مدل طریقی جداست؛ اگر از کتابی نقل می‌کنند که خودش در شاهدهاست، در واقع گواه مستقل نیستند.`);
-      out.push(card(3, 'شجره‌ی ثبت‌شده و تاریخ‌ها',
+      const graphCard = out.length + 1;
+      out.push(card('شجره‌ی ثبت‌شده و تاریخ‌ها',
         'از سندها گرافی ساخته شد: هر راوی یک گره و هر «الف از ب» یک یال. تاریخ وفات هر راوی از پایگاه رجال آمد و اگر نبود از جایش در سندها برآورد شد؛ مدل فقط استادی را ممکن می‌داند که با این تاریخ‌ها جور باشد.',
         `<dl class="dl"><dt>راویان</dt><dd>${fa(nids.length)}</dd><dt>یال‌های ثبت‌شده</dt><dd>${fa(Object.values(E).filter(e => e.score_parts && e.score_parts.recorded).length)}</dd>
           <dt>طریق‌ها (نخستین راویان)</dt><dd>${fa(heads.length)}: ${lst(heads.map(nodeBtn), 8)}</dd><dt>تاریخ‌دار</dt><dd>${fa(nids.length - undated.length)} از ${fa(nids.length)}</dd></dl>`, c3,
@@ -322,37 +336,93 @@
         .map(([k, e]) => ({ k, e, p: e.prior ?? (e.candidates.find(c => c.node === e.teacher) || {}).prior })).sort((a, b) => (a.p ?? 1) - (b.p ?? 1));
       const c4 = pri.filter(x => x.p != null && x.p < 0.5).map(x => `پیش از دیدن متن‌ها، ${edgeBtn(x.k, esc(nm(x.e.teacher)) + ' ← ' + esc(nm(x.e.student)))} تنها ${pct(x.p)} احتمال داشت؛ گزینه‌ی برتر: ${esc(nm((x.e.candidates[0] || {}).node))}. معمولاً یعنی تاریخ‌ها با این استادی جور نیستند.`);
       const SP = { recorded: 'در سند', same_city: 'هم‌شهری', kg_teacher: 'استاد در رجال' };
-      out.push(card(4, 'پیشین یال‌ها: هر شاگرد از چه کسی ممکن بود گرفته باشد',
-        'پیش از دیدن متن‌ها، مدل برای هر شاگرد به هر استاد ممکن وزنی داد (احتمال پیشین): استادِ ثبت‌شده در سند بیشترین وزن را دارد؛ هم‌شهری بودن و استادی در پایگاه رجال وزن را بالا می‌برد؛ «مبدأ بی‌نام» (یعنی منبعی ثبت‌نشده) همیشه گزینه‌ای کوچک است. پایین، یال‌ها به ترتیب کمترین پیشین.',
-        `<div class="scroll"><table class="rvt"><thead><tr><th>استاد ← شاگرد (ثبت‌شده)</th><th class="n">پیشین</th><th>نشانه‌ها</th><th>گزینه‌های دیگر</th><th class="n">پسین</th></tr></thead><tbody>
-          ${pri.slice(0, 40).map(({ k, e, p }) => `<tr class="click" data-goedge="${esc(k)}"><td class="ar">${esc(nm(e.teacher))} ← ${esc(nm(e.student))}</td><td class="n">${pct(p)}</td>
+      const priRow = ({ k, e, p }) => `<tr class="click" data-goedge="${esc(k)}"><td class="ar">${esc(nm(e.teacher))} ← ${esc(nm(e.student))}</td><td class="n">${pct(p)}</td>
             <td>${Object.entries(e.score_parts || {}).filter(([, v]) => v).map(([t]) => `<span class="tag">${SP[t] || esc(t)}</span>`).join('')}</td>
             <td class="ar small">${e.candidates.filter(c => c.node !== e.teacher).slice(0, 3).map(c => `${esc(shortName(nm(c.node), 4))} (${pct(c.prior)})`).join('، ') || '—'}</td>
-            <td class="n">${e.posterior == null ? '—' : fmt(e.posterior, 3)}</td></tr>`).join('')}</tbody></table></div>`, c4,
-        pri.length > 40 ? `${fa(pri.length - 40)} یال دیگر پیشین بالاتری دارند.` : ''));
+            <td class="n">${e.posterior == null ? '—' : fmt(e.posterior, 3)}</td></tr>`;
+      const priHead = '<thead><tr><th>استاد ← شاگرد (ثبت‌شده)</th><th class="n">پیشین</th><th>نشانه‌ها</th><th>گزینه‌های دیگر</th><th class="n">پسین</th></tr></thead>';
+      out.push(card('پیشین یال‌ها: هر شاگرد از چه کسی ممکن بود گرفته باشد',
+        'پیش از دیدن متن‌ها، مدل برای هر شاگرد به هر استاد ممکن وزنی داد (احتمال پیشین): استادِ ثبت‌شده در سند بیشترین وزن را دارد؛ هم‌شهری بودن و استادی در پایگاه رجال وزن را بالا می‌برد؛ «مبدأ بی‌نام» (یعنی منبعی ثبت‌نشده) همیشه گزینه‌ای کوچک است. پایین، یال‌ها به ترتیب کمترین پیشین.',
+        `<div class="scroll"><table class="rvt">${priHead}<tbody>${pri.slice(0, 40).map(priRow).join('')}</tbody></table></div>
+          ${pri.length > 40 ? `<details class="aside"><summary class="small">${fa(pri.length - 40)} یال دیگر (پیشین بالاتر)</summary><div class="scroll"><table class="rvt">${priHead}<tbody>${pri.slice(40).map(priRow).join('')}</tbody></table></div></details>` : ''}`, c4));
+
+      /* 5. which narrators were tried as the source, and why (icm.infer.source_set: the chain heads with most
+         witnesses, the teachers with two or more recorded students, the unnamed source) */
+      const nAtt = h => ATT.filter(a => a.sanad[0] === h).length;
+      const cands = Object.keys(sp), why = x => x === UNK ? 'منبعی بالاتر از همه‌ی راویان ثبت‌شده'
+        : heads.includes(x) ? `سرِ ${fa(nAtt(x))} سند` : `استادِ ${fa((studentsOf[x] || new Set()).size)} شاگرد در سندها`;
+      const outHeads = heads.filter(h => !sp[h]);
+      const outCommon = Object.keys(studentsOf).filter(u => !sp[u] && !heads.includes(u) && studentsOf[u].size >= 2).sort((a, b) => studentsOf[b].size - studentsOf[a].size);
+      const c5n = [];
+      const byName = {};                                  /* «موضع إرسال» is one node per chain: list it once */
+      outHeads.forEach(h => (byName[nm(h)] ||= []).push(h));
+      if (outHeads.length) c5n.push(`${fa(outHeads.length)} سرِ سند به خاطر سقف شمار نامزدها آزموده نشدند: ${lst(Object.values(byName).map(hs => hs.length > 1
+        ? `${nodeBtn(hs[0])} × ${fa(hs.length)} (${fa(hs.reduce((t, h) => t + nAtt(h), 0))} سند)` : `${nodeBtn(hs[0])} (${fa(nAtt(hs[0]))} سند)`), 8)}. اگر یکی از آن‌ها بیش از این‌ها احتمال مبدأ بودن دارد، سندهای کم‌شمارتر را بازبینی کنید.`);
+      out.push(card('نامزدهای مبدأ: چه کسانی آزموده شدند',
+        `مدل همه‌ی راویان را نمی‌آزماید. نامزدها: سرهای سند (نخستین راویِ هر سند؛ حداکثر ${fa(12)}، به ترتیب شمار سند)، استادانی که در سندها دست‌کم دو شاگرد دارند (حداکثر ${fa(6)}، به ترتیب شمار شاگرد) و «مبدأ بی‌نام». ${fa(cands.length)} نامزد آزموده شد.`,
+        `<div class="scroll"><table class="rvt"><thead><tr><th>نامزد</th><th>چرا نامزد شد</th><th class="n">وفات</th></tr></thead><tbody>
+          ${ranked.map(x => `<tr><td class="ar">${x === UNK ? esc(UNK_NAME) : nodeBtn(x)}</td><td>${why(x)}</td><td class="n">${year(x) == null ? '—' : fa(Math.round(year(x)))}</td></tr>`).join('')}
+          </tbody></table></div>${outCommon.length ? `<p class="small muted">استادان چندشاگردیِ آزموده‌نشده: ${lst(outCommon.map(u => `${nodeBtn(u)} (${fa(studentsOf[u].size)})`), 10)}.</p>` : ''}`, c5n));
 
       /* 5. the computation for each candidate source */
-      const fin = ranked.filter(x => lz(x) > NEG), inf = ranked.filter(x => lz(x) === NEG);
+      const fin = ranked.filter(x => lz(x) > NEG), inf = ranked.filter(x => lz(x) === NEG), cs = D.credible_set_95 || (R && R.credible_set_95) || [];
       const c5 = fin.filter(x => sp[x].ess != null && sp[x].ess < 10).map(x => `برآورد ${nodeBtn(x)} با ESS ${fmt(sp[x].ess, 0)} نامطمئن است؛ اجرا با دقت «دقیق» را بیازمایید.`);
       /* why a narrator many chains start from could not be the source: other chains begin with men who died before him */
       heads.filter(h => lz(h) === NEG && sp[h] && year(h) != null).slice(0, 3).forEach(h => {
         const older = heads.filter(o => o !== h && year(o) != null && year(o) < year(h) - 5);
         const off = ATT.map((a, ai) => ai).filter(ai => older.includes(ATT[ai].sanad[0]));
-        if (older.length) c5.push(`${nodeBtn(h)} (ف ${fa(Math.round(year(h)))}؛ سرِ ${fa(ATT.filter(a => a.sanad[0] === h).length)} سند) نمی‌توانست مبدأ همه باشد، چون ${fa(off.length)} سند از کسانی آغاز می‌شوند که پیش از او درگذشته‌اند: ${lst(older.map(o => `${nodeBtn(o)} (ف ${fa(Math.round(year(o)))})`), 4)} در ${lst(off.map(book), 4)}. اگر این متن‌ها از این خانواده نیستند (مرحله‌ی ۴، «×») یا نام یا تاریخشان نادرست است (مرحله‌ی ۵)، اصلاحشان نتیجه را عوض می‌کند.`);
+        if (older.length) c5.push(`${nodeBtn(h)} (ف ${fa(Math.round(year(h)))}؛ سرِ ${fa(ATT.filter(a => a.sanad[0] === h).length)} سند) نمی‌توانست مبدأ همه باشد، چون ${fa(off.length)} سند از کسانی آغاز می‌شوند که پیش از او درگذشته‌اند: ${lst(older.map(o => `${nodeBtn(o)} (ف ${fa(Math.round(year(o)))})`), 4)} در ${lst(off.map(book), 4)}. اگر این متن‌ها از این خانواده نیستند (مرحله‌ی ۳، «×») یا نام یا تاریخشان نادرست است (مرحله‌ی ۴)، اصلاحشان نتیجه را عوض می‌کند.`);
       });
-      out.push(card(5, 'محاسبه برای هر نامزد مبدأ',
+      const TR = (R && R.trace) || null, tr = x => TR && TR[x] && TR[x].steps ? TR[x] : null;
+      const watch = fin.filter(x => x === best || x === runner || cs.includes(x) || cs.includes(nm(x)) || (sp[x].posterior || 0) > 0.01);
+      watch.forEach(x => {
+        const t = tr(x); if (!t || !t.steps.length) return;
+        const last = t.steps[t.steps.length - 1], nres = t.steps.filter(r => r[3]).length, n = t.survived;
+        if (t.tried && t.survived / t.tried < 0.05) c5.push(`برای ${nodeBtn(x)} تنها ${pct(t.survived / t.tried)} از درخت‌های آغازین به همه‌ی شاهدها رسیدند (${fa(t.survived)} از ${fa(t.tried)})؛ برآورد بر ذره‌های اندکی تکیه دارد.`);
+        if (last[4] != null && last[4] < 0.02) c5.push(`برای ${nodeBtn(x)} در دمای پایانی تنها ${pct(last[4])} از جابه‌جایی‌های پیشنهادی پذیرفته شد: ذره‌ها کمتر کاوش کردند و برآورد به نمونه‌ی آغازین وابسته‌تر است.`);
+        if (n && last[5] / n < 0.1 && last[5] > 0) c5.push(`برای ${nodeBtn(x)} ذره‌ها در پایان تنها ${fa(last[5])} درخت متمایز بودند (از ${fa(n)})؛ ESS بیش از واقع نشان می‌دهد.`);
+        if (nres > t.steps.length / 2) c5.push(`برای ${nodeBtn(x)} در ${fa(nres)} از ${fa(t.steps.length)} گام بازنمونه‌گیری لازم شد: گام‌های دما درشت‌اند؛ اجرا با دقت «دقیق» گام‌های ریزتری دارد.`);
+      });
+      /* running log Z against the temperature, for the leading candidates */
+      const lead = fin.filter(tr).slice(0, 6);
+      const conv = () => {
+        if (!TR) return '<p class="small muted">روند همگرایی برای این اجرا ثبت نشده است؛ اجرای تازه آن را نشان می‌دهد.</p>';
+        if (!lead.length) return '';
+        /* each candidate's running log Z minus the leader's at the same temperature: 0 = level with the best */
+        const raw = x => { const t = tr(x); return [[0, t.tried ? Math.log(t.survived / t.tried) : 0], ...t.steps.map(r => [r[0], r[1]])]; };
+        const ref = raw(lead[0]), pts = x => raw(x).map(([g, v], i) => [g, v - (ref[i] ? ref[i][1] : v)]);
+        const ys = lead.flatMap(x => pts(x).map(p => p[1])), y0 = Math.min(...ys), y1 = Math.max(...ys), W = 560, H = 200, L = 52, B = 22, T = 8, Rr = 8;
+        const X = g => L + g * (W - L - Rr), Y = v => T + (y1 === y0 ? 0.5 : (y1 - v) / (y1 - y0)) * (H - T - B);
+        const col = i => `hsl(${hue(i)} 60% 45%)`;
+        const ticks = [...new Set([y0, (y0 + y1) / 2, y1])];
+        const svg = `<svg class="conv" viewBox="0 0 ${W} ${H}" dir="ltr" role="img" aria-label="log Z در برابر دما">
+          ${ticks.map(v => `<line x1="${L}" x2="${W - Rr}" y1="${Y(v)}" y2="${Y(v)}" class="grid"/><text x="${L - 4}" y="${Y(v) + 4}" text-anchor="end">${fmt(v, 0)}</text>`).join('')}
+          ${[0, 0.5, 1].map(g => `<text x="${X(g)}" y="${H - 6}" text-anchor="middle">γ=${fa(g)}</text>`).join('')}
+          ${lead.map((x, i) => `<polyline fill="none" stroke="${col(i)}" stroke-width="${i ? 1.5 : 2.5}" points="${pts(x).map(([g, v]) => `${X(g).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}"><title>${esc(nm(x))}</title></polyline>`).join('')}</svg>`;
+        const spark = x => { const s = tr(x).steps, w = 90, h = 18; return `<svg class="spark" viewBox="0 0 ${w} ${h}" dir="ltr"><polyline fill="none" points="${s.map((r, i) => `${(i / Math.max(s.length - 1, 1) * w).toFixed(1)},${((1 - r[2]) * (h - 2) + 1).toFixed(1)}`).join(' ')}"/>${s.map((r, i) => r[3] ? `<circle cx="${(i / Math.max(s.length - 1, 1) * w).toFixed(1)}" cy="${((1 - r[2]) * (h - 2) + 1).toFixed(1)}" r="1.8"/>` : '').join('')}</svg>`; };
+        const acc = s => { const a = s.map(r => r[4]).filter(v => v != null); return a.length ? a.reduce((p, q) => p + q, 0) / a.length : null; };
+        return `<h3 class="small">روند همگرایی</h3>
+          <p class="small muted">نمونه‌برداری از «دما»ی γ=۰ (فقط پیشین) تا γ=۱ (پیشین و همه‌ی داده) پیش می‌رود و log Z گام به گام جمع می‌شود. هر خط فاصله‌ی log Z انباشته‌ی یک نامزد از نامزد برتر (خط پررنگ، روی صفر) است: هرچه دما بالا می‌رود و داده بیشتر به حساب می‌آید، نامزدها از هم جدا می‌شوند. خطی که پیش از پایان از برتر بالاتر رود یا مدام بالا و پایین شود، برآوردی ناپایدار دارد.</p>
+          <div class="convleg small">${lead.map((x, i) => `<span><i style="background:${col(i)}"></i>${esc(shortName(nm(x), 4))}</span>`).join('')}</div>${svg}
+          <div class="scroll"><table class="rvt"><thead><tr><th>نامزد</th><th class="n" title="درخت‌های آغازینی که به همه‌ی شاهدها رسیدند">راه‌یافته</th><th title="ESS/N در هر گام؛ نقطه = بازنمونه‌گیری">ESS در گام‌ها</th><th class="n">بازنمونه‌گیری</th><th class="n" title="سهم جابه‌جایی‌های پذیرفته (میانگین · گام پایانی)">پذیرش</th><th class="n" title="درخت‌های متمایز میان ذره‌ها در پایان">درخت متمایز</th></tr></thead><tbody>
+          ${fin.filter(tr).map(x => { const t = tr(x), s = t.steps, last = s[s.length - 1] || [];
+            return `<tr class="click${x === best ? ' best' : ''}" data-showtree="${esc(x)}"><td class="ar">${esc(nm(x))}</td><td class="n">${fa(t.survived)}/${fa(t.tried)}</td><td>${s.length ? spark(x) : '—'}</td>
+              <td class="n">${fa(s.filter(r => r[3]).length)} از ${fa(s.length)}</td><td class="n">${pct(acc(s))} · ${pct(last[4])}</td><td class="n">${last[5] == null ? '—' : `${fa(last[5])} از ${fa(t.survived)}`}</td></tr>`; }).join('')}
+          </tbody></table></div>`;
+      };
+      out.push(card('محاسبه برای هر نامزد مبدأ',
         `برای هر راوی‌ای که می‌توانست منبع همه‌ی متن‌ها باشد (و برای «مبدأ بی‌نام»)، مدل با نمونه‌برداری ذره‌ای (${fa(R && R.n_particles || GP.n_particles || '—')} ذره، ${fa(R && R.n_steps || '—')} دما) درخت‌های انتقال ممکن را پیمود و احتمال کل داده (log Z: متن‌ها و سندها با هم) را اگر او مبدأ بود برآورد کرد. log Z = −∞ یعنی از این نامزد به همه‌ی شاهدها نمی‌شد رسید (مثلاً پس از برخی از آنان درگذشته یا در طریق آنان نیست). ${fa(fin.length)} نامزد برآورد شدند و ${fa(inf.length)} ناممکن بودند.`,
         `<div class="scroll"><table class="rvt"><thead><tr><th>نامزد</th><th class="n">log Z</th><th class="n">ESS</th><th class="n">احتمال پسین</th></tr></thead><tbody>
           ${fin.map(x => `<tr class="click${x === best ? ' best' : ''}" data-showtree="${esc(x)}"><td class="ar">${esc(nm(x))}</td><td class="n">${fmt(lz(x), 1)}</td><td class="n">${fmt(sp[x].ess, 0)}</td><td class="n">${sci(sp[x].posterior)}</td></tr>`).join('')}
-          </tbody></table></div>${inf.length ? `<p class="small muted">ناممکن (log Z = −∞): ${lst(inf.map(x => `<span class="ar">${esc(nm(x))}</span>`), 15)}</p>` : ''}`, c5));
+          </tbody></table></div>${inf.length ? `<p class="small muted">ناممکن (log Z = −∞): ${lst(inf.map(x => `<span class="ar">${esc(nm(x))}</span>`), 15)}</p>` : ''}${conv()}`, c5));
 
       /* 6. the comparison and the verdict */
-      const bf = runner && lz(runner) > NEG ? lz(best) - lz(runner) : null, cs = D.credible_set_95 || (R && R.credible_set_95) || [];
+      const bf = runner && lz(runner) > NEG ? lz(best) - lz(runner) : null;
       const c6 = [];
       if (bf != null && bf < 2) c6.push(`log عامل بیز در برابر ${nodeBtn(runner)} تنها ${fmt(bf, 1)} است: دو نامزد تقریباً هم‌اندازه‌اند و نتیجه قاطع نیست.`);
       if (cs.length > 1) c6.push(`مجموعه‌ی اطمینان ۹۵٪ ${fa(cs.length)} نامزد دارد؛ پاسخ یکتا نیست.`);
-      if (best === UNK) c6.push(`برنده «مبدأ بی‌نام» است: هیچ راوی ثبت‌شده‌ای منبع مشترک همه نیست. پیش از پذیرفتن، طریق‌هایی را که از نام‌های پیوندنخورده یا متأخر آغاز می‌شوند (گام ۳) بازبینی کنید؛ آن‌ها مبدأ را به بالا می‌رانند.`);
-      out.push(card(6, 'مقایسه‌ی نامزدها و رأی',
+      if (best === UNK) c6.push(`برنده «مبدأ بی‌نام» است: هیچ راوی ثبت‌شده‌ای منبع مشترک همه نیست. پیش از پذیرفتن، طریق‌هایی را که از نام‌های پیوندنخورده یا متأخر آغاز می‌شوند (گام ${fa(graphCard)}) بازبینی کنید؛ آن‌ها مبدأ را به بالا می‌رانند.`);
+      out.push(card('مقایسه‌ی نامزدها و رأی',
         'احتمال پسین هر نامزد = سهم Z او از جمع Z همه‌ی نامزدها (با پیشین برابر برای نامزدها). تفاوت log Z برتر و رقیب بعدی لگاریتم عامل بیز است: ۲ یعنی حدود ۷ برابر، ۵ حدود ۱۵۰ برابر، بیش از ۱۰ قاطع.',
         `<dl class="dl"><dt>محتمل‌ترین مبدأ</dt><dd class="ar">${best === UNK ? esc(UNK_NAME) : nodeBtn(best)}</dd><dt>احتمال پسین</dt><dd>${sci(sp[best] ? sp[best].posterior : null)}</dd>
           <dt>رقیب بعدی</dt><dd class="ar">${runner ? esc(nm(runner)) : '—'}</dd><dt>log عامل بیز</dt><dd>${bf == null ? '—' : fmt(bf, 1)}</dd>
@@ -364,7 +434,7 @@
       const c7 = [...departs.map(([v, p]) => `در درخت بیشینه ${nodeBtn(v)} از ${p === UNK ? 'مبدأ بی‌نام' : nodeBtn(p)} گرفته است، نه از استاد(های) ثبت‌شده‌اش (${[...(teachersOf[v] || [])].map(nodeBtn).join('، ') || '—'}).`),
         ...weak.map(([k, e]) => `یال ثبت‌شده‌ی ${edgeBtn(k, esc(nm(e.teacher)) + ' ← ' + esc(nm(e.student)))} احتمال پسین ${fmt(e.posterior, 2)} دارد: مدل این حلقه‌ی سند را باور ندارد.`)];
       if (GP.map_mass != null && GP.map_mass < 0.1) c7.push(`محتمل‌ترین درخت تنها ${pct(GP.map_mass)} احتمال را دارد؛ هر یال را با احتمال خودش بخوانید.`);
-      out.push(card(7, 'محتمل‌ترین درخت انتقال',
+      out.push(card('محتمل‌ترین درخت انتقال',
         `میان درخت‌های نمونه‌برداری‌شده زیر مبدأ برتر، پرتکرارترین ساختار (${fa(GP.n_distinct ?? '—')} درخت متمایز در ${fa(GP.n_particles ?? '—')} ذره). هر جا با سندها فرق کند، مدل گفته است متن‌ها با آن حلقه‌ی سند جور نیستند.`,
         `<dl class="dl"><dt>سهم محتمل‌ترین درخت</dt><dd>${pct(GP.map_mass)}</dd><dt>جدا از سند ثبت‌شده</dt><dd>${fa(departs.length)} شاگرد</dd><dt>یال ثبت‌شده با پسین زیر ۰٫۵</dt><dd>${fa(weak.length)}</dd></dl>`, c7,
         '<button type="button" class="lnk" data-tab="graph">درخت بیشینه</button> · <button type="button" class="lnk" data-tab="paths">طریق بیشینه‌ی هر شاهد</button>'));
@@ -379,14 +449,14 @@
         return `<tr><td class="n">${fa(k + 1)}</td><td class="ar">${esc(unitName(k))}</td><td class="ar"><b>${esc(stateName(k, j))}</b></td><td class="n">${pct(p[j])}</td>
           <td class="ar small">${p.map((q, i) => i === j || q < 0.005 ? '' : `${esc(stateName(k, i))} ${pct(q)}`).filter(Boolean).join('، ') || '—'}</td></tr>`;
       }).join('');
-      if (M) out.push(card(8, 'متن مبدأ',
+      if (M) out.push(card('متن مبدأ',
         'برای هر واحد، احتمال هر حالت در متنِ مبدأ برتر، از روی خوانش شاهدها و درخت‌های نمونه‌برداری‌شده. جاهای بی‌اختلاف از متن مشترک می‌آیند.',
         rows8 ? `<div class="scroll"><table class="rvt"><thead><tr><th>#</th><th>واحد</th><th>حالت برگزیده</th><th class="n">احتمال</th><th>حالت‌های دیگر</th></tr></thead><tbody>${rows8}</tbody></table></div>` : '<p class="small muted">در این اجرا ذخیره نشده است.</p>', c8,
         '<button type="button" class="lnk" data-tab="recon">متن بازسازی‌شده‌ی هر راوی</button>'));
 
       /* 9. what the run itself reported */
       const fl = [...((R && R.flags) || []), ...(D.flags || [])];
-      out.push(card(M ? 9 : 8, 'هشدارهای اجرا', 'آنچه خودِ اجرای مدل گزارش کرد (همگرایی، نامزدهای کنارگذاشته، داده‌ی ناقص).',
+      out.push(card('هشدارهای اجرا', 'آنچه خودِ اجرای مدل گزارش کرد (همگرایی، نامزدهای کنارگذاشته، داده‌ی ناقص).',
         fl.length ? '' : '<p class="small muted">هشداری گزارش نشد.</p>', fl.map(f => esc(typeof f === 'string' ? f : f.message || f.kind || JSON.stringify(f)))));
 
       el.innerHTML = hb('step6.steps') + `<div class="card"><h2>تحلیل، گام به گام</h2><div class="body"><p class="small">آنچه تحلیل‌گر انجام داد، به همان ترتیب، با ورودی و خروجی هر گام. زیر هر گام آنچه ارزش بازبینی دارد آمده است: بیشترِ خطاهای نتیجه از ورودی‌ها می‌آیند (شاهدی نامربوط، نامی نادرست، تاریخی گم‌شده)، نه از محاسبه.</p>
@@ -430,7 +500,7 @@
     const inspect = id => /^a\d+$/.test(id) ? inspectMatn(+id.slice(1)) : id === UNK || !N[id] ? (id === UNK ? inspectOrigin() : inspectRoot()) : inspectNode(id);
     const nodeBtn = id => `<button type="button" class="lnk ar" data-go="${esc(id)}">${esc(nm(id))}</button>`;
     const edgeBtn = (key, label) => `<button type="button" class="lnk" data-goedge="${esc(key)}">${label}</button>`;
-    const step4Btn = id => { const o = ctx.goStep4 && ctx.nodes && ctx.nodes[id] && (ctx.nodes[id].occ || [])[0]; return o ? ` <button type="button" class="lnk small" data-step4="${esc(o)}" title="در مرحله‌ی ۵ باز شود">↗ مرحله‌ی ۵</button>` : ''; };
+    const step4Btn = id => { const o = ctx.goStep4 && ctx.nodes && ctx.nodes[id] && (ctx.nodes[id].occ || [])[0]; return o ? ` <button type="button" class="lnk small" data-step4="${esc(o)}" title="در مرحله‌ی ۴ باز شود">↗ مرحله‌ی ۴</button>` : ''; };
     const barList = items => '<div class="bars">' + items.map(([lab, p, c]) =>
       `<div class="bar"><div class="track"><div class="fill" style="width:${Math.max(0, Math.min(1, p)) * 100}%${c ? ';background:' + c : ''}"></div><div class="lab">${lab}</div></div><div class="pct">${fmt(p, 3)}</div></div>`).join('') + '</div>';
     const SRC_FA = { diagram: 'از نمودار', 'hadith-kg': 'گراف دانش', kg: 'گراف دانش', interpolated: 'برآورد از جای سند', user: 'واردشده‌ی کاربر',
@@ -782,9 +852,9 @@
           ${rec ? `<dl class="dl"><dt>مبدأ واقعی = محتمل‌ترین</dt><dd>${pct(rec.map_accuracy)}</dd><dt>پوشش مجموعه‌ی ۹۵٪</dt><dd>${pct(rec.coverage95)}</dd>
             <dt>میانگین احتمال مبدأ واقعی</dt><dd>${fmt(rec.mean_true_posterior, 3)}</dd></dl>` : '<p class="small muted">آزمون بازیابی مبدأ روی خانواده‌های ساختگی برای این اجرا انجام نشده است.</p>'}</div></div>
         <div class="card"><h2>محدودیت‌ها</h2><div class="body"><ul>
-          <li>نتیجه به شجره‌ی تأییدشده وابسته است: هویت راویان (مرحله‌ی ۵)، تاریخ‌ها و سندهایی که در شجره آمده‌اند. نخستین راویانی که راوی نیستند (نام مؤلف، تکه‌ای از متن) مبدأ را به بالا می‌رانند.</li>
+          <li>نتیجه به شجره‌ی تأییدشده وابسته است: هویت راویان (مرحله‌ی ۴)، تاریخ‌ها و سندهایی که در شجره آمده‌اند. نخستین راویانی که راوی نیستند (نام مؤلف، تکه‌ای از متن) مبدأ را به بالا می‌رانند.</li>
           <li>خطای سند مستقل از جایگاه فرض شده: ساختگی بودنِ یک سندِ کامل مدل نشده است.</li>
-          <li>واحدهای اختلاف خودکار از هم‌ترازی (مرحله‌ی ۴) آمده‌اند؛ اگر بیشترشان در همه‌ی متن‌ها یکسان باشند، متن قدرت تفکیک کمی دارد و نتیجه بر سندها استوار است.</li>
+          <li>واحدهای اختلاف خودکار از هم‌ترازی (مرحله‌ی ۳) آمده‌اند؛ اگر بیشترشان در همه‌ی متن‌ها یکسان باشند، متن قدرت تفکیک کمی دارد و نتیجه بر سندها استوار است.</li>
           <li>پیوند با کتب رجال خودکار است؛ پیوندهای کم‌اطمینان تنها پیشنهادند.</li>
           <li>پارامترهای مدل (نرخ تغییر متن، خطای سند، امتیاز یال‌ها) ثابت‌اند و برای این خانواده برآورد نشده‌اند.</li>
         </ul></div></div></div>`;
@@ -803,7 +873,7 @@
         ['امتیاز یال (η)', 'ثبت در سند +۳، هم‌شهری بودن +۱، شاگردیِ مستند در کتب رجال +۲؛ استادِ بی‌نام −۴. استادِ ناممکن از نظر زمانی کنار گذاشته می‌شود.'],
         ['سال وفات و منبع آن', 'سال قمری؛ از پایگاه راویان، گراف دانش، تاریخ مؤلف، یا واردشده‌ی کاربر. «برآورد»: از جای راوی در سندها میان دو راویِ تاریخ‌دار.'],
         ['شاهد', 'هر متنِ باقی‌مانده‌ی حدیث همراه با سندش، در یک کتاب.'],
-        ['واحد اختلاف متن', 'بخشی از متن که میان روایت‌ها فرق می‌کند: بودن یا نبودن یک بخش یا چند واژه، واژه‌ای که جای دیگری نشسته، یا عددی دیگر. از هم‌ترازی مرحله‌ی ۴ آمده‌اند.'],
+        ['واحد اختلاف متن', 'بخشی از متن که میان روایت‌ها فرق می‌کند: بودن یا نبودن یک بخش یا چند واژه، واژه‌ای که جای دیگری نشسته، یا عددی دیگر. از هم‌ترازی مرحله‌ی ۳ آمده‌اند.'],
         ['نامعلوم', 'متن کوتاه‌شده است («بنحوه»، «وساق الحديث»)؛ نبودِ بخش به معنای حذف نیست و مدل آن را بی‌اطلاع حساب می‌کند.'],
         ['متن نیاکانی', 'متنی که یک راوی (که متنش به دست ما نرسیده) احتمالاً نقل کرده، بازسازی‌شده از متن‌های شاگردانش.'],
         ['منبع بیشینه', 'نامزد مبدأ با بیشترین احتمال پسین (★).'],

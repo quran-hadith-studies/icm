@@ -32,6 +32,7 @@ class Evidence:
     ess: float = float("nan")
     graphs: List[Graph] = field(default_factory=list, repr=False)
     log_w: List[float] = field(default_factory=list, repr=False)
+    trace: Dict = field(default_factory=dict, repr=False)   # SMC: how the run went, step by step
 
 
 @dataclass
@@ -172,18 +173,22 @@ def smc_source_evidence(family: Family, space: CandidateSpace, s: str,
         particles.append(G)
         ll.append(v)
     if not particles:
-        return Evidence(s, -np.inf, "smc", 0, 0.0)
+        return Evidence(s, -np.inf, "smc", 0, 0.0, trace=dict(tried=n_tried, survived=0, steps=[]))
     ll = np.array(ll)
     logw = np.zeros(len(particles))
     # the discarded draws carry zero likelihood: Z is scaled by the share that survived
     log_Z = float(np.log(len(particles) / n_tried))
+    # per temperature: [gamma, log Z so far, ESS / N before resampling, resampled, MCMC acceptance, distinct trees]
+    steps: List[list] = []
     gammas = np.linspace(0, 1, n_steps + 1)
     for t in range(1, len(gammas)):
         d = gammas[t] - gammas[t - 1]
         inc = d * ll
         log_Z += logsumexp(logw + inc) - logsumexp(logw)
         logw = logw + inc
-        if effective_sample_size(logw) < ess_threshold * len(particles):
+        ess = effective_sample_size(logw)
+        resampled = ess < ess_threshold * len(particles)
+        if resampled:
             p = np.exp(logw - logw.max())
             p /= p.sum()
             idx = rng.choice(len(particles), size=len(particles), p=p)
@@ -192,8 +197,10 @@ def smc_source_evidence(family: Family, space: CandidateSpace, s: str,
             logw = np.zeros(len(particles))
         g = gammas[t]
         lprior = np.array([prior.log_prior(G) for G in particles])
+        n_prop = n_acc = 0
         for i, G in enumerate(particles):          # parent-reassignment MCMC
             for _ in range(n_mcmc):
+                n_prop += 1
                 P, _r = propose_parent_change(G, prior, rng)
                 if P is None:
                     continue
@@ -206,9 +213,14 @@ def smc_source_evidence(family: Family, space: CandidateSpace, s: str,
                 a = (lp_new + g * ll_new) - (lprior[i] + g * ll[i])
                 if math.log(rng.random() + 1e-300) < a:
                     G, ll[i], lprior[i] = P, ll_new, lp_new
+                    n_acc += 1
             particles[i] = G
+        distinct = len({tuple(sorted(G.parent.items())) for G in particles})
+        steps.append([round(float(g), 4), round(float(log_Z), 3), round(ess / len(particles), 3), bool(resampled),
+                      round(n_acc / n_prop, 3) if n_prop else None, distinct])
     return Evidence(s, float(log_Z), "smc", len(particles),
-                    effective_sample_size(logw), particles, list(logw))
+                    effective_sample_size(logw), particles, list(logw),
+                    trace=dict(tried=n_tried, survived=len(particles), steps=steps))
 
 
 # ---- section 9 -----------------------------------------------------------

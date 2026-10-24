@@ -100,4 +100,10 @@ dialog.helpdlg::backdrop{background:rgb(15 23 42 / .5)}
 .rv .stp .did{margin:0 0 8px;color:var(--fg)}
 .rv .stp .chk{margin-top:8px;border:1px solid var(--warn);border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--warn) 7%,transparent)}
 .rv .stp .chk summary{cursor:pointer;color:var(--warn);font-weight:600;font-size:13px}.rv .stp .chk li{margin:3px 0;font-size:13px}
-.rv .stpt td,.rv .stpt th{padding:3px 5px}.rv .stpnav{margin:6px 0 0;columns:2 260px}
+.rv .stpt td,.rv .stpt th{padding:3px 5px}
+.rv .stp details.aside{margin-top:8px}.rv .stp details.aside summary{cursor:pointer;color:var(--muted)}
+.rv .stp h3{margin:14px 0 4px;font-size:14px}
+.rv svg.conv{width:100%;max-width:640px;height:auto;display:block;margin:4px 0 8px}
+.rv svg.conv text{font-size:11px;fill:var(--muted)}.rv svg.conv .grid{stroke:var(--line);stroke-width:1}
+.rv .convleg{display:flex;flex-wrap:wrap;gap:4px 14px}.rv .convleg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-inline-end:5px;vertical-align:middle}
+.rv svg.spark{width:90px;height:18px;vertical-align:middle}.rv svg.spark polyline{stroke:var(--accent);stroke-width:1.3}.rv svg.spark circle{fill:var(--warn)}.rv .stpnav{margin:6px 0 0;columns:2 260px}
