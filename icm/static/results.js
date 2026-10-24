@@ -86,11 +86,12 @@
     /* ---------- skeleton: sub-tabs and panels ---------- */
     const TABS = [['result', 'نتیجه'], ['tree', 'درخت'], ['texts', 'متن‌ها'], ['sources', 'مبدأ'], ['graph', 'درخت بیشینه'],
       ['paths', 'طریق بیشینه'], ['recon', 'متن بازسازی‌شده'], ['sens', 'حساسیت'], ['method', 'روش و محدودیت‌ها'], ['gloss', 'راهنما']];
-    const hb = key => (window.ICMHelp ? window.ICMHelp.html(key) : '');
+    const tabHelp = {};       // a tab's explanation (help_fa.js) sits behind the (i) at the end of the tab bar; its panel names it while it is built
+    const hb = key => { if (window.ICMHelp && window.ICMHelp.entries[key]) tabHelp[cur] = key; return ''; };
     const MP = D.max_paths || null;
     const root = document.createElement('div');
     root.className = 'rv';
-    root.innerHTML = `<nav class="rvtabs" role="tablist">${TABS.map(([id, t]) => `<button type="button" role="tab" data-tab="${id}">${t}</button>`).join('')}</nav>
+    root.innerHTML = `<nav class="rvtabs" role="tablist">${TABS.map(([id, t]) => `<button type="button" role="tab" data-tab="${id}">${t}</button>`).join('')}<button type="button" class="info rvhelp" hidden>i</button></nav>
       ${TABS.map(([id]) => `<section class="rvp" data-p="${id}" hidden></section>`).join('')}`;
     host.replaceChildren(root);
     const panel = id => root.querySelector(`[data-p="${id}"]`);
@@ -103,6 +104,9 @@
       root.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === id)));
       root.querySelectorAll('.rvp').forEach(p => { p.hidden = p.dataset.p !== id; });
       if (!built[id]) { built[id] = true; ({ result: resultPanel, tree: treePanel, texts: textsPanel, sources: sourcesPanel, graph: graphPanel, paths: pathsPanel, recon: reconPanel, sens: sensPanel, method: methodPanel, gloss: glossPanel })[id](panel(id)); }
+      const hbtn = root.querySelector('.rvhelp'), hk = tabHelp[id];
+      hbtn.hidden = !hk;
+      if (hk) { const t = 'توضیحات: ' + window.ICMHelp.entries[hk].title; hbtn.title = t; hbtn.setAttribute('aria-label', t); }
       if (id === 'texts') drawTexts();
       if (ctx.onTab) ctx.onTab(id);
     }
@@ -126,6 +130,7 @@
       recon: 'متن پیوسته‌ای که این راوی به احتمال زیاد نقل کرده: در هر واحد تغییر، محتمل‌ترین حالت در متن نیاکانی او؛ جاهای بی‌اختلاف از متن مشترک. سبز ≥۹۰٪، زرد ۶۰ تا ۹۰٪، نارنجی کمتر؛ خط‌خورده = احتمالاً نداشته.',
     };
     root.addEventListener('click', ev => {
+      if (ev.target.closest('.rvhelp')) { window.ICMHelp.dialog(tabHelp[cur]); return; }
       const hb = ev.target.closest('[data-help]');
       if (hb) { ev.preventDefault(); ev.stopPropagation(); (ctx.help || localPop)(hb, HELP[hb.dataset.help] || hb.dataset.help); return; }
       const t = ev.target.closest('[data-tab]');

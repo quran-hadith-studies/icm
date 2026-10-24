@@ -306,6 +306,17 @@
     return `<details class="helpblk"${isOpen() ? ' open' : ''} data-helpblk="1"><summary>توضیحات: ${esc(h.title)}</summary><dl>` +
       LAB.filter(([k]) => h[k] && h[k] !== '—').map(([k, t]) => `<dt>${t}</dt><dd>${esc(h[k])}</dd>`).join('') + '</dl></details>';
   }
+  /* the entry in a modal dialog of its own (the results' tab (i); works on the standalone page and the exports too) */
+  function dialog(key) {
+    const h = H[key]; if (!h) return;
+    const d = document.createElement('dialog'); d.className = 'helpdlg'; d.dir = 'rtl';
+    d.innerHTML = `<div class="helpdlg-in"><button type="button" class="x" aria-label="بستن">×</button><h3>${esc(h.title)}</h3><div class="helpblk"><dl>` +
+      LAB.filter(([k]) => h[k] && h[k] !== '—').map(([k, t]) => `<dt>${t}</dt><dd>${esc(h[k])}</dd>`).join('') + '</dl></div></div>';
+    d.querySelector('.x').onclick = () => d.close();
+    d.addEventListener('click', ev => { if (ev.target === d) d.close(); });      // outside the box: the backdrop
+    d.addEventListener('close', () => d.remove());
+    document.body.append(d); d.showModal();
+  }
   document.addEventListener('toggle', ev => { if (ev.target && ev.target.dataset && ev.target.dataset.helpblk) remember(ev.target.open); }, true);
-  window.ICMHelp = { block, html, keys: Object.keys(H), entries: H };
+  window.ICMHelp = { block, html, dialog, keys: Object.keys(H), entries: H };
 })();

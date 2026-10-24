@@ -182,8 +182,8 @@ async function home() {
   setTitle('پروژه‌ها');
   const idx = await api('/index');
   $app.replaceChildren(
-    el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin:0' }, el('h2', { style: 'margin:0' }, 'پروژه‌ها'),
-        el('button', { class: 'primary', disabled: !ME.user, title: ME.user ? '' : 'برای ساخت پروژه وارد شوید', onclick: () => go('/new') }, 'پروژه‌ی تازه')), help('home'),
+    el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin:0' }, el('h2', { style: 'margin:0' }, 'پروژه‌ها', help('home')),
+        el('button', { class: 'primary', disabled: !ME.user, title: ME.user ? '' : 'برای ساخت پروژه وارد شوید', onclick: () => go('/new') }, 'پروژه‌ی تازه')),
       idx.projects.length ? el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی'].map(t => el('th', {}, t)))), el('tbody', {},
         idx.projects.map(p => el('tr', {}, el('td', {}, el('a', { href: `${BASE}/p/${p.pid}`, onclick: ev => { ev.preventDefault(); go('/p/' + p.pid); } }, p.title)),
           el('td', { dir: 'ltr', class: 'small' }, p.seed), el('td', {}, p.owner), el('td', {}, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status)),
@@ -206,7 +206,7 @@ async function newProject() {
   if (pre) { q.value = pre; setTimeout(go_, 0); }
   $app.replaceChildren(
     el('p', { class: 'small' }, el('a', { href: BASE || '/', onclick: ev => { ev.preventDefault(); go('/'); } }, '← فهرست پروژه‌ها')),
-    el('div', { class: 'card' }, el('h2', {}, 'پروژه‌ی تازه: شروع از یک حدیث'), help('new'),
+    el('div', { class: 'card' }, el('h2', {}, 'پروژه‌ی تازه: شروع از یک حدیث', help('new')),
       el('p', { class: 'muted' }, 'یک حدیث را انتخاب کنید؛ سامانه خانواده‌ی آن را می‌یابد، شما شاهدها و راویان را تأیید می‌کنید و در پایان قدیمی‌ترین منبع قابل‌بازیابی برآورد می‌شود.'),
       el('div', { class: 'toolbar' }, q, el('button', { class: 'primary', onclick: go_ }, 'جستجو')), out));
   if (!pre) q.focus();
@@ -632,7 +632,7 @@ const panels = {
         reloadAt(c.pid, 'alignment');
       };
       draw();
-      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'واحد تازه روی ستون‌های ', fa(j0 + 1), ' تا ', fa(j1 + 1), ' از بخش ', fa(cl.i + 1)), help('step3.unitedit'),
+      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'واحد تازه روی ستون‌های ', fa(j0 + 1), ' تا ', fa(j1 + 1), ' از بخش ', fa(cl.i + 1), help('step3.unitedit', false, true)),
         el('p', { class: 'small muted' }, 'واحد به واژه‌های همین شاهدها بسته است، نه به شماره‌ی ستون؛ اگر هم‌ترازی عوض شود، واحد همراه واژه‌ها می‌رود.'),
         el('div', { class: 'toolbar' }, el('label', { class: 'small' }, 'نام واحد: '), txt), body,
         inside.length ? el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: true, onchange: ev => { dropAuto = ev.target.checked; } }),
@@ -676,7 +676,7 @@ const panels = {
       ok.disabled = true;
       ok.onclick = () => saveUnits([[key, ukey, e => { delete e.states; if (Object.keys(pend.states).length) e.states = pend.states; }]], `unit ${ukey}`);
       draw();
-      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, `واحد ${u.k != null ? fa(u.k + 1) + ': ' : ''}${UKIND(u)} — `, el('span', { class: 'ar' }, uwhere(u, A))), help('step3.unitedit'),
+      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, `واحد ${u.k != null ? fa(u.k + 1) + ': ' : ''}${UKIND(u)} — `, el('span', { class: 'ar' }, uwhere(u, A)), help('step3.unitedit', false, true)),
         body, el('div', { class: 'toolbar' }, ok, el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.'))));
     };
     const unitChips = u => [
@@ -983,7 +983,7 @@ const panels = {
         for (let j = merges.length - 1; j >= 0; j--) if (merges[j].includes(me)) merges.splice(j, 1);
         pick = null; keepUrl(); draw();
       };
-      return [el('h3', {}, 'یکی کردن و جدا کردن'), help('step4.merge_split'),
+      return [el('h3', {}, 'یکی کردن و جدا کردن', help('step4.merge_split')),
         isSplit ? el('p', { class: 'small' }, `این شخص را از «${(() => { const f = (splits[me] || {}).from || ''; return (all.get(f) || {}).label || extraLabel[f] || labelOf(f) || '—'; })()}» جدا کرده‌اید. `, c.can ? el('button', { class: 'small', onclick: undoSplit }, 'بازگرداندن این جاها به هویت پیشین') : null) : null,
         curM.length ? el('div', { class: 'small' }, 'یکی‌شده با: ', curM.map(([m, j]) => { const o = m[0] === me ? m[1] : m[0];
           return el('span', { class: 'mchip' }, el('span', { class: 'ar' }, (all.get(o) || { label: labelOf(o) }).label), el('span', { class: 'muted', dir: 'ltr' }, ' ' + short(o, 26)),
@@ -997,10 +997,9 @@ const panels = {
       const id = pick.key.slice(3), occ = pick.occ, [ch, e] = splitOcc(occ), s = stateOf(ch, e), isSplit = /^split:/.test(id);
       const places = I.chains.flatMap(c2 => c2.elems.filter(e2 => stateOf(c2, e2).id === id).map(e2 => `${c2.aid}|${e2.i}`));
       fill(part3,
-        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, isSplit ? labelOf(id) : e.raw || e.name)),
+        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, isSplit ? labelOf(id) : e.raw || e.name), help('step4.name')),
           el('span', { class: 'chip ' + (isSplit ? 'user' : 'exact') }, isSplit ? 'شخص جداشده (انتخاب کاربر)' : ST.exact), el('span', { class: 'small muted', dir: 'ltr' }, id), el('span', { class: 'grow' }),
           isSplit ? null : el('button', { class: 'small', onclick: () => narratorCard(id) }, 'کارت راوی'), el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
-        help('step4.name'),
         el('p', { class: 'small muted' }, isSplit ? 'این جاها را شما از هویتی که داشتند جدا کرده‌اید و شخص تازه‌ای‌اند؛ در شجره یک گره‌اند.' : `${id.startsWith('kg:') ? 'گراف دانش' : 'نور'} خودش این نام را به این راوی پیوند داده است؛ تصمیمی لازم نیست.`),
         el('h3', {}, places.length > 1 ? `این شخص در ${fa(places.length)} جا آمده است` : 'این شخص فقط همین جا آمده است'),
         el('div', { class: 'occs' }, places.map(o => occRow(o, occ, false))),
@@ -1276,7 +1275,7 @@ const panels = {
         msg.textContent = note;
         ok.disabled = !changed();
       };
-      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'ویرایش سند: ', el('span', { class: 'ar' }, wtitle(ch.wid))), help('step4.chainedit'),
+      modal(el('div', {}, el('h3', { style: 'margin-top:0' }, 'ویرایش سند: ', el('span', { class: 'ar' }, wtitle(ch.wid)), help('step4.chainedit', false, true)),
         el('div', { class: 'small muted' }, 'فهرست زیر سندِ این حدیث است، به ترتیب متن. در متن فقط نامِ راویان رنگی است (هر راوی یک رنگ)؛ هیچ واژه‌ای از آنِ دو راوی نیست. راوی حذف‌شده از فهرست بیرون می‌رود. لفظ نقلِ هر راوی همه‌ی واژه‌های میان او و نام پیشین است، مگر آن‌که در «✎ انتخاب لفظ نقل» بخشی از آن را برگزینید؛ با جابه‌جایی، افزودن یا حذف نامی کنار آن، دوباره همه‌ی میانه می‌شود. با ذخیره، راویان و نامزدهایشان از نو ساخته می‌شود؛ انتخاب‌های پیشین بر جای خود می‌مانند.'),
         askBox, tools, list, bar, msg, box,
         el('div', { class: 'toolbar' }, ok, el('button', { type: 'button', onclick: tryCloseModal }, 'بستن'), chainPending ? el('span', { class: 'small muted' }, 'ویرایش پیشین این مرحله هنوز در حال محاسبه است.') : null)));
@@ -1310,12 +1309,11 @@ const panels = {
         api('/narrators?q=' + encodeURIComponent(q3) + verQ(I)).then(r => { sres = r; }, err => { sres = { error: err.message }; }).finally(() => { sbusy = false; drawEd(); }); };
       const sIn = el('input', { type: 'text', value: sq, placeholder: 'نام راوی', class: 'ar', oninput: ev => { sq = ev.target.value; }, onkeydown: ev => { if (ev.key === 'Enter') go3(sq.trim()); } });
       fill(part3, 
-        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, relOnly(cd) ? cname({ ...cd, name: e.raw || e.name }) : e.raw || e.name)),
+        el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, relOnly(cd) ? cname({ ...cd, name: e.raw || e.name }) : e.raw || e.name), help('step4.name')),
           el('span', { class: 'chip ' + stOf(s) }, ST[stOf(s)] + (s.here ? ' — فقط همین جا' : '')),
           el('span', { class: 'small muted' }, `در ${wtitle(ch.wid)} · بهترین نامزد: ${TIER[cd.tier] || cd.tier}`), el('span', { class: 'grow' }),
           c.can && !STATIC && !isGap(e) ? el('button', { class: 'small', title: 'افزودن راوی از هر جای متن (سند یا متن)، حذف این راوی، یا جابه‌جایی مرز نام و لفظ نقل روی خود متن', onclick: () => chainEditor(ch, e.i) }, '✎ ویرایش سند در متن کامل') : null,
           el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
-        help('step4.name'),
         renameBox(ch, e),
         el('h3', {}, relOnly(cd) ? 'نسبت، نه نام' : n > 1 ? `این نام در ${fa(n)} جا آمده است` : 'این نام فقط همین جا آمده است'),
         relOnly(cd) ? el('p', { class: 'small muted' }, `«${e.raw || e.name}» نام نیست، نسبت است (پدر، جد، برادر… راوی پیشین)، پس در هر سند کس دیگری است و جداگانه تعیین می‌شود. پیشنهادها از سندهای نور آمده‌اند که برای همان راوی پیشین همین نسبت را به نام آورده‌اند (پدر و جد امامان از جدول امامان). «عن أبيه عن جده» یعنی پدرِ همان پدر.`) : null,
@@ -1344,14 +1342,13 @@ const panels = {
     /* the death date of the person (or the name) at the chosen place */
     const dateBox = (ch, e, s) => {
       const d = dateOf(ch, e), k = d.key, isPerson = !k.startsWith('occ:'), mine = dates[k];
-      const hdr = help('step4.dates');
       const kn = s.id && known[s.id] ? known[s.id] : null;
       const set = (lo, hi) => { if (lo == null && hi == null) delete dates[k]; else { lo = lo ?? hi; hi = hi ?? lo; dates[k] = [Math.min(lo, hi), Math.max(lo, hi)]; } setTimeout(draw); };   // after the input's own blur/change
       const num = v => v === '' || isNaN(+v) ? null : +v;
       const lo = el('input', { type: 'number', placeholder: 'از', style: 'width:90px', value: mine ? mine[0] : '', disabled: !c.can });
       const hi = el('input', { type: 'number', placeholder: 'تا', style: 'width:90px', value: mine ? mine[1] : '', disabled: !c.can });
       lo.onchange = hi.onchange = () => set(num(lo.value), num(hi.value));
-      return [el('h3', {}, 'تاریخ وفات (اختیاری)'), hdr,
+      return [el('h3', {}, 'تاریخ وفات (اختیاری)', help('step4.dates')),
         el('p', { class: 'small' }, d.death && d.src !== 'user' ? `ف ${yr(d.death)} — ${SRCD[d.src] || d.src || 'پایگاه راویان'}. ` : '',
           kn && mine ? `پایگاه: ف ${yr(kn.death)}. ` : '',
           !d.death ? el('span', { class: 'undc' }, 'تاریخی در پایگاه‌ها نیست؛ در شجره از روی جایش در سندها (میان استاد و شاگرد) برآورد می‌شود. ') : null,
@@ -1506,11 +1503,11 @@ const panels = {
           el('span', { class: 'small muted' }, ' انتخاب‌های ذخیره‌شده می‌مانند؛ شجره دوباره ساخته می‌شود و باید دوباره تأیید شود.')) : null,
         I.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, `${wtitle(f.ref)}: ${flagText(f)}`))) : null,
       card(['پیشنهادها از پایگاه‌ها', info('برای نام‌هایی که منبع به راوی پیوند نداده، آنچه پایگاه‌ها (نور، گراف دانش، پایگاه راویان) می‌گویند. هر پیشنهاد با دلیلش آمده است؛ هیچ‌کدام بی‌پذیرش شما به کار نمی‌رود.')], help('step4.suggestions'), sugBox),
-      el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۱. حدیث‌ها'), seg,
+      el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۱. حدیث‌ها', help('step4.list')), seg,
           el('label', { class: 'small' }, el('input', { type: 'checkbox', onchange: ev => { onlyUnd = ev.target.checked; drawList(); } }), ' فقط با نام بی‌تصمیم'),
           el('label', { class: 'small' }, el('input', { type: 'checkbox', onchange: ev => { onlyUndated = ev.target.checked; drawList(); } }), ' فقط با راوی بی‌تاریخ'),
           el('input', { type: 'text', placeholder: 'پالایش با نام راوی یا کتاب', oninput: ev => { q = ev.target.value.trim(); drawList(); } })),
-        help('step4.list'), listSum, listBox),
+        listSum, listBox),
       part2, part3, save);
     let auto = false;
     if (!cur) { cur = order.find(w => hstate(w).st === 'und') || order[0] || null; auto = !!cur; }
@@ -1679,13 +1676,31 @@ async function awaitingPanel(main, c) {
 
 /* ---------- pieces ---------- */
 const fill = (node, ...kids) => node.replaceChildren(...kids.flat(2).filter(x => x != null && x !== false));
-function card(title, ...kids) { return el('div', { class: 'card' }, el('h2', {}, title), ...kids); }
-/* the full explanation of a section, folded under its title (help_fa.js); inner = the entry's body alone (for a popover) */
-function help(key, inner) {
+/* a card; a section's explanation (help(key) among the kids) goes into its title as (i), one (i) with any the title already has */
+function card(title, ...kids) {
+  const hk = kids.filter(k => k && k.dataset && k.dataset.hk);
+  if (!hk.length) return el('div', { class: 'card' }, el('h2', {}, title), ...kids);
+  const t = [title].flat(), own = t.filter(x => x && x._help);
+  return el('div', { class: 'card' }, el('h2', {}, ...t.filter(x => !(x && x._help)), foldInfo([...own.filter(b => typeof b._help.content === 'string'), ...hk, ...own.filter(b => typeof b._help.content !== 'string')])),
+    ...kids.filter(k => !hk.includes(k)));
+}
+/* several (i) of one title as one: their texts one after the other in the modal */
+function foldInfo(bs) {
+  if (bs.length === 1) return bs[0];
+  const body = b => { const c = b._help.content, v = typeof c === 'function' ? c() : c; return typeof v === 'string' ? [el('p', {}, v)] : [v].flat(); };
+  return info(() => bs.flatMap(body), { modal: true, title: bs.find(b => b.dataset.hk)._help.title });
+}
+/* the full explanation of a section (help_fa.js) behind an (i) with its title; inner = the entry's body alone (inside another help);
+   pop: in a popover, for a section that is itself in the modal (the modal would replace it) */
+function help(key, inner, pop) {
   if (!window.ICMHelp) return null;
-  if (!inner) return ICMHelp.block(key);
   const b = ICMHelp.block(key); if (!b) return null;
-  return el('div', { class: 'helpblk' }, b.querySelector('dl'));     // a <details> without its summary would show the browser's «Details»
+  const blk = el('div', { class: 'helpblk' }, b.querySelector('dl'));     // a <details> without its summary would show the browser's «Details»
+  if (inner) return blk;
+  const t = ICMHelp.entries[key].title;
+  const btn = info(() => [el('h3', {}, t), blk], { modal: !pop, title: 'توضیحات: ' + t });
+  btn.dataset.hk = key;
+  return btn;
 }
 /* full texts: the record of /api/hadith (sanad and matn without markup) and the hadith's page on the site */
 const FULL = new Map();
@@ -1732,11 +1747,13 @@ function fullDetails(wid, hl, label, state, key) {
 }
 /* (i): a small round button next to a title or a control; its help opens beside it (long help in the modal) */
 function info(content, opts = {}) {
-  return el('button', { class: 'info', type: 'button', title: opts.title || 'راهنما', 'aria-label': opts.title || 'راهنما', 'aria-haspopup': 'dialog', onclick: ev => {
+  const b = el('button', { class: 'info', type: 'button', title: opts.title || 'راهنما', 'aria-label': opts.title || 'راهنما', 'aria-haspopup': 'dialog', onclick: ev => {
     ev.preventDefault(); ev.stopPropagation();
     const body = typeof content === 'function' ? content() : content;
     if (opts.modal) { closePop(); modal(el('div', { class: 'helpbox' }, body)); } else popover(ev.currentTarget, body);
   } }, 'i');
+  b._help = { content, title: opts.title };       // card() folds the (i)s of one title into one
+  return b;
 }
 /* a long explanation behind (i) next to the title it explains: opens in the modal */
 const helpOf = (title, ...kids) => info(() => [el('h3', {}, title), ...kids], { modal: true, title });
@@ -2167,10 +2184,9 @@ async function narratorCard(id) {
   const vname = NV || (P && P.narrator_version) || null;
   const n = await api('/narrator/' + encodeURIComponent(id) + (vname ? '?version=' + encodeURIComponent(vname) : '')).catch(e => (e.status === 400 ? api('/narrator/' + encodeURIComponent(id)) : Promise.reject(e)));
   const kv = (k, v) => v != null && v !== '' ? [el('dt', {}, k), el('dd', {}, typeof v === 'object' ? JSON.stringify(v) : String(v))] : [];
-  const box = el('div', {}, el('h2', { class: 'ar' }, n.name || id), el('div', { class: 'small muted', dir: 'ltr' }, id),
+  const box = el('div', {}, el('h2', {}, el('span', { class: 'ar' }, n.name || id), help('narrator.card', false, true)), el('div', { class: 'small muted', dir: 'ltr' }, id),
     n.wiki ? el('p', { class: 'small' }, el('a', { href: `${SITE}/narrator/p/${n.wiki.person_id}`, target: '_blank' }, 'صفحه‌ی این شخص در پایگاه راویان ↗'),
-      n.wiki.also && n.wiki.also.length ? el('span', { class: 'muted' }, ' — شناسه‌های دیگر همین شخص: ', el('span', { dir: 'ltr' }, n.wiki.also.join('، '))) : null) : null,
-    help('narrator.card'));
+      n.wiki.also && n.wiki.also.length ? el('span', { class: 'muted' }, ' — شناسه‌های دیگر همین شخص: ', el('span', { dir: 'ltr' }, n.wiki.also.join('، '))) : null) : null);
   if (n.merged && n.merged.members && n.merged.members.length > 1) {
     const edges = n.merged.edges || [];
     box.append(el('h3', {}, `شناسه‌هایی که پایگاه «${n.merged.version}» همین شخص می‌داند`), el('table', {}, n.merged.members.map(m => {
