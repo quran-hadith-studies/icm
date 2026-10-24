@@ -356,13 +356,33 @@ def hadithai_chain(rec: dict) -> Optional[dict]:
 
 
 def chains_for(rec: dict) -> List[dict]:
-    """Noor's linked isnads, then the KG's, then hadith.ai's narrator tags, then the rule-based parse of the text."""
+    """Noor's linked isnads, then the KG's, then hadith.ai's narrator tags, then the rule-based parse of the text.
+
+    A reference inside a record («… و رواه الصدوق عن … مثله», ``pointers.record``: wid «<host>~k») has the isnad written
+    before its formula: Noor's isnad k of the host when Noor read one isnad per reference, else the parse of that isnad.
+    The host then keeps only its own (first) Noor isnad."""
+    if rec.get("host"):
+        from . import pointers
+        host = corpus.get(rec["host"])
+        if host is not None and host["corpus"] == "v02" and host["hid"] >= config.NOOR_OFFSET:
+            n_in = sum(1 for r in pointers.split(host)["refs"] if r["of"] == "host")
+            ch = noor_chains(host)
+            if n_in and len(ch) == 1 + n_in and rec["ref_k"] < len(ch):
+                c = ch[rec["ref_k"]]
+                return [dict(c, aid=f"{rec['wid']}#{rec['ref_k']}", wid=rec["wid"])]
+        t = text_chain(rec)
+        return [t] if t else []
     if rec["corpus"] == "kg":
         ch = kg_chains(rec)
         if ch:
             return ch
     elif rec["hid"] >= config.NOOR_OFFSET:
         ch = noor_chains(rec)
+        if len(ch) > 1:
+            from . import pointers
+            n_in = sum(1 for r in pointers.split(rec)["refs"] if r["of"] == "host")
+            if n_in and len(ch) == 1 + n_in:           # the others are the isnads of its inner references («<wid>~k»)
+                ch = ch[:1]
         if ch:
             return ch
     if rec["corpus"] == "v02":

@@ -102,6 +102,18 @@ def _kg_record(r: sqlite3.Row, book: Optional[sqlite3.Row]) -> dict:
 
 
 def get_many(wids: Sequence[str]) -> Dict[str, dict]:
+    """Records by witness id; «<id>~k» is reference k inside record <id> (``pointers.record``): its isnad and formula."""
+    inner = [w for w in wids if "~" in w]
+    if inner:
+        from . import pointers
+        out = get_many([w for w in wids if "~" not in w])
+        hosts = get_many(sorted({w.split("~")[0] for w in inner}))
+        for w in inner:
+            h, k = pointers.pseudo(w)
+            r = pointers.record(hosts[h], k) if h in hosts else None
+            if r is not None:
+                out[w] = r
+        return out
     out: Dict[str, dict] = {}
     v02 = [wid_parts(w)[1] for w in wids if w.startswith("v02:")]
     kg = [wid_parts(w)[1] for w in wids if w.startswith("kg:")]
@@ -128,7 +140,7 @@ def get(wid: str) -> Optional[dict]:
 def neighbours(wid: str, n: int = 4, after: bool = True) -> List[str]:
     """The ``n`` hadiths that follow ``wid`` in its book (``after=False``: that precede it, nearest first). v02 ids
     run in book order inside a book (Noor: one per hadith; other sources: gaps), the KG has the number in the book."""
-    co, i = wid_parts(wid)
+    co, i = wid_parts(wid.split("~")[0])
     op, order = (">", "asc") if after else ("<", "desc")
     if co == "v02":
         r = conn("v02").execute("select book from hadith where id=?", (str(i),)).fetchone()

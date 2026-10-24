@@ -31,6 +31,10 @@ table.cands td.txt{min-width:340px;max-width:560px}
 table.cands tr.on{background:var(--accent-soft)}
 table.cands .matn{max-height:150px}
 .refb{color:var(--accent);font-weight:600;cursor:help}
+/* step 3: one card per reference */
+.refcard h3{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 8px}.refcard .refown{margin-bottom:8px}
+.refcard .refformula mark,.refcard mark.refmk{background:var(--accent-soft);color:var(--accent);font-weight:700;border-radius:3px;padding:0 2px}
+.refcard .reftext{width:100%;font-family:var(--font-ar);font-size:17px;line-height:1.9}.refcard .ar.matn{max-height:none}
 .flags li{margin:3px 0}.flags{padding-inline-start:18px;margin:6px 0}
 .grid-wrap{overflow:auto;max-height:420px;border:1px solid var(--line-2);border-radius:var(--r-sm)}
 /* alignment: one row per witness, one column per aligned word, columns grouped and coloured by part */
@@ -198,6 +202,8 @@ body.inproj header.top .sub{display:none}
 .card.pcard{padding-block:8px}
 .pcard label{display:inline-flex;align-items:center;gap:6px;min-width:0}.pcard select{min-width:0}
 .pcard h1{margin:0;font-size:15.5px;font-weight:700}
+.pstep{display:inline-flex;align-items:center;gap:2px;flex:none}.pstep .step{flex:none;min-width:0;padding:3px 10px;border-radius:99px;white-space:nowrap}
+.pstep .stepinfo{display:inline-flex}.pstep .stepinfo .info{margin-inline:2px 0}
 .hcur{font:inherit;font-size:12.5px}.hcur.now::after{content:none}.hcur.now .caret::before{content:'● ';color:var(--warn)}
 .steplist{display:flex;flex-direction:column;gap:4px;min-width:170px}.steplist .step{flex:none;text-align:start}
 @media (max-width:700px){button.info{min-height:0;min-width:0}}

@@ -11,9 +11,9 @@ more witnesses share and the seed lacks) is aligned on its own:
     - inside a present clause: runs of adjacent columns with the same presence pattern
       (words some witnesses omit) and substitution columns (the witnesses' words differ).
   A witness that abbreviates ("وساق الحديث", "بنحوه") is NA for the clauses it does not
-  show; leading and trailing gaps of a segment are NA (truncation is not absence). A hadith that only points at the
-  text before it (``search.pointer_of``) is aligned with that text: «مثله / بعينه» has its readings, «نحوه / بمعناه»
-  is NA everywhere (close to it, words unknown) and stays out of the grids.
+  show; leading and trailing gaps of a segment are NA (truncation is not absence). A hadith that refers to another
+  text («مثله وزاد فيه …», ``pointers.py``) is aligned with the text its template builds, or the one the user wrote in
+  step 3 (``parts.refs``); one marked approximate («نحوه» not yet written out) is NA everywhere and stays out of the grids.
 
 The slot of a clause in a witness is its matched span, without an isolated edge match (the
 "الله" of "قال رسول الله" matched to the clause's own "الله"), plus as many tokens on each side
@@ -169,13 +169,19 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         wits.append(dict(wid=c["wid"], tokens=c["window_text"].split(), matn=c["matn"], title=c["title"],
                          author=c["author"], death=c["death"], tradition=c["tradition"], work=c["work"],
                          cls=c["suggested"], copies=c.get("copies", []), w0=(c.get("window") or [0])[0]))
-        if c.get("ref"):                               # «مثله / نحوه»: the words are those of the text it points at
-            wits[-1]["ref"] = {k: c["ref"].get(k) for k in ("wid", "kind", "marker", "title")}
+        if c.get("ref"):                               # «مثله / نحوه …»: the words the template builds from the text referred to (step 3)
+            r = dict(c["ref"])
+            own = (parts.get("refs") or {}).get(c["wid"])
+            if own and own.get("text"):                # the text the user confirmed or wrote in step 3
+                txt = own["text"]
+                wits[-1].update(tokens=tokens(txt), matn=txt, w0=0, full=tokens(txt))
+                r.update(approx=bool(own.get("approx")), user=True, ref=own.get("ref") or r.get("ref"), tpl=own.get("tpl") or r.get("tpl"))
+            wits[-1]["ref"] = {k: r.get(k) for k in ("ref", "tpl", "marker", "approx", "user", "of")}
     for w in wits:
         w["marker"] = find_marker(tokens(w["matn"]))
 
     # --- extra clauses: unmatched runs shared by >= 2 witnesses --------------------------------
-    vague = {w["wid"] for w in wits if (w.get("ref") or {}).get("kind") == "similar"}     # «نحوه»: close, words unknown
+    vague = {w["wid"] for w in wits if (w.get("ref") or {}).get("approx")}     # «نحوه» not yet written out in step 3: close, words unknown
     extras = _discover_extras(clause_defs, [w for w in wits if w["wid"] not in vague])
     wit_by = {w["wid"]: w for w in wits}
     for w in wits:

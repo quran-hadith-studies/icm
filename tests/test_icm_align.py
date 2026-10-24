@@ -392,10 +392,14 @@ def test_a_pointer_has_its_texts_readings_or_none():
     w = [SEED, SEED, SEED.replace("ستة", "سبعة"), SEED.replace("ستة", "سبعة"), SEED.replace("ستة", "سبعة")]
     S = _search(SEED, w)
     for i, kind in ((3, "same"), (4, "similar")):
-        S["candidates"][i]["ref"] = dict(wid="t:2", kind=kind, marker="مثله" if kind == "same" else "نحوه", title="")
+        S["candidates"][i]["ref"] = dict(ref="t:2", tpl="copy", approx=kind == "similar", marker="مثله" if kind == "same" else "نحوه")
     r = align.run(S, [f"t:{i}" for i in range(len(w))])
     num = next(u for u in r["units"] if u["kind"] == "numeric")
     assert num["states"]["t:3"] == num["states"]["t:2"] != num["states"]["t:0"]
     assert all(u["states"].get("t:4", align.NA) == align.NA for u in r["units"])
     assert all("t:4" not in g["witnesses"] for g in r["grids"])
-    assert next(x for x in r["witnesses"] if x["wid"] == "t:4")["ref"]["kind"] == "similar"
+    assert next(x for x in r["witnesses"] if x["wid"] == "t:4")["ref"]["approx"]
+    # the text the user writes out in step 3 counts, «نحوه» included
+    r2 = align.run(S, [f"t:{i}" for i in range(len(w))], {"refs": {"t:4": {"text": SEED, "approx": False}}})
+    num2 = next(u for u in r2["units"] if u["kind"] == "numeric")
+    assert num2["states"]["t:4"] == num2["states"]["t:0"] and any("t:4" in g["witnesses"] for g in r2["grids"])

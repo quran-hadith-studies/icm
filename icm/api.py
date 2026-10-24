@@ -37,9 +37,9 @@ ID_RE = re.compile(r"^(noor|kg):\d+$")
 SPLIT_RE = re.compile(r"^split:\d{1,6}$")
 NODE_RE = re.compile(r"^(?:(?:noor|kg):\d+|split:\d{1,6}|name:[^|]{1,200}|(?:rel|anon):[^|]{1,200}:\d+)$")   # any node a merge may name
 PLACE_RE = re.compile(r"^[^|]{1,200}\|\d+$")
-WID_RE = re.compile(r"^(v02|kg):\d+$")
+WID_RE = re.compile(r"^(v02|kg):\d+(~\d{1,2})?$")          # «<id>~k»: reference k inside a record (pointers.py)
 STAGES = serve.STAGES
-EXPORTS = ("seed", "selection", "alignment", "identities", "phylogeny", "analysis", "all")
+EXPORTS = ("seed", "selection", "references", "alignment", "identities", "phylogeny", "analysis", "all")
 MAX_OPEN = 20          # unfinished projects per (non-admin) user, unless the account has its own quota
 COOKIE = "icm_sid"
 
@@ -202,6 +202,33 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         if out is None:
             raise HTTPException(404, "not found")
         return out
+
+    @r.get("/api/hadith/{wid}/near")
+    def hadith_near(wid: str, n: int = 4):
+        """The hadiths around one in its book, with their own words: step 3 offers them as the text a reference points at."""
+        from . import pointers
+        if not WID_RE.match(wid) or "~" in wid:
+            raise HTTPException(400, "bad id")
+        n = max(1, min(n, 8))
+        before, after = list(reversed(corpus.neighbours(wid, n, after=False))), corpus.neighbours(wid, n)
+        recs = corpus.get_many(before + after)
+        return [dict(wid=w, before=w in before, text=pointers.own_text(recs[w])[:600], ref=pointers.lone_ref(recs[w]) is not None)
+                for w in before + after if w in recs]
+
+    @r.post("/api/refs/build")
+    async def refs_build(request: Request):
+        """The text a template builds: {ref, tpl, arg, incipit} -> {text, note, mark, source} (source: the text referred to)."""
+        from . import pointers
+        b = await request.json()
+        ref, tpl = b.get("ref"), b.get("tpl")
+        if not (isinstance(ref, str) and WID_RE.match(ref) and tpl in pointers.TEMPLATES
+                and all(isinstance(b.get(f, ""), str) and len(b.get(f, "")) <= 6000 for f in ("arg", "incipit", "at"))):
+            raise HTTPException(400, "build needs {ref: <wid>, tpl, arg, incipit, at}")
+        rec = corpus.get(ref)
+        if rec is None:
+            raise HTTPException(404, "not found")
+        src = pointers.own_text(rec)
+        return dict(pointers.build(src, tpl, b.get("arg", ""), b.get("incipit", ""), b.get("at", "")), source=src)
 
     @r.get("/api/hadith/{wid}")
     def hadith(wid: str):
@@ -690,12 +717,28 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 one["term"] = {k: [v[0], v[1]] for k, v in term.items()}
             if one:
                 chain_out[aid] = one
+        from . import pointers
+        refs, refs_out = pl.get("refs", {}) or {}, {}
+        bad_refs = HTTPException(400, "refs must map a witness to {ref, tpl, arg, incipit, at, text, approx, ok}")
+        if not (isinstance(refs, dict) and len(refs) <= 1000):
+            raise bad_refs
+        for w, d in refs.items():                       # step 3: the text a reference («مثله / نحوه …») stands for
+            if not (isinstance(w, str) and WID_RE.match(w) and isinstance(d, dict) and set(d) <= {"ref", "tpl", "arg", "incipit", "at", "text", "approx", "ok"}
+                    and (d.get("ref") is None or (isinstance(d["ref"], str) and WID_RE.match(d["ref"])))
+                    and d.get("tpl", "copy") in pointers.TEMPLATES
+                    and all(isinstance(d.get(f, ""), str) and len(d.get(f, "")) <= 6000 for f in ("arg", "incipit", "at", "text"))
+                    and all(isinstance(d.get(f, False), bool) for f in ("approx", "ok"))):
+                raise bad_refs
+            e = {f: d[f] for f in ("ref", "tpl", "arg", "incipit", "at", "text", "approx", "ok") if f in d}
+            if e.get("text", "").strip():
+                e["text"] = e["text"].strip()
+                refs_out[w] = e
         out = dict(seed=None if seed == auto else seed, seed_confirmed=conf,
                    extras_added=[dict(wid=a["wid"], span=a["span"]) for a in added], extras_dropped=sorted(set(dropped)),
                    slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
         for key, val in (("words", {k: {w: m for w, m in v.items() if m} for k, v in words.items()}), ("unit_cls", ucls),
                          ("renames", {k: dict(name=v["name"].strip(), term=v.get("term", "").strip()) for k, v in renames.items()}),
-                         ("chain", chain_out), ("units", units_out)):
+                         ("chain", chain_out), ("units", units_out), ("refs", refs_out)):
             val = {k: v for k, v in val.items() if v}
             if val:                                         # only then, so older decisions and their stage keys stay as they were
                 out[key] = val
