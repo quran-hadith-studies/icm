@@ -2,7 +2,7 @@
 step's data, the full texts of its hadiths, the narrators' cards and the explanations inlined. It opens offline
 (``file://``) and read-only: ``icm.js`` reads ``window.ICM_STATIC`` instead of calling the API.
 
-    render(pid, run, what) -> html          what: seed | selection | references | alignment | identities | phylogeny | analysis | all
+    render(pid, run, what) -> html          what: seed | selection | alignment | identities | phylogeny | analysis | all
 """
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from . import narrator_info, narrator_versions, project, serve
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 SITE = "https://ebadollah.ir"
 VERSION = 1
-STEPS = ["seed", "selection", "references", "alignment", "identities", "phylogeny", "analysis"]
-NEEDS = dict(seed=["search"], selection=["search"], references=["align", "search"], alignment=["align", "search"], identities=["identify", "align", "search"],
+STEPS = ["seed", "selection", "alignment", "identities", "phylogeny", "analysis"]
+NEEDS = dict(seed=["search"], selection=["search"], alignment=["align", "search"], identities=["identify", "align", "search"],
              phylogeny=["graph"], analysis=["results", "viz", "graph", "align", "search"])
 MAX_CARDS = 800
 MAX_TEXTS = 600

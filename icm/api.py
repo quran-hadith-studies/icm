@@ -39,7 +39,7 @@ NODE_RE = re.compile(r"^(?:(?:noor|kg):\d+|split:\d{1,6}|name:[^|]{1,200}|(?:rel
 PLACE_RE = re.compile(r"^[^|]{1,200}\|\d+$")
 WID_RE = re.compile(r"^(v02|kg):\d+(~\d{1,2})?$")          # «<id>~k»: reference k inside a record (pointers.py)
 STAGES = serve.STAGES
-EXPORTS = ("seed", "selection", "references", "alignment", "identities", "phylogeny", "analysis", "all")
+EXPORTS = ("seed", "selection", "alignment", "identities", "phylogeny", "analysis", "all")
 MAX_OPEN = 20          # unfinished projects per (non-admin) user, unless the account has its own quota
 COOKIE = "icm_sid"
 

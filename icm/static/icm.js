@@ -130,13 +130,13 @@ document.getElementById('modal').addEventListener('click', e => { if (e.target.i
 const STATUS = { draft: 'منتظر تصمیم شما', running: 'در حال اجرا', finalized: 'نهایی', failed: 'خطا', awaiting: 'منتظر محاسبه' };
 const CLS = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت' };
 const TIER = { exact: 'قطعی', high: 'بالا', medium: 'متوسط', low: 'پایین', derived: 'استنباطی', none: 'بی‌نامزد' };
-const STEPS = [['seed', '۱ حدیث مبدأ'], ['selection', '۲ جستجو و انتخاب'], ['references', '۳ متن‌های ارجاعی'], ['alignment', '۴ هم‌ترازی'], ['identities', '۵ راویان'], ['phylogeny', '۶ شجره'], ['analysis', '۷ تحلیل']];
+const STEPS = [['seed', '۱ حدیث مبدأ'], ['selection', '۲ جستجو و انتخاب'], ['alignment', '۳ هم‌ترازی'], ['identities', '۴ راویان'], ['phylogeny', '۵ شجره'], ['analysis', '۶ تحلیل']];
 const FLAG_FA = {
   pool_capped: 'تعداد نامزدها بسیار زیاد بود؛ فقط آن‌هایی که نشانه‌ی بیشتری داشتند سنجیده شدند.',
   seed_short: 'متن حدیث مبدأ کوتاه است و جستجو کم‌اعتماد است.', family_large: 'خانواده بسیار بزرگ است.',
   heads_capped: 'تعداد سرزنجیره‌ها از حد گذشت؛ فقط پرشاهدترها نامزد منبع شدند.', units_capped: 'فقط آگاهی‌بخش‌ترین واحدهای تغییر نگه داشته شد.',
   chronology: 'ناسازگاری زمانی: استاد پس از شاگرد درگذشته است (هویت یکی از آن‌ها را بررسی کنید).', repeated_node: 'یک راوی دو بار در یک سند آمده بود.',
-  chain_too_short: 'سندی با کمتر از دو راوی.', witness_without_chain: 'شاهدی بدون سند خوانا؛ فقط در گردآورنده‌اش لنگر شد (پیشنهاد کنار گذاشتنش در مرحله‌ی ۵ آمده است).',
+  chain_too_short: 'سندی با کمتر از دو راوی.', witness_without_chain: 'شاهدی بدون سند خوانا؛ فقط در گردآورنده‌اش لنگر شد (پیشنهاد کنار گذاشتنش در مرحله‌ی ۴ آمده است).',
   unknown_witness: 'شاهد انتخاب‌شده در نتایج جستجو نیست.', part_unused: 'یکی از اصلاح‌های فرازبندی به بخش یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.', no_chain: 'برای این شاهد سندی خوانده نشد.',
   unit_unused: 'یکی از اصلاح‌های واحدها به واحد، واژه یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.',
   unit_constant: 'واحدی که نگه داشته یا ساخته‌اید در همه‌ی شاهدها یک حالت دارد؛ به مدل نمی‌رود.' };
@@ -235,7 +235,7 @@ async function project(pid, run) {
   const can = ME.user && (ME.user === p.owner || ME.admin) && !readonly;
   const cur = run ? 'analysis' : ({ search: 'selection', selection: 'selection', identities: 'identities', phylogeny: 'phylogeny', analysis: 'analysis', done: 'analysis' }[p.step] || 'selection');
   const after = ['identities', 'phylogeny', 'analysis', 'done'];
-  const reached = s => run ? true : ({ seed: true, selection: true, references: after.includes(p.step), alignment: after.includes(p.step), identities: after.includes(p.step),
+  const reached = s => run ? true : ({ seed: true, selection: true, alignment: after.includes(p.step), identities: after.includes(p.step),
     phylogeny: after.slice(1).includes(p.step), analysis: after.slice(2).includes(p.step) })[s];
   const want = route().step;
   const SHOWN = STATIC ? STEPS.filter(([k]) => STATIC.steps.includes(k)) : STEPS;
@@ -361,13 +361,18 @@ const panels = {
     const presel = x => pre.has(x.suggested) && !x.reference;      // a Dorar quotation without isnad is not pre-selected
     const sel = new Set(dec.selected || S.candidates.filter(presel).map(x => x.wid));
     const show = new Set(['witness', 'variant', 'extended', 'abridged', 'partial']);
-    let filter = '';
+    let filter = '', onlyRefs = false;
+    /* references («مثله / نحوه وزاد فيه …»): the texts their templates build, confirmed or edited here (parts.refs) */
+    const refs = { ...((pd && pd.refs) || {}) }, nRefs = S.candidates.filter(x => x.ref).length;
+    const openRef = x => modal(refCard(x, refs[x.wid], refState(x, refs[x.wid]), c, c.can && !STATIC, e => {
+      if (e) refs[x.wid] = e; else delete refs[x.wid];
+      cache.clear(); closeModal(); draw(); }));
     const clausesSel = new Set(sdec.part_query || S.clauses.map(x => x.i));
     const extra = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث برای افزودن (مثلاً v02:800316143)', dir: 'ltr' });
     const list = el('div'), count = el('span', { class: 'muted' });
     const byClass = {}; S.candidates.forEach(x => byClass[x.suggested] = (byClass[x.suggested] || 0) + 1);
     /* a ticked candidate is always listed, whatever its class: hidden it could not be unticked (a search re-run may move it to «متفاوت») */
-    const shown = () => S.candidates.filter(x => (show.has(x.suggested) || sel.has(x.wid)) && (!filter || (x.title || '').includes(filter) || x.matn.includes(filter)))
+    const shown = () => S.candidates.filter(x => (show.has(x.suggested) || sel.has(x.wid)) && (!onlyRefs || x.ref) && (!filter || (x.title || '').includes(filter) || x.matn.includes(filter)))
       .sort((a, b) => (show.has(a.suggested) ? 1 : 0) - (show.has(b.suggested) ? 1 : 0));
     const hiddenSel = () => S.candidates.filter(x => sel.has(x.wid) && !show.has(x.suggested));
 
@@ -384,8 +389,18 @@ const panels = {
           el('div', { class: 'small muted' }, `کامل در ${fa(n.present)}، بخشی در ${fa(n.partial + n.changed)}، نیامده در ${fa(n.absent)}`));
       });
     };
-    const hidNote = el('div', { class: 'small', style: 'color:var(--warn)' });
-    const upd = () => { count.textContent = `${fa(sel.size)} انتخاب‌شده از ${fa(S.candidates.length)} نامزد`; coverage();
+    const hidNote = el('div', { class: 'small', style: 'color:var(--warn)' }), refNote = el('div', { class: 'small refnote' });
+    const refsUpd = () => {
+      const t = S.candidates.filter(x => x.ref && sel.has(x.wid)), n = k => t.filter(x => refState(x, refs[x.wid])[0] === k).length, auto = t.filter(x => !refs[x.wid]);
+      refNote.replaceChildren(...(nRefs ? [help('step2.refs'), ' ',
+        el('label', {}, el('input', { type: 'checkbox', checked: onlyRefs, onchange: ev => { onlyRefs = ev.target.checked; draw(); } }), ` فقط حدیث‌های ارجاعی (${fa(nRefs)})`), ' · ',
+        t.length ? `${fa(t.length)} ارجاعی در تیک‌خورده‌ها: متن تأییدشده ${fa(n('ok'))}، ویرایش‌شده ${fa(n('edited'))}، خودکار ${fa(n('auto'))}` : 'هیچ حدیث ارجاعی‌ای تیک نخورده است',
+        c.can && !STATIC && auto.length ? el('button', { class: 'small', title: 'متن خودکار همه‌ی ارجاعی‌های تیک‌خورده‌ای که هنوز تأیید نشده‌اند، همان‌گونه که هست، تأیید شود', onclick: async ev => {
+          if (!confirm(`متن خودکار ${fa(auto.length)} حدیث ارجاعی، همان‌گونه که هست، تأیید شود؟`)) return; ev.currentTarget.disabled = true;
+          const add = Object.fromEntries(auto.map(x => [x.wid, refEntry(x.ref, x.ref.text, x.ref.approx)]));
+          await saveParts(c.pid, d => ({ refs: { ...d.refs, ...add } }), 'step 2: references confirmed as built');
+          Object.assign(refs, add); cache.clear(); draw(); } }, 'تأیید متن خودکار همه') : null] : [])); };
+    const upd = () => { count.textContent = `${fa(sel.size)} انتخاب‌شده از ${fa(S.candidates.length)} نامزد`; coverage(); refsUpd();
       const h = hiddenSel();
       hidNote.replaceChildren(...(h.length ? [`${fa(h.length)} نامزدِ تیک‌خورده در دسته‌ای است که پیشنهاد نشده (${[...new Set(h.map(x => CLS[x.suggested]))].join('، ')}); بالای فهرست آمده‌اند تا اگر نمی‌خواهید، تیکشان را بردارید.`,
         ...(c.can ? [' ', el('button', { class: 'small', onclick: () => { h.forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک همه‌ی این‌ها')] : [])] : [])); };
@@ -394,7 +409,7 @@ const panels = {
       upd();
       list.replaceChildren(el('div', { class: 'grid-wrap', style: 'max-height:75vh' }, el('table', { class: 'cands' },
         el('tr', {}, ...['', 'دسته', 'کتاب و راه یافتن', 'شباهت', 'بخش‌ها', 'متن (رنگ = بخش حدیث مبدأ)'].map(t => el('th', {}, t))),
-        shown().map(x => candRow(x, S, sel, c.can, upd)))));
+        shown().map(x => candRow(x, S, sel, c.can, upd, refs, openRef)))));
     };
     const chips = Object.keys(CLS).map(k => el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => { ev.target.checked ? show.add(k) : show.delete(k); draw(); } }), ' ', el('span', { class: 'chip ' + k }, `${CLS[k]} ${fa(byClass[k] || 0)}`), ' '));
     const r1 = S.rounds[0] || {}, r2 = S.rounds[1];
@@ -437,40 +452,17 @@ const panels = {
         S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
       narratorsBox(c, VERS),
       card(['نامزدها: حدیث‌هایی که بخشی از حدیث مبدأ را دارند', searchHelp], help('step2.candidates'),
-        el('p', { class: 'muted small' }, 'هر نامزد بخش‌به‌بخش با حدیث مبدأ سنجیده شد (بی‌توجه به ترتیب بخش‌ها) و سامانه دسته‌ای پیشنهاد کرد. شاهدهایی که تیک می‌زنید ورودی مرحله‌های بعدند: هم‌ترازی متن‌ها، خواندن سندها و ساخت شجره. چهار دسته‌ی نخست از پیش تیک خورده‌اند؛ تصمیم با شماست.'),
+        el('p', { class: 'muted small' }, 'هر نامزد بخش‌به‌بخش با حدیث مبدأ سنجیده شد (بی‌توجه به ترتیب بخش‌ها) و سامانه دسته‌ای پیشنهاد کرد. شاهدهایی که تیک می‌زنید ورودی مرحله‌های بعدند: هم‌ترازی متن‌ها، خواندن سندها و ساخت شجره. چهار دسته‌ی نخست از پیش تیک خورده‌اند؛ تصمیم با شماست. '
+          + 'حدیث «ارجاعی» الفاظ را نقل نکرده و با «مثله / نحوه / وزاد فیه …» به متن دیگری ارجاع داده است؛ با متنی که قالبش می‌سازد سنجیده شده است. «بازبینی…» آن متن را برای ویرایش و تأیید باز می‌کند؛ متنِ «نحوه» تا تأیید نشود در هم‌ترازی نامعلوم است.'),
         el('div', { class: 'toolbar' }, ...chips, el('input', { type: 'text', placeholder: 'پالایش با نام کتاب یا کلمه', oninput: ev => { filter = ev.target.value; draw(); } }), count,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.add(x.wid)); draw(); } }, 'تیک همه‌ی نمایش‌داده‌ها') : null,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک نمایش‌داده‌ها') : null),
-        hidNote, list,
+        hidNote, refNote, list,
         el('div', { class: 'toolbar actionbar' }, c.can ? el('button', { class: 'primary', disabled: !sel.size, onclick: async () => {
           await post(`/project/${c.pid}/decide/selection`, { payload: { selected: [...sel] } }); reload(c.pid);
         } }, 'تأیید انتخاب و ادامه') : el('span', { class: 'muted' }, ME.user ? 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.' : 'برای تصمیم‌گیری وارد شوید.'),
           el('span', { class: 'small muted' }, `اجرای جستجو ${fa(S.seconds)} ثانیه؛ دورهای گسترش: ${fa(S.rounds.length)}`))));
     draw();
-  },
-
-  /* ----- 3: references («مثله / نحوه وزاد فيه …»): the text each one stands for, built by its template; edit and confirm ----- */
-  async references(main, c) {
-    const [S, pd, sel, A] = await Promise.all([stage(c.pid, c.runId, 'search'), api(`/project/${c.pid}/decision/parts`), api(`/project/${c.pid}/decision/selection`),
-      stage(c.pid, c.runId, 'align').catch(() => null)]);
-    const chosen = new Set(sel.selected || (A ? A.witnesses.map(w => w.wid) : []));
-    const all = S.candidates.filter(x => x.ref), mine = all.filter(x => chosen.has(x.wid)), saved = (pd && pd.refs) || {};
-    const canEdit = c.can && !STATIC;
-    const st = x => { const d = saved[x.wid]; return !d ? ['auto', 'خودکار'] : d.text !== x.ref.text || d.tpl !== x.ref.tpl || d.ref !== x.ref.ref ? ['edited', 'ویرایش‌شده'] : ['ok', 'تأییدشده']; };
-    const n = k => mine.filter(x => st(x)[0] === k).length;
-    const head = card(['متن‌های ارجاعی', partsHelp()], help('step3.refs'),
-      el('p', { class: 'small' }, 'حدیث‌هایی که الفاظ را نقل نکرده و با «مثله / نحوه / وزاد فیه / إلا أنه قال …» به متن دیگری ارجاع داده‌اند. برای هر کدام، متنی که قالبش از متن ارجاعی می‌سازد پیشنهاد شده است؛ ',
-        'آن را بسنجید، اگر لازم است ویرایش کنید و «تأیید» بزنید. هم‌ترازی (مرحله‌ی ۴) با همین متن‌ها انجام می‌شود؛ متنِ «نحوه» تا تأیید نشود نامعلوم شمرده می‌شود.'),
-      el('div', { class: 'toolbar' }, el('span', { class: 'chip medium' }, `${fa(mine.length)} حدیث ارجاعی در شاهدهای برگزیده`),
-        el('span', { class: 'chip approved' }, `تأییدشده ${fa(n('ok'))}`), el('span', { class: 'chip partial' }, `ویرایش‌شده ${fa(n('edited'))}`), el('span', { class: 'chip auto' }, `خودکار ${fa(n('auto'))}`),
-        all.length > mine.length ? el('span', { class: 'small muted' }, `${fa(all.length - mine.length)} حدیث ارجاعیِ دیگر در نامزدهاست که برگزیده نشده‌اند (مرحله‌ی ۲).`) : null,
-        canEdit && n('auto') ? el('button', { class: 'small', title: 'متن خودکار همه‌ی آن‌هایی که هنوز تأیید نشده‌اند، همان‌گونه که هست، تأیید شود', onclick: async ev => {
-          if (!confirm(`متن خودکار ${fa(n('auto'))} حدیث، همان‌گونه که هست، تأیید شود؟`)) return; ev.currentTarget.disabled = true;
-          await saveParts(c.pid, d => ({ refs: { ...d.refs, ...Object.fromEntries(mine.filter(x => !saved[x.wid]).map(x => [x.wid, refEntry(x.ref, x.ref.text, x.ref.approx)])) } }), 'step 3: references confirmed as built');
-          reloadAt(c.pid, 'references'); } }, 'تأیید همه‌ی خودکارها') : null));
-    if (!mine.length) return main.replaceChildren(head, card('—', el('p', { class: 'muted' }, all.length
-      ? 'هیچ‌یک از حدیث‌های ارجاعی در شاهدهای برگزیده نیست؛ در مرحله‌ی ۲ تیکشان بزنید تا اینجا بیایند.' : 'در نامزدهای این حدیث، حدیثِ ارجاعی‌ای پیدا نشد.')));
-    main.replaceChildren(head, ...mine.map(x => refCard(x, saved[x.wid], st(x), c, canEdit)));
   },
 
   /* ----- 4: alignment ----- */
@@ -534,7 +526,7 @@ const panels = {
       await post(`/project/${c.pid}/decide/selection`, { payload: { selected: (sel.selected || W.map(x => x.wid)).filter(x => !gone.has(x)) } }); reload(c.pid);
     };
     const nameCell = (w, i) => el('td', { class: 'nm', title: [w.title, w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', w.wid,
-      w.cls === 'different' ? 'در مرحله‌ی ۲ «متفاوت» دسته‌بندی شده بود' : '', w.ref ? `«${w.ref.marker}»: ارجاع به ${w.ref.ref}` + (w.ref.approx ? ' (متن نزدیک؛ خوانش‌هایش نامعلوم تا در مرحله‌ی ۳ تأیید شود)' : '') : ''].filter(Boolean).join(' · '),
+      w.cls === 'different' ? 'در مرحله‌ی ۲ «متفاوت» دسته‌بندی شده بود' : '', w.ref ? `«${w.ref.marker}»: ارجاع به ${w.ref.ref}` + (w.ref.approx ? ' (متن نزدیک؛ خوانش‌هایش نامعلوم تا در مرحله‌ی ۲ تأیید شود)' : '') : ''].filter(Boolean).join(' · '),
       onclick: () => hadithModal(w.wid) },
       canEdit && w.wid !== seed ? el('button', { class: 'xw', title: 'کنار گذاشتن این شاهد', 'aria-label': 'کنار گذاشتن ' + (w.title || w.wid), onclick: ev => dropWit(ev, w) }, '×') : null,
       el('span', { class: 'dot ' + w.cls }), `${fa(i)}. ${w.title || w.wid}`, w.ref ? el('span', { class: 'refb' }, ` «${w.ref.marker}»`) : null,
@@ -628,11 +620,11 @@ const panels = {
       const pending = Object.keys(want).length, nOn = cand.filter(isOn).length, mine = decided(), all = (on) => () => { vis.filter(usable).forEach(x => setWant(x, on)); drawUnits(); };
       unitsBox.replaceChildren(
         canEdit && cand.some(usable) ? el('div', { class: 'toolbar' + (pending ? ' actionbar' : '') },
-          el('b', {}, `${fa(nOn)} از ${fa(cand.length)} واحد برای مدل (مرحله‌ی ۶) انتخاب شده`),
+          el('b', {}, `${fa(nOn)} از ${fa(cand.length)} واحد برای مدل (مرحله‌ی ۵) انتخاب شده`),
           el('button', { class: 'small', onclick: all(true) }, 'انتخاب همه'), el('button', { class: 'small', onclick: all(false) }, 'برداشتن همه'),
           el('button', { class: 'small', disabled: !mine.length || pending > 0, title: 'همه‌ی «نگه داشتن» و «کنار گذاشتن»های شما برداشته می‌شود و انتخاب خودکار برمی‌گردد', onclick: () => saveUnits(mine, 'unit selection reset') }, 'بازگشت به انتخاب خودکار'),
           pending ? [el('button', { class: 'primary', onclick: saveSelection }, `ذخیره‌ی انتخاب (${fa(pending)} تغییر)`), el('button', { class: 'small', onclick: () => { Object.keys(want).forEach(k => delete want[k]); drawUnits(); } }, 'لغو تغییرها'),
-            el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۶ دوباره تأیید می‌خواهد.')] : null) : null,
+            el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.')] : null) : null,
         el('table', { class: 'units' },
           el('tr', {}, ...['در مدل', 'واحد', 'بخش', 'گونه', 'جا در متن', 'حالت‌ها (شمار شاهدها)', 'وضع', 'افزوده یا افتاده؟', ''].map(t => el('th', {}, t))),
           vis.map(x => { const u = x.u, on = isOn(x), nNA = Object.values(u.states).filter(v => v < 0).length, [stt, stc] = statOf(x), inm = x.st === 'in';
@@ -687,7 +679,7 @@ const panels = {
         el('div', { class: 'toolbar' }, el('label', { class: 'small' }, 'نام واحد: '), txt), body,
         inside.length ? el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: true, onchange: ev => { dropAuto = ev.target.checked; } }),
           ` واحدهای خودکارِ درون همین ستون‌ها کنار گذاشته شوند (${fa(inside.length)} واحد: جایگزین شدن یا ادغام)`) : null,
-        el('div', { class: 'toolbar' }, ok, el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۶ دوباره تأیید می‌خواهد.'))));
+        el('div', { class: 'toolbar' }, ok, el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.'))));
     };
     /* one unit: leave it out or keep it, fix the state of a witness, delete a unit of one's own */
     const unitModal = u => {
@@ -727,7 +719,7 @@ const panels = {
       ok.onclick = () => saveUnits([[key, ukey, e => { delete e.states; if (Object.keys(pend.states).length) e.states = pend.states; }]], `unit ${ukey}`);
       draw();
       modal(el('div', {}, el('h3', { style: 'margin-top:0' }, `واحد ${u.k != null ? fa(u.k + 1) + ': ' : ''}${UKIND(u)} — `, el('span', { class: 'ar' }, uwhere(u, A)), help('step3.unitedit', false, true)),
-        body, el('div', { class: 'toolbar' }, ok, el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۶ دوباره تأیید می‌خواهد.'))));
+        body, el('div', { class: 'toolbar' }, ok, el('span', { class: 'small muted' }, 'پس از ذخیره هم‌ترازی دوباره ساخته می‌شود و مرحله‌ی ۵ دوباره تأیید می‌خواهد.'))));
     };
     const unitChips = u => [
       (u.states_user || []).length ? el('span', { class: 'chip medium', style: 'margin-inline-start:4px' }, `${fa(u.states_user.length)} حالت دستی`) : null];
@@ -759,17 +751,17 @@ const panels = {
           el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند؛ اجرای کنونی پاک نمی‌شود.')) : null,
         tools, pickBox, body),
       card(['واحدهای تغییر: ورودی مدل شجره', helpOf('این واحدها چه کاری می‌کنند؟',
-          el('p', {}, 'مدل شجره (مرحله‌ی ۶) هم سندها را می‌بیند و هم این واحدها را. شاهدهایی که در واحدهای بیشتری حالتِ کم‌یاب مشترک دارند (مثلاً «سبعة» به جای «ستة» و پرسشِ «ومن هم یا رسول الله») به احتمال بیشتر از یک منبع یا یک راوی مشترک گرفته‌اند. پس این جدول همان چیزی است که متن‌ها در برآورد «قدیمی‌ترین منبع» می‌گویند.'),
+          el('p', {}, 'مدل شجره (مرحله‌ی ۵) هم سندها را می‌بیند و هم این واحدها را. شاهدهایی که در واحدهای بیشتری حالتِ کم‌یاب مشترک دارند (مثلاً «سبعة» به جای «ستة» و پرسشِ «ومن هم یا رسول الله») به احتمال بیشتر از یک منبع یا یک راوی مشترک گرفته‌اند. پس این جدول همان چیزی است که متن‌ها در برآورد «قدیمی‌ترین منبع» می‌گویند.'),
           el('ul', {},
             el('li', {}, el('b', {}, 'حضور بخش: '), 'آیا شاهد این بخش را دارد؟ (دارد / ندارد)'),
             el('li', {}, el('b', {}, 'حضور واژه: '), 'چند واژه‌ی کنار هم که برخی شاهدها دارند و برخی نه.'),
             el('li', {}, el('b', {}, 'واژه‌ی جایگزین: '), 'در یک جایگاه، شاهدها واژه‌های مختلف دارند؛ هر واژه یک حالت.'),
             el('li', {}, el('b', {}, 'عدد: '), 'عددی که حدیث می‌گوید (۴، ۵، ۶، ۷…).')),
           el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد خودکار نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست؛ واحدهایی که خودتان نگه می‌دارید یا می‌سازید جدا از این سقف‌اند.`))], help('step3.units'),
-        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۶ (شجره) می‌رود.${DU.length ? ` ${fa(DU.length)} واحد را خودتان کنار گذاشته‌اید.` : ''}${canEdit ? ' ستون «در مدل» را تیک بزنید یا بردارید تا تعیین کنید کدام واحدها به مرحله‌ی بعد بروند (واحدهای کنارگذاشته هم در همین جدول‌اند)؛ با «+ واحد تازه» بالای جدول هم‌ترازی روی چند ستون واحدی بسازید.' : ''}`),
+        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۵ (شجره) می‌رود.${DU.length ? ` ${fa(DU.length)} واحد را خودتان کنار گذاشته‌اید.` : ''}${canEdit ? ' ستون «در مدل» را تیک بزنید یا بردارید تا تعیین کنید کدام واحدها به مرحله‌ی بعد بروند (واحدهای کنارگذاشته هم در همین جدول‌اند)؛ با «+ واحد تازه» بالای جدول هم‌ترازی روی چند ستون واحدی بسازید.' : ''}`),
         stale ? el('div', { class: 'help warnbox' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است: واحدهای کنارگذاشته (مانند واژه‌ای که فقط یک شاهد دارد، یا ستون‌هایی که فقط در املا فرق دارند) در این جدول نیستند و برخی واحدها را نمی‌توان برداشت. با «اجرای دوباره» همه‌ی آن‌ها در جدول می‌آیند و می‌توانید تیکشان بزنید. ',
           c.can && !STATIC ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/rerun`, {}); reloadAt(c.pid, 'alignment'); } }, 'اجرای دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
-          el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند و مرحله‌ی ۶ دوباره تأیید می‌خواهد.')) : null,
+          el('span', { class: 'small muted' }, ' مرحله‌های بعد هم دوباره محاسبه می‌شوند و مرحله‌ی ۵ دوباره تأیید می‌خواهد.')) : null,
         unitsBox,
         A.private_texts.length ? el('details', {}, el('summary', { class: 'small muted' }, `${fa(A.private_texts.length)} تکه‌ی افزوده که فقط در یک شاهد آمده`),
           A.private_texts.map(t => el('div', { class: 'ar small' }, `${fa(W.findIndex(w => w.wid === t.wid))}. ${(W.find(w => w.wid === t.wid) || {}).title || t.wid}: ${t.text}`))) : null));
@@ -1574,8 +1566,8 @@ const panels = {
       const gh = P.project.graph_hash, building = !!P.job;
       const [I5, id5] = await Promise.all([stage(c.pid, c.runId, 'identify').catch(() => null), api(`/project/${c.pid}/decision/identities`).catch(() => ({}))]);
       return main.replaceChildren(card('ساخت شجره', help('step5.build'), !c.readonly && I5 ? undNote(c.pid, undecidedKeys(I5, id5), I5, false) : null,
-        el('p', { class: 'small' }, 'راویان در مرحله‌ی ۵ ذخیره شده‌اند، اما شجره هنوز ساخته نشده است. شجره با همان تصمیم‌های ذخیره‌شده ساخته می‌شود؛ اگر هنوز می‌خواهید چیزی را عوض کنید، ',
-          el('a', { href: BASE + stepUrl(c.pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'identities')); } }, 'به مرحله‌ی ۵ برگردید'), '.'),
+        el('p', { class: 'small' }, 'راویان در مرحله‌ی ۴ ذخیره شده‌اند، اما شجره هنوز ساخته نشده است. شجره با همان تصمیم‌های ذخیره‌شده ساخته می‌شود؛ اگر هنوز می‌خواهید چیزی را عوض کنید، ',
+          el('a', { href: BASE + stepUrl(c.pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'identities')); } }, 'به مرحله‌ی ۴ برگردید'), '.'),
         building ? el('p', { class: 'small muted' }, 'در حال کار… این صفحه خودش به‌روز می‌شود.')
           : c.can && !c.readonly && gh ? el('div', { class: 'toolbar' }, el('button', { class: 'primary', onclick: async ev => { ev.currentTarget.disabled = true;
             await post(`/project/${c.pid}/decide/phylogeny`, { payload: { build: gh, dates: dec.dates || {}, chain_edits: dec.chain_edits || {}, preset: dec.preset || null, compute: dec.compute || 'browser' } });
@@ -1591,7 +1583,7 @@ const panels = {
     const toStep = (k, t) => el('a', { href: BASE + stepUrl(c.pid, null, k), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, k)); } }, t);
     const partsNote = !c.readonly && (unconf.length || seedUnconf) ? el('p', { class: 'small', style: 'color:var(--warn)' }, 'فرازبندی هنوز کامل تأیید نشده است: ',
       seedUnconf ? ['بریدن حدیث مبدأ به بخش‌ها (', toStep('selection', 'مرحله‌ی ۲'), ')', unconf.length ? '، و ' : ''] : null,
-      unconf.length ? [`${fa(unconf.length)} از ${fa(A5.clauses.length)} بخش در شاهدها (`, toStep('alignment', 'مرحله‌ی ۴'), ')'] : null,
+      unconf.length ? [`${fa(unconf.length)} از ${fa(A5.clauses.length)} بخش در شاهدها (`, toStep('alignment', 'مرحله‌ی ۳'), ')'] : null,
       '. تحلیل با پیشنهادهای خودکار همان‌ها انجام می‌شود.') : null;
     const preset = el('select', { 'aria-label': 'دقت اجرا' }, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
     const computeSel = el('select', { 'aria-label': 'جای محاسبه' }, ...[['browser', 'در مرورگر من (سریع، موازی)'], ['helper', 'رایانه‌ی کمکی مدیر'], ['server', 'روی سرور (کند، نزدیک یک ساعت)']].map(([v, t]) => el('option', { value: v, selected: (dec.compute || 'browser') === v }, t)));
@@ -1613,7 +1605,7 @@ const panels = {
       return el('li', {}, step4(wid, null, t), el('span', { class: 'small muted wid', dir: 'ltr' }, wid), what.length ? el('div', { class: 'small' }, ...what) : null);
     };
     const groups = {}; G.flags.forEach(f => (groups[f.kind] ||= []).push(f));
-    const flagsCard = G.flags.length ? card('هشدارها', help('step5.warnings'), el('p', { class: 'small muted' }, 'هر هشدار را باز کنید تا حدیث‌ها و راویان آن را ببینید؛ نام حدیث یا راوی شما را به همان جا در مرحله‌ی ۵ می‌برد.'),
+    const flagsCard = G.flags.length ? card('هشدارها', help('step5.warnings'), el('p', { class: 'small muted' }, 'هر هشدار را باز کنید تا حدیث‌ها و راویان آن را ببینید؛ نام حدیث یا راوی شما را به همان جا در مرحله‌ی ۴ می‌برد.'),
       Object.entries(groups).map(([k, fs]) => el('details', { class: 'flagd' }, el('summary', {}, FLAG_FA[k] || k, el('span', { class: 'chip medium' }, fa(fs.length))),
         el('ul', { class: 'flags' }, fs.map(flagItem))))) : null;
     main.replaceChildren(...[
@@ -1622,7 +1614,7 @@ const panels = {
         undN(), graphSvg(G, S5)),
       flagsCard,
       undated.length ? card('راویان بی‌تاریخ', help('step5.undated'), el('p', { class: 'small' }, `${fa(undated.length)} راوی تاریخ وفات ندارند و تاریخشان از روی جایشان در سندها برآورد شده است. `,
-        'هر نام را بزنید تا در ', el('b', {}, 'مرحله‌ی ۵'), ' باز شود و در بخش ۳ «تاریخ وفات» را بنویسید.'),
+        'هر نام را بزنید تا در ', el('b', {}, 'مرحله‌ی ۴'), ' باز شود و در بخش ۳ «تاریخ وفات» را بنویسید.'),
         el('div', { class: 'small undl' }, undated.map(([n]) => nodeLink(n)))) : null,
       card('تأیید', help('step5.confirm'), partsNote, undN(), c.can ? el('div', { class: 'toolbar' }, 'دقت اجرا: ', preset, ' محاسبه: ', computeSel,
         el('button', { class: 'primary', onclick: async () => {
@@ -1630,7 +1622,7 @@ const panels = {
         } }, 'تأیید شجره و اجرای تحلیل')) : el('span', { class: 'muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تأیید کند.'),
         P.project.step === 'done' ? el('p', { class: 'small muted' }, 'تحلیل این شجره انجام شده است.') : null),
       /* the tree can be dropped while it is the latest thing done (step 4 is then open again, or the tree is ordered anew) */
-      c.can && !c.readonly && P.project.step === 'phylogeny' ? card('حذف شجره', el('p', { class: 'small muted' }, 'شجره‌ی فعلی حذف می‌شود؛ تصمیم‌های مرحله‌ی ۵ دست‌نخورده می‌مانند و هر وقت خواستید می‌توانید دوباره شجره را بسازید.'),
+      c.can && !c.readonly && P.project.step === 'phylogeny' ? card('حذف شجره', el('p', { class: 'small muted' }, 'شجره‌ی فعلی حذف می‌شود؛ تصمیم‌های مرحله‌ی ۴ دست‌نخورده می‌مانند و هر وقت خواستید می‌توانید دوباره شجره را بسازید.'),
         el('div', { class: 'toolbar' }, el('button', { class: 'danger', onclick: async ev => {
           if (!confirm('شجره‌ی فعلی حذف شود؟')) return; ev.currentTarget.disabled = true;
           await post(`/project/${c.pid}/decide/phylogeny`, { payload: { deleted: P.project.graph_hash, dates: dec.dates || {}, chain_edits: dec.chain_edits || {}, preset: dec.preset || null, compute: dec.compute || 'browser' } });
@@ -1854,7 +1846,7 @@ const strip = (parts, S) => el('span', { class: 'strip' }, parts.map(p => el('i'
 function partsHelp() {
   return helpOf('بخش‌ها چگونه ساخته شدند؟',
     el('p', {}, 'متن حدیث مبدأ خودکار و فقط با قاعده‌های نگارشی به بخش‌ها بریده شده است (بی‌آنکه معنا فهمیده شود): در نشانه‌های نگارشی (، ؛ . : ؟)، پیش از «و/ف» که اسمی با «ال» را آغاز می‌کند (آغاز هر بند در فهرست‌هایی مثل «و المکذب… و التارک…»)، بخش‌های بلندتر از ۱۲ واژه در نزدیک‌ترین حرف ربط (و، ف، ثم، الذی، من…) به میانه، و بخش یک‌واژه‌ای به همسایه‌اش چسبانده می‌شود. پیش از بریدن، اعراب حذف و املا یکسان می‌شود (ي→ی، ك→ک، ة→ه، أ/إ/آ→ا).'),
-    el('p', {}, 'چرا بخش‌به‌بخش؟ روایت‌های یک حدیث بندها را جابه‌جا، کوتاه یا بلند می‌کنند. هر بخش جداگانه جستجو و جداگانه مقایسه می‌شود، پس روایتی که فقط یک بند را دارد یا ترتیب دیگری دارد هم پیدا و درست سنجیده می‌شود. چون بریدن خودکار است، گاهی دو بند در یک بخش می‌مانند یا یک بند دو تکه می‌شود؛ با «ویرایش فرازبندی» می‌توانید بخش‌ها را درست و تأیید کنید، و در مرحله‌ی ۴ جای هر بخش را در هر شاهد.'));
+    el('p', {}, 'چرا بخش‌به‌بخش؟ روایت‌های یک حدیث بندها را جابه‌جا، کوتاه یا بلند می‌کنند. هر بخش جداگانه جستجو و جداگانه مقایسه می‌شود، پس روایتی که فقط یک بند را دارد یا ترتیب دیگری دارد هم پیدا و درست سنجیده می‌شود. چون بریدن خودکار است، گاهی دو بند در یک بخش می‌مانند یا یک بند دو تکه می‌شود؛ با «ویرایش فرازبندی» می‌توانید بخش‌ها را درست و تأیید کنید، و در مرحله‌ی ۳ جای هر بخش را در هر شاهد.'));
 }
 /* ---------- the parts (فرازبندی): the user corrects and confirms the automatic segmentation ----------
    One decision, `parts` (complete state each time): the seed's parts (`seed`, token spans; null = automatic) and the
@@ -1876,9 +1868,9 @@ const undecidedKeys = (I, d) => {
 };
 /* step 5: a reminder (never a block) of the names step 4 left undecided */
 const undNote = (pid, keys, I, built) => keys.length ? el('p', { class: 'small', style: 'color:var(--warn)' },
-  `${fa(keys.length)} نام در مرحله‌ی ۵ بی‌تصمیم مانده است و بدون هویت (فقط نام) ${built ? 'در شجره آمده است' : 'به شجره می‌رود'}`,
+  `${fa(keys.length)} نام در مرحله‌ی ۴ بی‌تصمیم مانده است و بدون هویت (فقط نام) ${built ? 'در شجره آمده است' : 'به شجره می‌رود'}`,
   I ? [': ', el('span', {}, keys.slice(0, 8).map(k => (I.cards[k] || {}).name || k).join('، ')), keys.length > 8 ? ' و …' : ''] : '',
-  '. برای تعیین هویتشان ', el('a', { href: BASE + stepUrl(pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(pid, null, 'identities')); } }, 'به مرحله‌ی ۵ برگردید'),
+  '. برای تعیین هویتشان ', el('a', { href: BASE + stepUrl(pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(pid, null, 'identities')); } }, 'به مرحله‌ی ۴ برگردید'),
   built ? ' و شجره را دوباره بسازید.' : '.') : null;
 async function saveParts(pid, patch, note) {
   const d = partsBase(await api(`/project/${pid}/decision/parts`));
@@ -2024,7 +2016,7 @@ function wordModal(cl, w, j, g, A, c, pd) {
     el('p', { class: 'small' }, here == null ? 'این واژه در جایی است که حدیث مبدأ واژه‌ای ندارد.' : here === tok ? 'این واژه با واژه‌ی همان جای حدیث مبدأ یکی است.' : `هم‌ترازی خودکار این واژه را به‌جای «${here}» گذاشته است.`,
       ' تصمیم کنونی: ', el('b', {}, nowTxt), '.'),
     el('p', { class: 'small muted' }, '«افزوده»: این شاهد واژه‌ای را افزوده است؛ در ستونی جدا می‌ایستد و (اگر ستون پیشین واژه‌ای داشت) برای این شاهد «افتاده» حساب می‌شود، و مدل شجره آن را افزایش می‌شمارد. ',
-      '«متفاوت»: همان جایگاه است و این شاهد به‌جای واژه‌ای دیگر آورده؛ واژه را به ستون آن واژه ببرید. اگر این شاهد دو واژه به‌جای یک واژه آورده، دکمه‌ی «افزوده است؛ واژه‌ی … به‌جای …» یکی را افزوده می‌شمارد و دیگری را به جای واژه‌ی حدیث مبدأ می‌نشاند. «و» جدا جزء واژه‌ی بعدی است. تغییر با ذخیره ثبت می‌شود و هم‌ترازی دوباره ساخته می‌شود (مرحله‌ی ۶ دوباره تأیید می‌خواهد).'),
+      '«متفاوت»: همان جایگاه است و این شاهد به‌جای واژه‌ای دیگر آورده؛ واژه را به ستون آن واژه ببرید. اگر این شاهد دو واژه به‌جای یک واژه آورده، دکمه‌ی «افزوده است؛ واژه‌ی … به‌جای …» یکی را افزوده می‌شمارد و دیگری را به جای واژه‌ی حدیث مبدأ می‌نشاند. «و» جدا جزء واژه‌ی بعدی است. تغییر با ذخیره ثبت می‌شود و هم‌ترازی دوباره ساخته می‌شود (مرحله‌ی ۵ دوباره تأیید می‌خواهد).'),
     el('div', { class: 'toolbar' },
       el('button', { class: 'primary', disabled: now === 'add', onclick: () => save('add') }, 'افزوده است'),
       combo.map(([nm, [jn, kn]]) => el('button', { class: 'primary', title: 'این واژه افزوده است و واژه‌ی همسایه‌اش جای آن را در ستون واژه‌ی حدیث مبدأ می‌گیرد',
@@ -2198,7 +2190,7 @@ function unitPreview(kind, seqs) {
 const ubadgeDemo = () => el('span', { class: 'small muted' }, el('span', { class: 'ub' }, '۱'), ' واحد تغییر');
 function pref(k, d) { try { return localStorage.getItem(k) || d; } catch (_) { return d; } }
 function setPref(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
-/* step 3: the templates of a reference and what each builds from the text referred to (pointers.py) */
+/* step 2: the templates of a reference and what each builds from the text referred to (pointers.py) */
 const REF_TPL = { copy: 'همان متن («مثله / بعینه»)', similar: 'نزدیک، واژه‌ها نامعلوم («نحوه / بمعناه»)', add: 'همان متن + افزوده («وزاد فیه …»)',
   change: 'همان متن با یک تغییر («إلا أنه قال …» / «مثله …»)', omit: 'همان متن بی یک بخش («ولم یذکر …»)', upto: 'همان متن تا جایی («إلی قوله …»)',
   incipit: 'آغاز خودش + ادامه‌ی متن («فذکر الحدیث / وذکر مثله»)', explicit: 'متنی که خودش داده («[أي حديث: …]»)' };
@@ -2207,7 +2199,8 @@ const REF_CONF = { other_bab: 'متن ارجاعی در باب دیگری از �
 const refEntry = (r, text, approx) => ({ ref: r.ref, tpl: r.tpl, arg: r.arg || '', incipit: r.incipit || '', at: r.at || '', text, approx: !!approx, ok: true });
 /* a text with the part a template changed ([a, b) characters) marked */
 const markedText = (t, m) => el('div', { class: 'ar matn' }, ...(m && m[1] > m[0] ? [t.slice(0, m[0]), el('mark', { class: 'refmk' }, t.slice(m[0], m[1]) || '‸'), t.slice(m[1])] : [t]));
-function refCard(x, saved, st, c, canEdit) {
+/* one reference: what it refers to, its template and the text built; done(entry | null) after a save or «back to automatic» */
+function refCard(x, saved, st, c, canEdit, done) {
   const r = { ...x.ref, ...(saved ? { ref: saved.ref || x.ref.ref, tpl: saved.tpl || x.ref.tpl, arg: saved.arg ?? x.ref.arg, incipit: saved.incipit ?? x.ref.incipit, at: saved.at || '' } : {}) };
   let built = { text: x.ref.text, note: x.ref.note, mark: x.ref.mark, source: null }, edited = !!saved && saved.text !== x.ref.text;
   const ta = el('textarea', { class: 'ar reftext', rows: 4, dir: 'rtl', disabled: !canEdit, oninput: () => { edited = true; dirty(); } });
@@ -2217,8 +2210,8 @@ function refCard(x, saved, st, c, canEdit) {
   const saveBtn = el('button', { class: 'primary small', disabled: !canEdit, onclick: async ev => {
     if (!ta.value.trim()) return alert('متن خالی است.');
     ev.currentTarget.disabled = true;
-    await saveParts(c.pid, d => ({ refs: { ...d.refs, [x.wid]: refEntry(r, ta.value.trim(), approx.checked) } }), 'step 3: the text of a reference');
-    reloadAt(c.pid, 'references'); } }, saved ? 'ذخیره‌ی دوباره' : 'تأیید');
+    const e = refEntry(r, ta.value.trim(), approx.checked);
+    await saveParts(c.pid, d => ({ refs: { ...d.refs, [x.wid]: e } }), 'step 2: the text of a reference'); done(e); } }, saved ? 'ذخیره‌ی دوباره' : 'تأیید');
   const dirty = () => { saveBtn.textContent = 'ذخیره و تأیید'; saveBtn.classList.add('primary'); };
   const showBuilt = () => {
     builtBox.replaceChildren(el('div', { class: 'small muted' }, 'متنی که قالب می‌سازد (بخش تغییرکرده نشان‌دار):'), markedText(built.text || '', built.mark));
@@ -2266,22 +2259,29 @@ function refCard(x, saved, st, c, canEdit) {
     el('div', { class: 'toolbar' }, el('label', { class: 'small', title: 'برای «نحوه»: واژه‌ها دقیق نیستند؛ تا وقتی تیک دارد، در هم‌ترازی هیچ خوانشی از این حدیث شمرده نمی‌شود' }, approx, ' واژه‌ها تقریبی‌اند (در هم‌ترازی نامعلوم)'),
       canEdit ? saveBtn : null,
       canEdit && saved ? el('button', { class: 'small', onclick: async ev => { ev.currentTarget.disabled = true;
-        await saveParts(c.pid, d => { const o = { ...d.refs }; delete o[x.wid]; return { refs: o }; }, 'step 3: a reference back to automatic'); reloadAt(c.pid, 'references'); } }, 'بازگشت به خودکار') : null,
+        await saveParts(c.pid, d => { const o = { ...d.refs }; delete o[x.wid]; return { refs: o }; }, 'step 2: a reference back to automatic'); done(null); } }, 'بازگشت به خودکار') : null,
       fullDetails(x.wid.split('~')[0], x.ref.marker, x.wid.includes('~') ? 'حدیث میزبان (متن کامل)' : 'سند و متن کامل')));
 }
-/* a hadith that only points at the text before it («… مثله / نحوه»): its isnad is its own, its words are that text's */
-function refBadge(r) {
-  return el('div', { class: 'small refb', title: `این حدیث متن را نقل نکرده و با «${r.marker}» به ${r.of === 'host' ? 'متن همان حدیث میزبان' : 'حدیثی پیش از خودش'} ارجاع داده است (${r.ref}). `
-    + `قالب: ${REF_TPL[r.tpl] || r.tpl}${r.arg ? ' — ' + r.arg : ''}. متنش در مرحله‌ی ۳ ساخته و تأیید می‌شود.` + (r.own ? '\n' + r.own : '') },
-    `«${r.marker}» ← `, el('span', { dir: 'ltr' }, r.ref), r.approx ? ' (نزدیک)' : '');
+/* a hadith that does not quote the words but refers to another text («… مثله / نحوه وزاد فيه …»): its isnad is its own,
+   its words are the ones its template builds from that text; the state of that text, from the saved parts.refs */
+const refState = (x, d) => !d ? ['auto', 'متن خودکار'] : d.text !== x.ref.text || d.tpl !== x.ref.tpl || d.ref !== x.ref.ref ? ['edited', 'متن ویرایش‌شده'] : ['ok', 'متن تأییدشده'];
+function refLabel(x, d, open) {
+  const r = x.ref, [k, t] = refState(x, d);
+  return el('div', { class: 'refb' },
+    el('div', { class: 'small', title: `این حدیث الفاظ را نقل نکرده و با «${r.marker}» به ${r.of === 'host' ? 'متن همان حدیثی که سندش درون آن آمده' : 'حدیثی پیش از خودش در همان کتاب'} ارجاع داده است. `
+      + 'متنش را قالبش از آن متن می‌سازد؛ آن را بسنجید و تأیید کنید. هم‌ترازی با همین متن انجام می‌شود.' + (r.own ? '\n' + r.own : '') },
+      r.of === 'host' ? 'سند درون حدیث دیگر، ' : '', 'ارجاعی با «', el('b', {}, r.marker), '» به ', el('span', { dir: 'ltr' }, r.ref)),
+    el('div', { class: 'small muted' }, (REF_TPL[r.tpl] || r.tpl).replace(/ \(.*\)$/, ''), r.conf && r.conf !== 'ok' ? el('span', { style: 'color:var(--warn)' }, ' · ' + (r.conf === 'other_bab' ? 'باب دیگر' : 'بی‌متن ارجاعی')) : null),
+    el('button', { type: 'button', class: 'small refopen', onclick: open, title: 'متن ارجاعی، قالب و متن ساخته‌شده؛ ویرایش و تأیید' },
+      el('span', { class: 'chip ' + (k === 'ok' ? 'approved' : k === 'edited' ? 'partial' : 'auto') }, t), ' بازبینی…'));
 }
-function candRow(x, S, sel, can, upd) {
+function candRow(x, S, sel, can, upd, refs, openRef) {
   const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', user: 'افزوده‌ی کاربر' };
   return el('tr', { class: sel.has(x.wid) ? 'on' : '' },
     el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این شاهد: ' + (x.title || x.book || x.wid), checked: sel.has(x.wid), disabled: !can, onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); ev.target.closest('tr').classList.toggle('on', ev.target.checked); upd(); } })),
     el('td', {}, el('span', { class: 'chip ' + x.suggested }, CLS[x.suggested]), x.score.reordered ? el('div', { class: 'small muted' }, 'ترتیب بخش‌ها فرق دارد') : null,
       x.reference ? el('div', { class: 'small', style: 'color:var(--warn)', title: 'مدخلی از الدرر السنیة بی‌سند: نقل یا داوری عالمی متأخر درباره‌ی حدیثی از کتابی دیگر، نه روایتی مستقل. از پیش تیک نمی‌خورد؛ اگر لازم است خودتان تیک بزنید.' }, 'ارجاع بی‌سند (الدرر)') : null,
-      x.ref ? refBadge(x.ref) : null),
+      x.ref ? refLabel(x, refs[x.wid], () => openRef(x)) : null),
     el('td', {}, el('b', {}, x.title || x.book), el('div', { class: 'small muted' }, [x.author, x.tradition === 'sunni' ? 'سنی' : 'شیعه', x.vol ? 'ج ' + fa(x.vol) : '', x.page ? 'ص ' + fa(x.page) : ''].filter(Boolean).join(' · ')),
       x.copies && x.copies.length ? el('div', { class: 'small muted', title: x.copies.join(' ') }, `+${fa(x.copies.length)} نسخه‌ی یکسان`) : null, el('div', { class: 'small muted', dir: 'ltr' }, x.wid),
       el('div', { class: 'small muted', title: x.signals.join(' ') }, 'یافته با: ', x.signals.map(g => SIG[g] || g).join('، '), x.round > 1 ? ` (دور ${fa(x.round)}، از متن ${x.via})` : '')),

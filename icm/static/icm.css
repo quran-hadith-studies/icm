@@ -30,7 +30,8 @@ h2{font-size:18px}h3{font-size:15px;margin-top:14px}
 table.cands td.txt{min-width:340px;max-width:560px}
 table.cands tr.on{background:var(--accent-soft)}
 table.cands .matn{max-height:150px}
-.refb{color:var(--accent);font-weight:600;cursor:help}
+.refb{margin-top:4px;color:var(--accent)}.refb>.small:first-child{font-weight:600;cursor:help}.refb .refopen{margin-top:3px;padding:1px 6px}.refb .refopen .chip{font-size:11px}
+.refnote{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0}
 /* step 3: one card per reference */
 .refcard h3{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 8px}.refcard .refown{margin-bottom:8px}
 .refcard .refformula mark,.refcard mark.refmk{background:var(--accent-soft);color:var(--accent);font-weight:700;border-radius:3px;padding:0 2px}
