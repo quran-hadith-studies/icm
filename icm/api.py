@@ -7,6 +7,8 @@ readable by anyone; creating projects, deciding and re-running need a logged-in 
 project need its owner or an admin. Writes must carry the header ``X-ICM: 1`` (a custom header cannot be
 sent cross-site without a CORS pre-flight, which keeps cookie-authenticated writes safe from CSRF).
 While ``config.OPEN`` is set, every visitor counts as an admin (anonymous ones as "guest").
+With ``config.ACCOUNTS`` the wizard ignores ``get_user`` and uses its own accounts (icm/users.py, cookie
+``icm_sid``): /login, /register, /account, and /users (admins: approve, block, roles, quotas, activity).
 """
 from __future__ import annotations
 
@@ -24,12 +26,12 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, export, identity, jobs, narrator_info, narrator_versions, project, serve, viewer
+from . import config, corpus, export, identity, jobs, narrator_info, narrator_versions, project, serve, users, viewer
 from . import graph as graph_mod
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
-ASSETS = ("icm.js", "base.js", "base.css", "icm.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
+ASSETS = ("icm.js", "users.js", "base.js", "base.css", "icm.css", "users.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
           "model_worker.js", "model.zip")
 ID_RE = re.compile(r"^(noor|kg):\d+$")
 SPLIT_RE = re.compile(r"^split:\d{1,6}$")
@@ -38,7 +40,8 @@ PLACE_RE = re.compile(r"^[^|]{1,200}\|\d+$")
 WID_RE = re.compile(r"^(v02|kg):\d+$")
 STAGES = serve.STAGES
 EXPORTS = ("seed", "selection", "alignment", "identities", "phylogeny", "analysis", "all")
-MAX_OPEN = 20          # unfinished projects per (non-admin) user
+MAX_OPEN = 20          # unfinished projects per (non-admin) user, unless the account has its own quota
+COOKIE = "icm_sid"
 
 
 def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/icm") -> APIRouter:
@@ -49,6 +52,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         def get_user(request: Request) -> dict:
             u = host_user(request)
             return dict(username=u["username"] if u else "guest", is_admin=True)
+    if config.ACCOUNTS:
+        def get_user(request: Request) -> Optional[dict]:
+            return users.user_for(request.cookies.get(COOKIE))
 
     # -- helpers ----------------------------------------------------------------------------------
     def need_user(request: Request) -> dict:
@@ -57,6 +63,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(401, "login required")
         if request.method != "GET" and request.headers.get("x-icm") != "1":
             raise HTTPException(403, "missing X-ICM header")
+        if u.get("role") == "viewer" and request.method != "GET":
+            raise HTTPException(403, "your account may only read")
         return u
 
     def own_project(request: Request, pid: str) -> tuple:
@@ -140,6 +148,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.get("/p/{pid}/{step}", response_class=HTMLResponse)
     @r.get("/p/{pid}/r/{run}", response_class=HTMLResponse)
     @r.get("/p/{pid}/r/{run}/{step}", response_class=HTMLResponse)
+    @r.get("/login", response_class=HTMLResponse)
+    @r.get("/register", response_class=HTMLResponse)
+    @r.get("/account", response_class=HTMLResponse)
+    @r.get("/users", response_class=HTMLResponse)
     def index_page(pid: str = "", run: str = "", step: str = ""):
         return page()
 
@@ -159,7 +171,13 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.get("/api/me")
     def me(request: Request):
         u = get_user(request)
-        return dict(user=u["username"] if u else None, admin=bool(u and u.get("is_admin")), presets=list(config.PRESETS))
+        out = dict(user=u["username"] if u else None, admin=bool(u and u.get("is_admin")), presets=list(config.PRESETS))
+        if config.ACCOUNTS:
+            out.update(accounts=True, bot=users.bot_username(), name=u and u["name"], role=u and u["role"],
+                       bale=u and u["bale"], quota=u and (u["quota"] if u["quota"] is not None else MAX_OPEN))
+            if u and u["is_admin"]:
+                out["pending"] = users.count_pending()
+        return out
 
     @r.get("/api/index")
     def index():
@@ -352,7 +370,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         if not WID_RE.match(seed) or corpus.get(seed) is None:
             raise HTTPException(400, "unknown seed hadith")
         open_ = [x for x in project.list_projects() if x["owner"] == u["username"] and x["status"] in ("draft", "running")]
-        if len(open_) >= MAX_OPEN and not u.get("is_admin"):
+        if len(open_) >= (MAX_OPEN if u.get("quota") is None else u["quota"]) and not u.get("is_admin"):
             raise HTTPException(429, f"you have {len(open_)} unfinished projects; finish or continue one first")
         p = project.create(seed, u["username"], body.get("title"))
         jobs.enqueue(p["pid"])
@@ -448,6 +466,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         own_project(request, pid)
         jobs.enqueue(pid)
         return dict(ok=True)
+
+    if config.ACCOUNTS:
+        _accounts(r, prefix, get_user, need_user, helper_ok)
 
     def _validate(step: str, pl: dict, pid: str, p: dict) -> dict:
         if step == "search":
@@ -681,6 +702,114 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         return out
 
     return r
+
+
+# -- accounts (config.ACCOUNTS) ---------------------------------------------------------------------
+_fails: dict = {}          # (ip or username) -> recent failed logins, for a crude brake on password guessing
+
+
+def _accounts(r: APIRouter, prefix: str, get_user: Callable, need_user: Callable, helper_ok: Callable) -> None:
+    def body_of(request: Request, data) -> dict:
+        if request.headers.get("x-icm") != "1":
+            raise HTTPException(403, "missing X-ICM header")
+        return data if isinstance(data, dict) else {}
+
+    def run(f, *a):
+        try:
+            return f(*a)
+        except users.UserError as e:
+            raise HTTPException(e.status, str(e))
+
+    def braked(*keys) -> bool:
+        now = time.time()
+        return any(len([t for t in _fails.get(k, []) if now - t < 900]) >= 10 for k in keys)
+
+    def failed(*keys) -> None:
+        now = time.time()
+        for k in keys:
+            _fails[k] = [t for t in _fails.get(k, []) if now - t < 900][-20:] + [now]
+
+    def need_admin(request: Request) -> dict:
+        u = need_user(request)
+        if not u.get("is_admin"):
+            raise HTTPException(403, "admins only")
+        return u
+
+    @r.post("/api/auth/register")
+    async def register(request: Request):
+        b = body_of(request, await request.json())
+        return run(users.register, b.get("username"), b.get("name"), b.get("password"))
+
+    @r.get("/api/auth/link-status")
+    def link_status(code: str = ""):
+        return run(users.link_status, code)
+
+    @r.post("/api/auth/login")
+    async def login(request: Request):
+        b = body_of(request, await request.json())
+        ip = "ip:" + (request.client.host if request.client else "?")
+        name = "u:" + str(b.get("username", "")).strip().lower()
+        if braked(ip, name):
+            raise HTTPException(429, "تلاش‌های نادرست زیاد بود؛ ربع ساعت دیگر دوباره امتحان کنید.")
+        try:
+            out = users.login(b.get("username"), b.get("password"))
+        except users.UserError as e:
+            if e.status == 401:
+                failed(ip, name)
+            raise HTTPException(e.status, str(e))
+        if "need_bale" in out:
+            return out
+        resp = JSONResponse(dict(user=out["user"]))
+        resp.set_cookie(COOKIE, out["sid"], max_age=users.SESSION_TTL, path=prefix or "/", httponly=True, samesite="lax",
+                        secure=request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https")
+        return resp
+
+    @r.post("/api/auth/logout")
+    def logout(request: Request):
+        users.logout(request.cookies.get(COOKIE, ""))
+        resp = JSONResponse(dict(ok=True))
+        resp.delete_cookie(COOKIE, path=prefix or "/")
+        return resp
+
+    @r.post("/api/auth/password")
+    async def password(request: Request):
+        b = body_of(request, await request.json())
+        u = get_user(request)                               # not need_user: a viewer may change their password too
+        if not u:
+            raise HTTPException(401, "login required")
+        run(users.change_password, u["username"], b.get("old"), b.get("new"))
+        return dict(ok=True)
+
+    @r.post("/api/auth/forgot")
+    async def forgot(request: Request):
+        b = body_of(request, await request.json())
+        run(users.send_reset, b.get("username"))
+        return dict(ok=True)
+
+    @r.post("/api/auth/reset")
+    async def reset(request: Request):
+        b = body_of(request, await request.json())
+        run(users.reset_password, b.get("username"), b.get("code"), b.get("password"))
+        return dict(ok=True)
+
+    @r.post("/api/auth/bale")
+    async def bale(request: Request):
+        """The Bale bot (ebadollah's bale_bot.py) passes on «/start icm-…»; authorised by the helper token."""
+        if not helper_ok(request):
+            raise HTTPException(401, "helper token required")
+        b = await request.json()
+        return run(users.confirm_bale, str(b.get("code", "")), b.get("chat_id"), b.get("handle"))
+
+    @r.get("/api/users")
+    def list_users(request: Request):
+        need_admin(request)
+        return dict(users=users.list_users(project.list_projects()), default_quota=MAX_OPEN, roles=list(users.ROLES))
+
+    @r.post("/api/users/{username}")
+    async def user_action(request: Request, username: str):
+        u = need_admin(request)
+        b = body_of(request, await request.json())
+        return run(users.admin_action, u["username"], username, str(b.get("action", "")), b.get("value"))
 
 
 def wiki_persons(ids) -> dict:

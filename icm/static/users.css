@@ -1,0 +1,24 @@
+/* accounts (users.js): sign-in and sign-up forms, the header menu, the admin's users table */
+.uwrap{max-width:460px;margin:24px auto}
+.uform h2{margin-top:0}
+.ufield{display:flex;flex-direction:column;gap:4px;margin:0 0 12px;font-size:13.5px}
+.ufield>span{color:var(--muted);font-weight:600}
+.ufield input,input[type=password]{font:inherit;border:1px solid var(--line-2);border-radius:var(--r-sm);padding:4px 10px;min-height:38px;background:var(--card);color:var(--fg);width:100%;min-width:0}
+input[type=password]:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.umsg{min-height:1.4em;font-size:13.5px;margin-top:6px}.umsg.ok{color:var(--good,#15803d)}.umsg.bad{color:var(--bad,#b91c1c)}
+.ufold{margin:-4px 0 14px;padding:0 4px}.ufold summary{cursor:pointer;color:var(--accent);font-size:13.5px}.ufold .primary{margin-top:4px}
+.usteps{padding-inline-start:20px;list-style:persian;line-height:2.1}.usteps li{margin:4px 0}
+.ucode{font-size:15px;padding:2px 8px;border:1px dashed var(--line-2);border-radius:var(--r-sm);user-select:all}
+a.btn{display:inline-block;padding:6px 14px;border-radius:var(--r-sm);text-decoration:none;font-weight:600}
+a.btn.primary{background:var(--accent);color:var(--on-accent,#fff)}
+.udl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0 0 12px}.udl dt{color:var(--muted)}.udl dd{margin:0}
+.uwho{display:inline-flex;align-items:center;gap:4px}
+.ubadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:99px;background:var(--warn-bg);color:var(--chip-fg);font-size:11px;font-weight:700;line-height:18px;text-align:center;margin-inline-start:4px}
+.umenu{display:flex;flex-direction:column;gap:2px;min-width:180px}.umenu>.small{padding:2px 8px 6px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.umenu .uitem{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:var(--r-sm);text-decoration:none;color:var(--fg);text-align:start;width:100%}
+.umenu .uitem:hover,.umenu .uitem:focus-visible{background:var(--accent-soft)}
+.utable td{vertical-align:middle}.utable tr.u-blocked td{opacity:.6}.utable tr.u-pending{background:color-mix(in srgb,var(--warn-bg) 10%,transparent)}
+.utable select{min-height:30px}.uquota{width:76px!important;min-width:0!important}
+.uacts{white-space:nowrap}.uacts button{margin:1px 2px}
+button.danger{color:var(--bad,#b91c1c);border-color:color-mix(in srgb,var(--bad,#b91c1c) 40%,transparent)}
+.utools .chip{flex:none}

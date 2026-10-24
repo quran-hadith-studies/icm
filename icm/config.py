@@ -28,8 +28,13 @@ NARRATOR_VERSIONS_DIR = os.environ.get("ICM_NARRATOR_VERSIONS_DIR", os.path.join
 NARRATOR_VERSION_DEFAULT = os.environ.get("ICM_NARRATOR_VERSION_DEFAULT", "v1m")      # used when its file exists, else "raw"
 JOBS_DB = os.environ.get("ICM_JOBS_DB", os.path.join(DATA_DIR, "icm_jobs.sqlite"))
 
+# the wizard's own accounts (icm/users.py: sign-up confirmed through the Bale bot, approved by an admin) instead
+# of the host's login; they switch open mode off
+ACCOUNTS = os.environ.get("ICM_ACCOUNTS", "0") == "1"
+USERS_DB = os.environ.get("ICM_USERS_DB", os.path.join(DATA_DIR, "users.sqlite"))
+
 # open mode (for now): no login needed, every visitor may do anything; ICM_OPEN=0 restores the user rules
-OPEN = os.environ.get("ICM_OPEN", "1") != "0"
+OPEN = os.environ.get("ICM_OPEN", "1") != "0" and not ACCOUNTS
 
 # Noor hadith ids inside v02 are offset (convert_afreshte.py)
 NOOR_OFFSET = 800_000_000

@@ -677,6 +677,18 @@ in the input). The token is valid only while the project waits for that run's ke
 Every step has its own address: `/icm/p/<pid>/<step>` (`seed`, `selection`, `alignment`, `identities`, `phylogeny`,
 `analysis`) and `/icm/p/<pid>/r/<run>/<step>` for an earlier run; `/icm/p/<pid>` opens the step that waits for the user.
 
+**Accounts** (`ICM_ACCOUNTS=1`, `icm/users.py` + `icm/static/users.js`; off by default, and when on, open mode is
+off too): the wizard keeps its own users in `ICM_USERS_DB` (default `<ICM_DATA_DIR>/users.sqlite`) and ignores the
+host's login. `/icm/register` creates the account and shows a Bale deep link `ble.ir/<bot>?start=icm-…`; the
+site's Bale bot (ebadollah `bot_support/telegram_bot.py`) passes `/start icm-…` to `POST /icm/api/auth/bale`
+(helper token) and the account then waits for an admin. The first account to confirm Bale (or those named in
+`ICM_ADMIN=a,b`) becomes an admin by itself; admins hear of new accounts in Bale. `/icm/users` (admins: header menu
+«مدیریت کاربران») approves, blocks, deletes, sets roles (admin / editor: makes projects / viewer: reads only) and the
+per-user quota of unfinished projects (empty = 20), and shows last sign-in, last activity, projects and the Bale
+link. `/icm/account` changes the password; a forgotten one is reset with a 6-digit code sent to the user's Bale.
+Bot: `ICM_BALE_BOT_TOKEN`/`ICM_BALE_BOT_USERNAME` or the site's `EBAD_BALE_BOT_*`. Session cookie `icm_sid`
+(HttpOnly, 30 days); passwords are scrypt hashes, codes and sessions are stored only as hashes.
+
 Every decision is a new, numbered file; nothing is overwritten or deleted. Stage outputs are stored by the hash
 of their inputs, so changing an identity recomputes only what depends on it, and every earlier run stays
 viewable. Hadith pages can ask `/icm/api/hadith/<id>/projects` whether a project about it is running or final.
