@@ -125,6 +125,31 @@ def get(wid: str) -> Optional[dict]:
     return get_many([wid]).get(wid)
 
 
+def neighbours(wid: str, n: int = 4, after: bool = True) -> List[str]:
+    """The ``n`` hadiths that follow ``wid`` in its book (``after=False``: that precede it, nearest first). v02 ids
+    run in book order inside a book (Noor: one per hadith; other sources: gaps), the KG has the number in the book."""
+    co, i = wid_parts(wid)
+    op, order = (">", "asc") if after else ("<", "desc")
+    if co == "v02":
+        r = conn("v02").execute("select book from hadith where id=?", (str(i),)).fetchone()
+        if r is None:
+            return []
+        out = []                                        # walk the id index; the book ends where another begins
+        q = f"select id, book from hadith where id {op} ? and length(id)=? order by id {order} limit ?"
+        for x in conn("v02").execute(q, (str(i), len(str(i)), 3 * n + 3)):
+            if x["book"] != r["book"] or len(out) == n:
+                break
+            out.append(f"v02:{x['id']}")
+        return out
+    if co == "kg":
+        r = conn("kg").execute("select book_id, no_inbook from kg_hadith where id=?", (i,)).fetchone()
+        if r is None or r["no_inbook"] is None:
+            return []
+        q = f"select id from kg_hadith where book_id=? and no_inbook {op} ? order by no_inbook {order} limit ?"
+        return [f"kg:{x[0]}" for x in conn("kg").execute(q, (r["book_id"], r["no_inbook"], n))]
+    return []
+
+
 def _chunks(seq, n):
     seq = list(seq)
     for i in range(0, len(seq), n):

@@ -95,3 +95,9 @@ dialog.helpdlg::backdrop{background:rgb(15 23 42 / .5)}
 .rv .matntext mark,.fulltext mark{background:color-mix(in srgb,var(--warn) 35%,transparent);color:inherit;border-radius:2px}
 
 .rc-legend .rc-t{color:var(--fg)}
+/* گام‌به‌گام: one card per step of the analysis, what to check folded under it */
+.rv .stp h2 .stn{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--on-accent,#fff);font-size:13px;margin-inline-end:6px}
+.rv .stp .did{margin:0 0 8px;color:var(--fg)}
+.rv .stp .chk{margin-top:8px;border:1px solid var(--warn);border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--warn) 7%,transparent)}
+.rv .stp .chk summary{cursor:pointer;color:var(--warn);font-weight:600;font-size:13px}.rv .stp .chk li{margin:3px 0;font-size:13px}
+.rv .stpt td,.rv .stpt th{padding:3px 5px}.rv .stpnav{margin:6px 0 0;columns:2 260px}

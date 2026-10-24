@@ -37,6 +37,60 @@ def is_reference(rec: dict) -> Optional[str]:
     return None
 
 
+# A hadith that does not quote its words but points at the text before it: «… عن أبي عبد الله عليه السلام مثله»,
+# «فذكر نحوه», «بهذا الإسناد مثله وزاد فيه …». «same» markers say the wording is that text's, «similar» ones that it is
+# close to it (the words are not known).
+POINTER_SAME = {norm(x) for x in "مثله بمثله مثلها بمثلها بعینه بعینها بلفظه".split()}
+POINTER_SIMILAR = {norm(x) for x in "نحوه بنحوه نحوها بنحوها بمعناه بمعناها".split()}
+POINTER_PAIRS = {(norm("مثل"), norm("ذلک")): "same", (norm("نحو"), norm("ذلک")): "similar", (norm("مثل"), norm("حدیثه")): "same",
+                 (norm("نحو"), norm("حدیثه")): "similar"}
+# words that may stand before the marker in the matn: the speaker formula and «he mentioned»
+POINTER_LEAD = {norm(x) for x in ("قال فقال وقال قالا عن عنه عنها عنهما النبی رسول الله صلی علیه علیهم علیهما وآله آله وسلم سلم السلام "
+                                  "ع ص و ف ذکر فذکر وذکر ثم باسناده باسناد بهذا هذا الاسناد بالاسناد الحدیث مرفوعا یرفعه مثل").split()}
+POINTER_SAID = {norm(x) for x in "ذکر فذکر وذکر قال وقال فقال".split()}
+MEANING = norm("معناه")
+
+
+def pointer_of(rec: dict) -> Optional[dict]:
+    """``{"kind": "same"|"similar", "marker": word(s), "own": the record's own text}`` when the record only refers to
+    another text, else None. The marker counts at the end of the sanad, at the start of the matn after the speaker
+    formula, or after «ذكر / قال» behind a short incipit («إذا أفلس الرجل فذكر مثله»)."""
+    st, mt = tokens(rec.get("sanad") or ""), tokens(strip_tags(rec.get("matn") or ""))
+
+    def at(seq, i):
+        t = seq[i]
+        if t in POINTER_SAME:
+            return "same", t
+        if t in POINTER_SIMILAR or t == MEANING and i and seq[i - 1] in POINTER_SAID:      # «معناه» alone is «its meaning is»
+            return "similar", t
+        if i + 1 < len(seq) and (t, seq[i + 1]) in POINTER_PAIRS:
+            return POINTER_PAIRS[(t, seq[i + 1])], t + " " + seq[i + 1]
+        return None
+
+    for i in range(max(0, len(st) - 3), len(st)):              # «… عن ابن عباس مثله، و زاد فيه:» then the addition
+        hit = at(st, i)
+        if hit and len(mt) <= 25:
+            return dict(kind=hit[0], marker=hit[1], own=strip_tags(rec.get("matn") or ""))
+    for i in range(min(len(mt), 10)):
+        hit = at(mt, i)
+        if hit and (all(t in POINTER_LEAD for t in mt[:i]) or (i <= 7 and mt[i - 1] in POINTER_SAID)):
+            return dict(kind=hit[0], marker=hit[1], own=strip_tags(rec.get("matn") or ""))
+    return None
+
+
+def referent_of(wid: str, back: int = 6) -> Optional[str]:
+    """The text a pointer refers to: the nearest hadith before it in its book that is not itself a pointer."""
+    prev = corpus.neighbours(wid, back, after=False)
+    recs = corpus.get_many(prev)
+    for w in prev:
+        r = recs.get(w)
+        if r is None:
+            return None
+        if pointer_of(r) is None:
+            return w if tokens(r["matn"]) else None
+    return None
+
+
 def preselected(c: dict) -> bool:
     return c["suggested"] in PRESELECTED and not c.get("reference")
 
@@ -114,6 +168,11 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
         if not sources:
             break
 
+    n_ptr = _pointers_after([seed] + [w for w, c in scored.items() if c["suggested"] != "different"], s_tok, s_spans, n_seed, p,
+                            scored, flags, len(rounds_info) + 1)
+    if n_ptr:
+        rounds_info.append(dict(round=len(rounds_info) + 1, kind="pointers", n_candidates=n_ptr, n_scored=n_ptr, n_dropped=0,
+                                n_witness_like=sum(1 for c in scored.values() if c.get("ref") and c["suggested"] in PRESELECTED)))
     cands = _fold_copies(scored, seed, rec)
     cands.sort(key=lambda c: (-_rank(c), c["wid"]))
     seed_out = dict(wid=seed, hid=rec["hid"], corpus=rec["corpus"], book=rec["book"], work=rec["work"],
@@ -201,17 +260,26 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
     clause_grams = [grams(" ".join(s_tok[x:y]), p["gram_n"]) for x, y in s_spans]
     n_scored = n_dropped = n_wl = 0
     recs = corpus.get_many(order)
+    ptrs = {w: pt for w in order if recs.get(w) and (pt := pointer_of(recs[w]))}
+    for w, pt in ptrs.items():
+        pt["wid"] = pool[w].get("ref_of") or referent_of(w)
+    refs = corpus.get_many([pt["wid"] for pt in ptrs.values() if pt["wid"]])
     for w in order:
         rec = recs.get(w)
         if rec is None:
             continue
+        pt = ptrs.get(w)
+        ref = refs.get(pt["wid"]) if pt and pt["wid"] else None
+        if ref is not None:            # «مثله / نحوه»: its words are those of the text it points at
+            rec = dict(rec, matn=ref["matn"])
+            pt = dict(pt, title=ref["title"], own=pt["own"][:400])
         c_tok = tokens(rec["matn"])
         if not c_tok:
             continue
         g = grams(" ".join(c_tok), p["gram_n"])
         share = len(seed_grams & g) / max(len(seed_grams), 1)
         cl_hit = any(cg and len(cg & g) / len(cg) >= 0.5 for cg in clause_grams)
-        user = bool({"user", "kept"} & pool[w]["signals"])
+        user = bool({"user", "kept", "ref"} & pool[w]["signals"])
         if share < p["prefilter"] and not cl_hit and not user:
             n_dropped += 1
             continue
@@ -236,13 +304,36 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
             n_tokens=len(c_tok), matn=rec["matn"][:1500], matn_len=len(rec["matn"]),
             sanad=(rec["sanad"] or "")[:800],
             norm_hash=hashlib.sha1((" ".join(c_tok) + "|" + norm(rec["sanad"] or "")).encode()).hexdigest()[:16],
-            text_hash=hashlib.sha1(" ".join(c_tok).encode()).hexdigest()[:16])
+            text_hash=hashlib.sha1((" ".join(c_tok) + ("|ref:" + w if ref is not None else "")).encode()).hexdigest()[:16])
+        if ref is not None:
+            scored[w]["ref"] = pt
     return dict(n_scored=n_scored, n_dropped=n_dropped, n_witness_like=n_wl)
+
+
+def _pointers_after(bases: Sequence[str], s_tok: List[str], s_spans, n_seed: int, p: dict, scored: Dict[str, dict],
+                    flags: List[dict], rnd: int, look: int = 4) -> int:
+    """The hadiths right after a found text that only point back at it («… عن أبي عبد الله عليه السلام مثله»): no words
+    of the seed are in them, so no query finds them. Each is scored on the text it points at; returns how many."""
+    pool: Dict[str, dict] = {}
+    for b in bases:
+        nxt = corpus.neighbours(b, look)
+        recs = corpus.get_many(nxt)
+        for w in nxt:                                # a run of pointers all refer to the text before the run
+            r = recs.get(w)
+            if r is None or pointer_of(r) is None:
+                break
+            if w not in scored and w not in pool:
+                pool[w] = dict(signals={"ref"}, nq=0, round=rnd, via=b, ref_of=b)
+    if not pool:
+        return 0
+    before = len(scored)
+    _score_pool(bases[0], s_tok, s_spans, n_seed, pool, p, scored, flags)
+    return len(scored) - before
 
 
 def _next_sources(scored: Dict[str, dict], p: dict, seed_norm: str):
     """Witnesses with the most divergent wording, used to expand the search."""
-    ws = [c for c in scored.values() if preselected(c)]
+    ws = [c for c in scored.values() if preselected(c) and not c.get("ref")]      # a pointer has no words of its own
     seen, out = set(), []
     for c in sorted(ws, key=lambda c: -(c["score"]["s"] + 3 * (1 - c["score"]["cov_seed"]))):
         if c["text_hash"] in seen:

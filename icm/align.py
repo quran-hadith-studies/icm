@@ -11,7 +11,9 @@ more witnesses share and the seed lacks) is aligned on its own:
     - inside a present clause: runs of adjacent columns with the same presence pattern
       (words some witnesses omit) and substitution columns (the witnesses' words differ).
   A witness that abbreviates ("وساق الحديث", "بنحوه") is NA for the clauses it does not
-  show; leading and trailing gaps of a segment are NA (truncation is not absence).
+  show; leading and trailing gaps of a segment are NA (truncation is not absence). A hadith that only points at the
+  text before it (``search.pointer_of``) is aligned with that text: «مثله / بعينه» has its readings, «نحوه / بمعناه»
+  is NA everywhere (close to it, words unknown) and stays out of the grids.
 
 The slot of a clause in a witness is its matched span, without an isolated edge match (the
 "الله" of "قال رسول الله" matched to the clause's own "الله"), plus as many tokens on each side
@@ -167,11 +169,14 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         wits.append(dict(wid=c["wid"], tokens=c["window_text"].split(), matn=c["matn"], title=c["title"],
                          author=c["author"], death=c["death"], tradition=c["tradition"], work=c["work"],
                          cls=c["suggested"], copies=c.get("copies", []), w0=(c.get("window") or [0])[0]))
+        if c.get("ref"):                               # «مثله / نحوه»: the words are those of the text it points at
+            wits[-1]["ref"] = {k: c["ref"].get(k) for k in ("wid", "kind", "marker", "title")}
     for w in wits:
         w["marker"] = find_marker(tokens(w["matn"]))
 
     # --- extra clauses: unmatched runs shared by >= 2 witnesses --------------------------------
-    extras = _discover_extras(clause_defs, wits)
+    vague = {w["wid"] for w in wits if (w.get("ref") or {}).get("kind") == "similar"}     # «نحوه»: close, words unknown
+    extras = _discover_extras(clause_defs, [w for w in wits if w["wid"] not in vague])
     wit_by = {w["wid"]: w for w in wits}
     for w in wits:
         for x in w.get("copies", []):
@@ -294,6 +299,8 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
             v = 1 if sg["state"] == "present" else 0 if sg["state"] == "absent" else NA
             if v == 0 and w["marker"] is not None and not sg.get("user"):
                 v = NA                              # abbreviated: not showing a clause is not evidence (unless the user says it lacks it)
+            if w["wid"] in vague and not sg.get("user"):
+                v = NA                              # «نحوه»: the words it had are not known, so no reading counts
             pres[w["wid"]] = v
         # presence unit of the clause
         known = [v for v in pres.values() if v != NA]
@@ -314,6 +321,10 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
             u = _manual_unit(c, grid, holders, wit_by, ukey, n, d["def"], seed, flags)
             if u:
                 units.append(u)
+    for u in units:                                       # «نحوه»: no reading of it is known, number units included
+        for w in vague:
+            if w in u["states"]:
+                u["states"][w] = NA
     _apply_unit_decisions(units, clause_defs, unit_cls, units_dec, wit_by, flags)
 
     # --- keep the most informative units -----------------------------------------------------------

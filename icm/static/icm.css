@@ -30,6 +30,7 @@ h2{font-size:18px}h3{font-size:15px;margin-top:14px}
 table.cands td.txt{min-width:340px;max-width:560px}
 table.cands tr.on{background:var(--accent-soft)}
 table.cands .matn{max-height:150px}
+.refb{color:var(--accent);font-weight:600;cursor:help}
 .flags li{margin:3px 0}.flags{padding-inline-start:18px;margin:6px 0}
 .grid-wrap{overflow:auto;max-height:420px;border:1px solid var(--line-2);border-radius:var(--r-sm)}
 /* alignment: one row per witness, one column per aligned word, columns grouped and coloured by part */
@@ -48,6 +49,7 @@ table.cands .matn{max-height:150px}
 .altab tr.seed td.nm{z-index:2;font-weight:700}
 .altab tr.seed td:not(.nm){background:hsl(var(--h) var(--hl-s) var(--hl-l))}
 .altab tbody tr:hover td.nm{background:var(--accent-soft)}
+.altab .nm .xw{all:unset;cursor:pointer;color:var(--muted);padding:0 4px;margin-inline-end:2px;border-radius:4px;font-weight:700}.altab .nm .xw:hover{background:var(--bad-bg);color:var(--chip-fg)}
 .altab td.same{background:hsl(var(--h) var(--hl-s) var(--hl-l))}
 .altab td.diff{background:hsl(var(--h) var(--k-s) var(--hd-l));font-weight:700}
 .altab td.ins{color:hsl(var(--h) var(--k-s) var(--k-l));font-weight:700;background:var(--card);outline:1px dashed hsl(var(--h) var(--k-s) var(--k-l));outline-offset:-3px}

@@ -5,6 +5,8 @@
      o.attestations [{sanad: [nid source -> collector], collection, text?}]
      o.verdict {edgeProb, mapGraph, edges, sources: {nid: {posterior, log_Z}}, mapSource}  the model's results (step 6)
      o.onNode(nid) o.onBook(ai) o.onEdge(key) o.onOrigin()  o.prefKey  o.name(nid)  o.search (a search box)
+     o.texts(ai) -> {matn, marks: [[start, end, part]], ref?: {marker}} | null: the text of each attestation, drawn after the
+       book names at the end of its chain, each part of the seed in its colour (the colours of steps 2 and 3)
 
    Two shapes: a tree of chains from their first narrator (no crossings; a narrator reached by two routes appears
    twice, hovering rings all his places), or one node per narrator under the teacher most chains give (other teachers
@@ -28,6 +30,18 @@
   const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* a per-viewer convenience */ } };
   const CATS = [['exact', 'قطعی', 'var(--good)'], ['chosen', 'برگزیده یا استنباطی', 'var(--accent)'], ['auto', 'پیش‌فرض خودکار', 'var(--warn)'], ['name', 'فقط نام', 'var(--muted)'], ['anon', 'نامعلوم', 'var(--line)']];
   const DATES = [['dated', 'تاریخ‌دار'], ['undated', 'بی‌تاریخ']];
+  const HUES = [210, 28, 140, 330, 48, 268, 178, 0, 95, 300, 235, 15], hue = i => HUES[i % HUES.length];
+  const TWS = [['0', 'پنهان'], ['340', 'کوتاه'], ['560', 'میانه'], ['900', 'بلند']];
+  /* the part of a text worth showing in one line: from a little before the first coloured part to a little after the last */
+  const pieces = (v, pad = 40) => {
+    const cp = Array.from(v.matn || ''), ms = (v.marks || []).filter(m => m[0] < cp.length), lab = new Array(cp.length).fill(-1);
+    ms.forEach(([a, b, k]) => { for (let j = a; j < b && j < cp.length; j++) lab[j] = k; });
+    const a = ms.length ? Math.max(0, Math.min(...ms.map(m => m[0])) - pad) : 0, b = ms.length ? Math.min(cp.length, Math.max(...ms.map(m => m[1])) + pad) : cp.length;
+    const out = a > 0 ? [['… ', -1]] : [];
+    for (let j = a; j < b;) { let e = j; while (e < b && lab[e] === lab[j]) e++; out.push([cp.slice(j, e).join('').replace(/\s+/g, ' '), lab[j]]); j = e; }
+    if (b < cp.length) out.push([' …', -1]);
+    return out;
+  };
 
   function make(o) {
     const N = o.narrators, info = n => (o.nodes && o.nodes[n]) || N[n] || {}, ATT = o.attestations, V = o.verdict;
@@ -45,6 +59,8 @@
     const visible = n => show.has(cat(n)) && show.has(undated(n) ? 'undated' : 'dated');
     let selected = null, selEdge = null, filter = '', branch = '', lens = null, mapOnly = false, LAST = null, SVG = null, edgeOf = new Map();
     let pathNodes = null, pathLabel = '';
+    const TXT = o.texts || null;
+    let txtW = TXT ? +pref(P + 'tw', '560') || 0 : 0;
     const heads = [...new Set(ATT.map(a => a.sanad[0]))].sort((a, b) => ATT.filter(x => x.sanad[0] === b).length - ATT.filter(x => x.sanad[0] === a).length);
     const used = ai => {
       const a = ATT[ai];
@@ -107,6 +123,28 @@
       }
     }
 
+    /* the text(s) of the chains that end at x, one line, the seed's parts in their colours; placed after the label */
+    function matnText(x, cy, TW) {
+      const seen = new Set(), full = [], max = Math.round(TW / 6.5);
+      const t = sv('text', { x: 0, y: cy + 4, class: 'mt', 'text-anchor': 'start', direction: 'rtl', 'data-matn': x.ends[0] });
+      x.ends.forEach(ai => {
+        const v = TXT(ai);
+        if (!v || !v.matn || seen.has(v.matn)) return;
+        if (seen.size) t.append(sv('tspan', { class: 'sepr' }, '  ‖  '));
+        seen.add(v.matn);
+        if (v.ref) t.append(sv('tspan', { class: 'ref' }, `«${v.ref.marker}» `));
+        let left = Math.max(20, Math.round(max / (x.ends.length > 1 ? 2 : 1)));
+        for (const [str, k] of pieces(v)) {
+          if (left <= 0) break;
+          const cut = str.length > left ? str.slice(0, left) + '…' : str; left -= str.length;
+          t.append(sv('tspan', k < 0 ? { class: 'plain' } : { class: 'cl', style: `--h:${hue(k)}` }, cut));
+        }
+        full.push((ATT[ai].collection ? ATT[ai].collection + ': ' : '') + (v.ref ? `«${v.ref.marker}» ` : '') + v.matn.replace(/\s+/g, ' '));
+      });
+      if (!seen.size) return null;
+      t.append(sv('title', {}, full.join('\n\n') + '\n(برای سند و متن کامل بزنید)'));
+      return t;
+    }
     const root = hh('div', { class: 'tree' }), tools = hh('div', { class: 'gtools small' }), box = hh('div', { class: 'gwrap' });
     const legend = hh('div', { class: 'glegend small' });
     root.append(tools, box, legend);
@@ -120,7 +158,8 @@
       const maxD = Math.max(1, ...shown.map(x => x.depth));
       const unkKids = V && V.sources && V.sources[UNK] && V.mapGraph ? B.T.kids.filter(x => V.mapGraph[x.nid] === UNK && shown.includes(x)) : [];
       const UW = V && V.sources && V.sources[UNK] ? 120 : 0;
-      const W = (time ? Math.max(1100, (hi - lo) * 3.4) : Math.max(900, (maxD + 1) * 160)) + UW, L = 250, R = W - 80 - UW, RH = 34, TOP = 34, H = TOP + rows * RH + 30;
+      const TW = txtW;                                 // room on the left for the texts after the chains
+      const W = (time ? Math.max(1100, (hi - lo) * 3.4) : Math.max(900, (maxD + 1) * 160)) + UW + TW, L = 250 + TW, R = W - 80 - UW, RH = 34, TOP = 34, H = TOP + rows * RH + 30;
       const X = x => time ? L + (R - L) * (1 - ((year(x.nid) ?? lo) - lo) / (hi - lo || 1)) : R - (R - L) * x.depth / maxD;
       const Y = x => TOP + x.row * RH;
       const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, width: Math.round(W * zoom), height: Math.round(H * zoom), class: 'gsvg' + (mapOnly ? ' maponly' : '') + (lens ? ' lensed' : '') + (pathNodes ? ' pathon' : ''), role: 'img', 'aria-label': 'درخت انتقال، از راست به چپ' });
@@ -172,7 +211,7 @@
           svg.append(pth);
         });
       }
-      const hit = n => filter && norm(nm(n)).includes(norm(filter));
+      const hit = n => filter && norm(nm(n)).includes(norm(filter)), placed = [];
       shown.forEach(x => {
         const n = x.nid, g = sv('g', { class: 'nd' }), cx = X(x), cy = Y(x), closed = col.has(x.key) && x.kids.length, leaf = closed || !x.kids.length, d = N[n] && N[n].death;
         const below = x.atts.length - x.ends.length, src = V && V.sources && V.sources[n], lv = lens && lens.fill ? lens.fill(n) : undefined;
@@ -197,9 +236,15 @@
         g.append(c, t);
         g.addEventListener('mouseenter', () => hot(x.atts, n)); g.addEventListener('mouseleave', () => hot(null));
         svg.append(g);
+        if (TW && leaf && x.ends.length) { const m = matnText(x, cy, TW); if (m) { svg.append(m); placed.push([t, m, cx]); } }
       });
       SVG = svg;
       box.replaceChildren(svg);
+      /* each text right after its chain's book names (measured now that they are drawn) */
+      const putTexts = () => placed.forEach(([lab, m, cx]) => { let bx = null; try { const bb = lab.getBBox(); if (bb.width) bx = bb.x; } catch (_) { /* not rendered */ }
+        m.setAttribute('x', (bx ?? cx - 9 - lab.textContent.length * 6.2) - 12); });
+      putTexts();
+      if (placed.length && document.fonts) document.fonts.ready.then(putTexts);          // the labels' width changes when the font arrives
       hot(null);
       drawLegend();
     }
@@ -261,6 +306,7 @@
           hh('span', { class: 'seg' }, hh('button', { type: 'button', class: 'small', title: 'کوچک‌نمایی', onclick: zf(z => z / 1.25) }, '−'),
             hh('button', { type: 'button', class: 'small', title: 'پهنای کل درخت در کادر', onclick: () => { const vb = SVG && SVG.viewBox.baseVal; if (vb) zf(() => (box.clientWidth - 4) / vb.width)(); } }, 'کل درخت'),
             hh('button', { type: 'button', class: 'small', title: 'بزرگ‌نمایی', onclick: zf(z => z * 1.25) }, '+')),
+          TXT ? [' متن‌ها: ', seg(String(txtW), TWS, v => { txtW = +v; setPref(P + 'tw', v); keep(draw); })] : null,
           o.extraTools ? o.extraTools() : null),
         hh('div', { class: 'toolbar' }, 'نمایش: ', hasTiers ? [CATS.map(chip), hh('span', { class: 'muted' }, ' | ')] : null, DATES.map(chip)));
     }

@@ -385,3 +385,17 @@ def test_spelling_only_columns_are_units_set_aside_that_can_be_kept():
     assert u["user_keep"] and u["cls"] == "orthography" and sorted(u["states"].values()).count(1) == 3
     from hadith_phylogeny.text_model import VariantSpec, VariantModel
     VariantModel([VariantSpec(**{f: x[f] for f in ("name", "n_states", "cls", "kind", "labels")}) for x in k["units"]])
+
+
+def test_a_pointer_has_its_texts_readings_or_none():
+    """«مثله» reads as the text it points at; «نحوه» is close to it, its words unknown: NA everywhere, no grid row."""
+    w = [SEED, SEED, SEED.replace("ستة", "سبعة"), SEED.replace("ستة", "سبعة"), SEED.replace("ستة", "سبعة")]
+    S = _search(SEED, w)
+    for i, kind in ((3, "same"), (4, "similar")):
+        S["candidates"][i]["ref"] = dict(wid="t:2", kind=kind, marker="مثله" if kind == "same" else "نحوه", title="")
+    r = align.run(S, [f"t:{i}" for i in range(len(w))])
+    num = next(u for u in r["units"] if u["kind"] == "numeric")
+    assert num["states"]["t:3"] == num["states"]["t:2"] != num["states"]["t:0"]
+    assert all(u["states"].get("t:4", align.NA) == align.NA for u in r["units"])
+    assert all("t:4" not in g["witnesses"] for g in r["grids"])
+    assert next(x for x in r["witnesses"] if x["wid"] == "t:4")["ref"]["kind"] == "similar"
