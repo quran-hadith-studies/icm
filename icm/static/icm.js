@@ -458,7 +458,7 @@ const panels = {
       pendingSeeds.length ? el('p', { class: 'small muted' }, `در حال سنجش ${fa(pendingSeeds.length)} حدیث افزوده…`) : null,
       edit ? hadithAdder(c, sdec, 'seeds', S) : null),
       card('بخش‌های حدیث‌ها', help('step1.parts'),
-        el('p', { class: 'muted small' }, all.length > 1 ? 'هر حدیث جداگانه به بخش‌هایی بریده می‌شود که واحد جستجو و هم‌ترازی‌اند؛ بخش‌هایی که در چند حدیث یکی‌اند یک بخش شمرده می‌شوند. رنگ هر بخش در همه‌ی متن‌ها یکی است و ستون هر حدیث می‌گوید آن بخش را دارد یا نه.' : null),
+        el('p', { class: 'muted small' }, all.length > 1 ? 'هر حدیث جداگانه به بخش‌هایی بریده می‌شود که واحد جستجو و هم‌ترازی‌اند؛ بخش‌هایی که در چند حدیث یکی‌اند با دکمه‌ی «ساخت بخش‌های مشترک» یک بخش می‌شوند. رنگ هر بخش در همه‌ی متن‌ها یکی است و ستون هر حدیث می‌گوید آن بخش را دارد یا نه.' : null),
         familyTable(S, all),
         seedPartsBox(S, c, pd, 'seed', sdec)));
   },
@@ -1991,7 +1991,7 @@ function partsHelp() {
    spans confirmed (`seed_confirmed`), extra parts dropped/added, `slots` (part key -> wid -> [a, b) | absent | unknown,
    in the tokens of /runs/<run>/words/<wid>) and `confirmed` (part key -> the witnesses it was checked in). */
 const sameJ = (a, b) => JSON.stringify(a == null ? null : a) === JSON.stringify(b == null ? null : b);
-const partsBase = d => ({ seed: d.seed ?? null, seed_confirmed: d.seed_confirmed ?? null, cuts: d.cuts || {}, cuts_confirmed: d.cuts_confirmed || {}, extras_added: d.extras_added || [],
+const partsBase = d => ({ seed: d.seed ?? null, seed_confirmed: d.seed_confirmed ?? null, join: d.join ?? null, cuts: d.cuts || {}, cuts_confirmed: d.cuts_confirmed || {}, extras_added: d.extras_added || [],
   extras_dropped: d.extras_dropped || [], slots: d.slots || {}, confirmed: d.confirmed || {},
   words: d.words || {}, unit_cls: d.unit_cls || {}, units: d.units || {}, renames: d.renames || {}, chain: d.chain || {}, refs: d.refs || {} });   // refs: step 3, the text of each reference   // words, unit_cls, units: step 3 per-word corrections and edits of the variation units; renames, chain: step 4 name/term spans, places added/removed/re-bounded
 /* the names that go into the tree with no identity (name only), as identity.resolve finds them: the cards of places with no
@@ -2065,7 +2065,23 @@ function seedPartsBox(S, c, pd, step, sdec) {
     await saveParts(c.pid, d => ({ seed: null, seed_confirmed: null, cuts: Object.keys(d.cuts).length || !d.seed ? d.cuts : { [S.seed.wid]: d.seed }, cuts_confirmed: st.cur }), 'parts confirmed'); reloadAt(c.pid, step);
   } }, 'تأیید همین فرازبندی') : null;
   box.append(el('div', { class: 'toolbar' }, el('b', {}, 'فرازبندی حدیث‌ها: '), chip, from, by, editBtn, okBtn, info(() => help('parts.seed', true) || 'بخش‌ها را می‌توانید جابه‌جا، یکی یا جدا کنید.', { modal: true })), ed);
+  if (sourcesOf(S, sdec).length > 1) box.prepend(joinBar(S, c, step));
   return box;
+}
+/* the parts the hadiths have in common: joined only when asked (the button), and again when the cuts changed */
+function joinBar(S, c, step) {
+  const J = S.join || { built: false, groups: [], stale: false }, can = c.can && !STATIC;
+  const run = async (join, ask) => {
+    if (ask && !confirm('با بخش‌های تازه نامزدها دوباره سنجیده می‌شوند و هم‌ترازی و مرحله‌های بعد از نو ساخته می‌شوند (شاهدهای انتخاب‌شده می‌مانند؛ تیک‌های «در جستجو» برداشته می‌شوند). ادامه؟')) return;
+    await saveParts(c.pid, () => ({ join }), join === true ? 'parts joined' : 'parts unjoined'); reloadAt(c.pid, step);
+  };
+  return el('div', { class: 'toolbar joinbar' }, el('b', {}, 'بخش‌های مشترک: '),
+    S.legacy ? el('span', { class: 'chip und' }, 'این نتیجه با نسخه‌ی پیشین ساخته شده؛ برای دیدن بخش‌های همه‌ی حدیث‌ها دکمه را بزنید')
+      : J.built ? [el('span', { class: 'chip ' + (J.stale ? 'running' : 'auto') }, J.stale ? 'فرازبندی از آخرین ساخت عوض شده؛ دوباره بسازید' : `${fa(J.groups.length)} بخش مشترک ساخته شده`)]
+      : el('span', { class: 'chip und' }, J.fresh && J.fresh.length ? `هنوز ساخته نشده: هر حدیث بخش‌های خودش را دارد (${fa(J.fresh.length)} بخش مشترک پیدا می‌شود)` : 'هنوز ساخته نشده: هر حدیث بخش‌های خودش را دارد'),
+    can ? el('button', { class: 'small primary', title: 'بخش‌هایی را که در چند حدیث یکی‌اند یک بخش بشمار', onclick: () => run(true, true) }, J.built ? 'ساخت دوباره‌ی بخش‌های مشترک' : 'ساخت بخش‌های مشترک') : null,
+    can && J.built ? el('button', { class: 'small', onclick: () => run(null, true) }, 'برداشتن بخش‌های مشترک') : null,
+    info(() => help('parts.join', true) || 'بخش‌هایی که در چند حدیث یکی‌اند.', { modal: true }));
 }
 /* every hadith of the list as words, each the same way: a word click takes it in or out of the parts, a click between two words cuts or joins */
 async function seedPartsEditor(box, S, c, done, step, pd, sdec) {

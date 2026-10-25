@@ -22,7 +22,10 @@ if __name__ == "__main__":
 def test_the_hadiths_of_the_list_are_equal_their_cuts_make_the_same_parts_whatever_the_order():
     from icm import search
     A, B, C = "v02:800316143", "v02:600055010", "v02:700126570"
-    runs = [search.run(a, seeds=[b, c], retrieve=False) for a, b, c in ((A, B, C), (C, A, B), (B, C, A))]
+    un = search.run(A, seeds=[B, C], retrieve=False)                                   # the button for the shared parts was not pressed: every hadith's cuts are parts of its own
+    assert all(len(c["members"]) == 1 for c in un["clauses"]) and not un["join"]["built"] and un["join"]["fresh"]
+    runs = [search.run(a, {"join": True}, seeds=[b, c], retrieve=False) for a, b, c in ((A, B, C), (C, A, B), (B, C, A))]
+    assert runs[0]["join"]["built"] and not runs[0]["join"]["stale"]
     for r in runs[1:]:
         assert r["seed"]["wid"] == runs[0]["seed"]["wid"] and sorted(r["seeds"]) == sorted(runs[0]["seeds"])
         assert [c["text"] for c in r["clauses"]] == [c["text"] for c in runs[0]["clauses"]]
@@ -34,6 +37,8 @@ def test_the_hadiths_of_the_list_are_equal_their_cuts_make_the_same_parts_whatev
     for w, sp in r["cuts"].items():
         assert all(0 <= a < b <= r["cut_tokens"][w] for a, b in sp)
     # one hadith alone: its own cut, as before
+    again = search.run(A, {"join": [[[A, 0, 1]]]}, seeds=[B, C], retrieve=False)       # groups that no longer fit the cuts are stale, not an error
+    assert again["join"]["stale"]
     one = search.run(A, retrieve=False)
     assert one["seed"]["wid"] == A and one["seeds"] == [] and [c["members"][A] for c in one["clauses"]] == one["cuts"][A]
     # the user's cut of one hadith applies to it only

@@ -460,7 +460,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 project.add_decision(pid, "selection", dict(selected=sorted(set(sel["selected"]) | new)), u["username"], "hadiths added")
         if step == "parts":
             prev = project.decision(pid, "parts") or {}
-            if (payload["seed"], payload.get("cuts")) != (prev.get("seed"), prev.get("cuts")):
+            if (payload["seed"], payload.get("cuts"), payload.get("join")) != (prev.get("seed"), prev.get("cuts"), prev.get("join")):
                 # a re-cut seed searches again: the witnesses selected now stay candidates, and the
                 # «در جستجو» ticks (numbers of the old parts) no longer apply
                 sel = project.decision(pid, "selection") or {}
@@ -739,7 +739,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             # a project made before the button: from now on the corpora are asked again only when «جستجو» is pressed; what the
             # search on screen was made from is what the page showed (the same key, so nothing is computed again)
             cl = pdec.get("seed") or None
-            ret = dict(legacy=True, n=0, clauses=cl, part_query=prev.get("part_query"), extra=sorted(set(prev.get("extra_ids") or [])),
+            ret = dict(legacy=True, n=0, clauses=cl, join=pdec.get("join"), part_query=prev.get("part_query"), extra=sorted(set(prev.get("extra_ids") or [])),
                        keep=sorted(set(pdec.get("keep_ids") or [])) if cl else [], seeds=[])
         if pl.get("go"):
             mode = pl.get("mode") or "rebuild"
@@ -752,7 +752,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 elif mode == "selected":
                     keep = list((project.decision(pid, "selection") or {}).get("selected") or [])
             cl = pdec.get("seed") or None
-            ret = dict(legacy=False, n=(ret or {}).get("n", 0) + 1, clauses=cl, part_query=pq, extra=[],
+            ret = dict(legacy=False, n=(ret or {}).get("n", 0) + 1, clauses=cl, join=pdec.get("join"), part_query=pq, extra=[],
                        keep=sorted(set(keep) - {first})[:5000], seeds=seeds, **({"anchor": first} if first != p["seed"] else {}))
             if mode == "rebuild":
                 out["_reset"] = True
@@ -786,6 +786,18 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         for name, cs in (("cuts", cuts), ("cuts_confirmed", cconf)):
             if not (isinstance(cs, dict) and len(cs) <= 20 and all(w in members and spans(x, toks(w)) for w, x in cs.items())):
                 raise HTTPException(400, f"{name} must map a hadith of the list to ordered, non-overlapping [start, end) token spans within its words")
+        join = pl.get("join")                         # True: join the cuts of the hadiths now (the button); a list of groups: as it was; None: not joined
+        if join is True:
+            cuts_tok = {}
+            for w in members:
+                src = family.source(w, edits)
+                if src is not None:
+                    cuts_tok[w] = (src["tok"], family.cut(src, cuts.get(w) if cuts else (pl.get("seed") if w == first else None))[0])
+            join = family.groups(cuts_tok)
+        elif join is not None and not (isinstance(join, list) and len(join) <= 300 and all(
+                isinstance(g, list) and 2 <= len(g) <= 20 and all(isinstance(m, list) and len(m) == 3 and m[0] in members and all(
+                    isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in m[1:]) for m in g) for g in join)):
+            raise HTTPException(400, "join must be true, null or groups of [hadith, start, end)")
         added, dropped = pl.get("extras_added", []) or [], pl.get("extras_dropped", []) or []
         if not (isinstance(added, list) and len(added) <= 50 and all(
                 isinstance(a, dict) and isinstance(a.get("wid"), str) and WID_RE.match(a["wid"]) and spans([a.get("span")], 5000) for a in added)):
@@ -915,6 +927,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         out = dict(seed=None if seed == auto or cuts else seed, seed_confirmed=None if cuts else conf,
                    extras_added=[dict(wid=a["wid"], span=a["span"]) for a in added], extras_dropped=sorted(set(dropped)),
                    slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
+        if join is not None:
+            out["join"] = join
         for key, val in (("cuts", cuts), ("cuts_confirmed", cconf),
                          ("words", {k: {w: m for w, m in v.items() if m} for k, v in words.items()}), ("unit_cls", ucls),
                          ("renames", {k: dict(name=v["name"].strip(), term=v.get("term", "").strip()) for k, v in renames.items()}),

@@ -68,8 +68,17 @@ def _sim(a: Sequence[str], b: Sequence[str]) -> float:
     return min(r["m"] / max(len(a), 1), r["m"] / max(len(b), 1))
 
 
-def build(cuts: Dict[str, Tuple[Sequence[str], Sequence[Tuple[int, int]]]]) -> List[dict]:
-    """The family's parts from every hadith's cut (``{wid: (tokens, spans)}``)."""
+def _rep(cuts, members: dict) -> List[str]:
+    """The words that speak for a part: the member most like the others (then the longest, then the lowest id)."""
+    segs = {w: list(cuts[w][0][a:b]) for w, (a, b) in members.items()}
+    if len(segs) == 1:
+        return next(iter(segs.values()))
+    return segs[max(segs, key=lambda w: (sum(_sim(segs[w], segs[o]) for o in segs if o != w) if len(segs) > 2 else 0, len(segs[w]), w))]
+
+
+def groups(cuts: Dict[str, Tuple[Sequence[str], Sequence[Tuple[int, int]]]]) -> List[List[list]]:
+    """Which cuts of different hadiths are the same part (``{wid: (tokens, spans)}``): groups of [wid, start, end), two or
+    more hadiths each, in a fixed order. Nothing depends on the order the hadiths are given in."""
     items = sorted(((wid, a, b) for wid, (tok, sp) in cuts.items() for a, b in sp), key=lambda x: (-(x[2] - x[1]), x[0], x[1]))
     clusters: List[dict] = []
     for wid, a, b in items:
@@ -80,15 +89,29 @@ def build(cuts: Dict[str, Tuple[Sequence[str], Sequence[Tuple[int, int]]]]) -> L
                 break
         else:
             clusters.append(dict(rep=seg, members={wid: [a, b]}))
-    for cl in clusters:
-        if len(cl["members"]) > 2:                    # the member most like the others (then the longest) speaks for the part
-            segs = {w: list(cuts[w][0][a:b]) for w, (a, b) in cl["members"].items()}
-            best = max(segs, key=lambda w: (sum(_sim(segs[w], segs[o]) for o in segs if o != w), len(segs[w]), w))
-            cl["rep"] = segs[best]
-    def at(cl) -> float:                              # where in its hadiths the part usually is
-        return sum(a / max(len(cuts[w][0]), 1) for w, (a, _) in cl["members"].items()) / len(cl["members"])
-    clusters.sort(key=lambda cl: (at(cl), " ".join(cl["rep"])))
-    return [dict(i=i, text=" ".join(cl["rep"]), tokens=cl["rep"], members=cl["members"]) for i, cl in enumerate(clusters)]
+    return sorted([[w, *ab] for w, ab in sorted(cl["members"].items())] for cl in clusters if len(cl["members"]) > 1)
+
+
+def build(cuts: Dict[str, Tuple[Sequence[str], Sequence[Tuple[int, int]]]], join: Optional[List[List[list]]] = None) -> List[dict]:
+    """The family's parts from every hadith's cut (``{wid: (tokens, spans)}``). Cuts are joined only as ``join`` says (groups
+    as ``groups`` makes them, kept when the user asked for them: a group's cut that is no longer a cut of its hadith leaves it);
+    with ``join`` None every cut of every hadith is a part of its own."""
+    have = {(w, a, b) for w, (tok, sp) in cuts.items() for a, b in sp}
+    used, clusters = set(), []
+    for g in join or []:
+        m = {}
+        for w, a, b in g:
+            if (w, a, b) in have and w not in m and (w, a, b) not in used:
+                m[w] = [a, b]
+                used.add((w, a, b))
+        if m:
+            clusters.append(m)
+    clusters += [{w: [a, b]} for w, a, b in sorted(have - used)]
+    def at(m) -> float:                               # where in its hadiths the part usually is
+        return sum(a / max(len(cuts[w][0]), 1) for w, (a, _) in m.items()) / len(m)
+    parts = [(m, _rep(cuts, m)) for m in clusters]
+    parts.sort(key=lambda x: (at(x[0]), " ".join(x[1])))
+    return [dict(i=i, text=" ".join(rep), tokens=rep, members=m) for i, (m, rep) in enumerate(parts)]
 
 
 def reference(parts: Sequence[dict]) -> Tuple[List[str], List[Tuple[int, int]]]:

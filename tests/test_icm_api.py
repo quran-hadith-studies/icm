@@ -454,6 +454,50 @@ def test_no_hadith_of_step_1_is_the_main_one_each_is_cut_on_its_own_and_any_can_
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_the_shared_parts_of_the_hadiths_are_made_by_a_button_and_again_when_asked():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        W0, W2 = "v02:800316143", "v02:700126570"
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid)
+        dec = lambda step, pl: c.post(f"/icm/api/project/{pid}/decide/{step}", json={"payload": pl}, headers=H("alice"))
+        Sget = lambda: c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        press_search(c, pid, seeds=[W2])
+        S = Sget()
+        # the shared parts are made when asked (the button), not by themselves
+        assert S["join"]["built"] is False and S["join"]["fresh"] and all(len(c_["members"]) == 1 for c_ in S["clauses"])
+        assert dec("parts", {"join": [[[W0, 0, 1], ["v02:1", 0, 1]]]}).status_code == 400            # a hadith that is not in the list
+        assert dec("parts", {"join": "yes"}).status_code == 400
+        assert dec("parts", {"join": True}).status_code == 200
+        groups = project.decision(pid, "parts")["join"]
+        assert groups and all(len({m[0] for m in g}) == len(g) >= 2 for g in groups)
+        pipeline.advance(pid)
+        S = Sget()
+        assert S["join"]["built"] and not S["join"]["stale"] and any(len(c_["members"]) == 2 for c_ in S["clauses"]) and S["join"]["groups"] == groups
+        # saving other corrections keeps the groups (the page echoes them back)
+        assert dec("parts", {"join": groups, "slots": {}}).status_code == 200 and project.decision(pid, "parts")["join"] == groups
+        # a cut edited after the button: its groups are stale (the cut left its group) until the button is pressed again
+        mine = next(m for g in groups for m in g if m[0] == W0 and m[2] - m[1] > 3)
+        cut = [[a, b - 1] if [W0, a, b] == mine else [a, b] for a, b in S["auto_cuts"][W0]]       # one grouped cut a word shorter: a new button press would still join it
+        assert dec("parts", {"cuts": {W0: cut}, "cuts_confirmed": {W0: cut}, "join": groups}).status_code == 200
+        pipeline.advance(pid)
+        S = Sget()
+        assert S["join"]["built"] and S["join"]["stale"]
+        assert dec("parts", {"cuts": {W0: cut}, "cuts_confirmed": {W0: cut}, "join": True}).status_code == 200
+        pipeline.advance(pid)
+        S = Sget()
+        assert S["join"]["built"] and not S["join"]["stale"] and S["cuts"][W0] == cut
+        # taken off again: every cut is a part of its own
+        assert dec("parts", {"cuts": {W0: cut}, "join": None}).status_code == 200 and "join" not in project.decision(pid, "parts")
+        pipeline.advance(pid)
+        S = Sget()
+        assert S["join"]["built"] is False and all(len(c_["members"]) == 1 for c_ in S["clauses"])
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def test_search_is_a_button_hadiths_can_be_added_edited_and_seeded_and_a_second_search_merges():
     from icm import pipeline
     a, d = app()

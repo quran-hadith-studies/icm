@@ -139,14 +139,21 @@ def test_source_hadiths_are_cut_on_their_own_and_the_cuts_that_agree_are_one_par
     from icm import family
     ca = {"A": _cut("ستة لعنتهم", "المكذب بقدر الله", "والزائد في كتاب الله", "والتارك لسنتي"),
           "B": _cut("ستة لعنتهم", "المكذب بقدر الله", "والمستأثر بالفيء لنفسه", "والتارك لسنتي")}
-    fwd = family.build(ca)
-    back = family.build({k: ca[k] for k in ("B", "A")})                        # the order of the list is no part of it
+    assert sorted(len(p["members"]) for p in family.build(ca)) == [1] * 8                  # not joined (the button was not pressed): every cut is a part
+    g = family.groups(ca)
+    assert [[m[0] for m in grp] for grp in g] == [["A", "B"]] * 3                      # the three cuts both hadiths have
+    assert family.groups({k: ca[k] for k in ("B", "A")}) == g                          # the order of the list is no part of it
+    fwd = family.build(ca, g)
+    back = family.build({k: ca[k] for k in ("B", "A")}, g)
     assert [(p["text"], p["members"]) for p in fwd] == [(p["text"], p["members"]) for p in back]
     assert sorted(len(p["members"]) for p in fwd) == [1, 1, 2, 2, 2], [(p["text"], list(p["members"])) for p in fwd]
+    # a joined group whose cut the user changed since leaves the group: that cut is a part of its own
+    cut = {"A": (ca["A"][0], [(0, 2), (2, 5), (5, 9), (9, 10)]), "B": ca["B"]}
+    assert sorted(len(p["members"]) for p in family.build(cut, g)) == [1, 1, 1, 1, 2, 2]
     tok, sp = family.reference(fwd)
     assert [" ".join(tok[x:y]) for x, y in sp] == [p["text"] for p in fwd]
     # one hadith alone: its parts are its cut, as they were
-    one = family.build({"A": ca["A"]})
+    one = family.build({"A": ca["A"]}, family.groups({"A": ca["A"]}))
     assert [p["members"]["A"] for p in one] == [list(x) for x in ca["A"][1]]
     assert family.canonical({"A": {}, "B": {}}, fwd) == "A"                     # the same number of parts and words: the lower id names the family
     lab = family.labels(len(ca["B"][0]), fwd, "B")

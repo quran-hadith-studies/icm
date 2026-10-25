@@ -35,15 +35,17 @@ def _get_or_run(pid: str, stage: str, key: str, fn, stage_hashes: Dict[str, str]
     return out
 
 
-def _sparams(part_query, clauses) -> dict:
+def _sparams(part_query, clauses, join=None) -> dict:
     out = dict(part_query=part_query)
     if clauses:                                               # only then, so automatic searches keep their keys
         out["clauses"] = clauses
+    if join is not None:                                      # the user joined the hadiths' cuts (a list of groups, perhaps none)
+        out["join"] = join
     return out
 
 
 def _ret_key(seed: str, ret: dict) -> str:
-    sp, keep = _sparams(ret.get("part_query"), ret.get("clauses")), sorted(set(ret.get("keep") or []))
+    sp, keep = _sparams(ret.get("part_query"), ret.get("clauses"), ret.get("join")), sorted(set(ret.get("keep") or []))
     if ret.get("legacy"):                                     # the key every search had before «جستجو» became a button
         return h("search", seed, sp, sorted(ret.get("extra") or []), *([keep] if keep else []), STAGE_VERSIONS["search"], config.DATA_VERSION)
     return h("search", seed, sp, [], *([keep] if keep else []), dict(n=ret["n"], seeds=sorted(ret.get("seeds") or [])), STAGE_VERSIONS["search"], config.DATA_VERSION)
@@ -56,24 +58,24 @@ def _search(pid: str, p: dict, sdec: dict, pdec: dict, seldec: Optional[dict], h
     made before the button (no ``manual_search`` in project.json) keep their keys and search as they did."""
     seed = project.anchor(p, sdec)                             # the first hadith of step 1's list
     cl = project.cuts_of(pdec)
-    cur = dict(part_query=sdec.get("part_query"), clauses=cl, keep=sorted(set(pdec.get("keep_ids") or [])) if cl else [],
+    cur = dict(part_query=sdec.get("part_query"), clauses=cl, join=pdec.get("join"), keep=sorted(set(pdec.get("keep_ids") or [])) if cl else [],
                extra=sorted(set(sdec.get("extra_ids") or [])), seeds=sorted(set(sdec.get("seeds") or []) - {seed}), edits=sdec.get("edits") or {})
     ret = sdec.get("ret")
     if ret is None:
-        legacy = dict(legacy=True, n=0, clauses=cl, part_query=cur["part_query"], extra=cur["extra"], keep=cur["keep"], seeds=[])
+        legacy = dict(legacy=True, n=0, clauses=cl, join=cur["join"], part_query=cur["part_query"], extra=cur["extra"], keep=cur["keep"], seeds=[])
         if not p.get("manual_search"):
             ret = legacy
-    sp = _sparams(cur["part_query"], cl)
+    sp = _sparams(cur["part_query"], cl, cur["join"])
     if ret is None:                                            # not searched yet: the seed's parts and the user's own hadiths
         k0 = h("search0", seed, sp, cur["extra"], cur["keep"], cur["seeds"], cur["edits"], STAGE_VERSIONS["search"], config.DATA_VERSION, *(["family"] if cur["seeds"] else []))
         return _get_or_run(pid, "search", k0, lambda: dict(search_mod.run(seed, sp, cur["extra"], cur["keep"], seeds=cur["seeds"], retrieve=False,
                                                                            texts=cur["edits"]), searched=False, stale=False), hashes)
     rseed = ret.get("anchor") or p["seed"]                     # the first hadith when «جستجو» was pressed
     k_ret = _ret_key(rseed, ret)
-    rsp = _sparams(ret.get("part_query"), ret.get("clauses"))
+    rsp = _sparams(ret.get("part_query"), ret.get("clauses"), ret.get("join"))
     R = _get_or_run(pid, "search", k_ret, lambda: dict(search_mod.run(rseed, rsp, ret.get("extra") or [], ret.get("keep") or [],
                                                                       seeds=ret.get("seeds") or []), searched=True, stale=False), hashes)
-    if (seed, cur["clauses"], cur["part_query"], cur["extra"], cur["keep"], cur["seeds"]) == (rseed, ret.get("clauses"), ret.get("part_query"), sorted(ret.get("extra") or []),
+    if (seed, cur["clauses"], cur["join"], cur["part_query"], cur["extra"], cur["keep"], cur["seeds"]) == (rseed, ret.get("clauses"), ret.get("join"), ret.get("part_query"), sorted(ret.get("extra") or []),
                                                                                               sorted(ret.get("keep") or []), sorted(ret.get("seeds") or [])) and not cur["edits"] \
             and ("cuts" in R or not R.get("seeds")):             # (a search made before every hadith of the list was cut on its own, with several hadiths, is scored once more: the corpora are not asked again)
         return R
@@ -82,7 +84,7 @@ def _search(pid: str, p: dict, sdec: dict, pdec: dict, seldec: Optional[dict], h
         sig = [g for g in c["signals"] if g not in ("user", "seed")]       # what the user added or named is read from the decision now
         for w in [c["wid"], *c.get("copies", [])]:
             prior[w] = dict(signals=sig, round=c.get("round"), via=c.get("via"))
-    stale = (seed, cur["clauses"], cur["part_query"]) != (rseed, ret.get("clauses"), ret.get("part_query"))
+    stale = (seed, cur["clauses"], cur["join"], cur["part_query"]) != (rseed, ret.get("clauses"), ret.get("join"), ret.get("part_query"))
     k_fin = h("rescore", k_ret, sp, cur["extra"], cur["keep"], cur["seeds"], cur["edits"], STAGE_VERSIONS["search"])
     def rescore():
         out = search_mod.run(seed, sp, cur["extra"], cur["keep"], seeds=cur["seeds"], prior=prior, retrieve=False, texts=cur["edits"])

@@ -78,7 +78,12 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
     cuts, by_user = {}, {}
     for w, s in src.items():
         cuts[w], by_user[w] = family.cut(s, user.get(w) if isinstance(user, dict) else user if w == seed else None)
-    parts = family.build({w: (src[w]["tok"], cuts[w]) for w in src})
+    cuts_tok = {w: (src[w]["tok"], cuts[w]) for w in src}
+    join = p.get("join")                          # None: the hadiths' cuts are not joined (the button was not pressed); a list of groups: they are
+    if join is True:
+        join = family.groups(cuts_tok)
+    fresh = family.groups(cuts_tok) if len(src) > 1 else []
+    parts = family.build(cuts_tok, join)
     if not parts:
         raise ValueError("seed has no text")
     seed = family.canonical({w: s for w, s in src.items() if any(w in q["members"] for q in parts)}, parts)
@@ -155,6 +160,7 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
         cuts={w: [list(x) for x in cuts[w]] for w in src}, auto_cuts={w: [list(x) for x in src[w]["auto"]] for w in src},
         cuts_by={w: ("user" if by_user[w] else "auto") for w in src}, cut_tokens={w: len(src[w]["tok"]) for w in src},
         clauses_by="user" if any(by_user.values()) else "auto",
+        join=dict(built=join is not None, groups=join or [], fresh=fresh, stale=join is not None and _norm_groups(join, cuts_tok) != fresh),
         auto_by={w: src[w]["by"] for w in src}, clause_owners=owners,
         params=p, seeds=seeds, retrieved=bool(retrieve), candidates=cands, queries=queries, rounds=rounds_info, flags=flags,
         seconds=round(time.time() - t0, 1))
@@ -171,6 +177,13 @@ def _best_terms(tok: Sequence[str], dfs: Dict[str, Tuple[int, int]], idx: int, d
     cand = sorted({t for t in tok if len(t) >= 3 and 0 < dfs.get(t, (0, 0))[idx] <= df_max},
                   key=lambda t: (dfs[t][idx], -len(t)))
     return cand[:k]
+
+
+def _norm_groups(join, cuts_tok) -> list:
+    """The groups the user asked for, as they stand now (a group's cut that is not a cut of its hadith any more has left it)."""
+    have = {(w, a, b) for w, (tok, sp) in cuts_tok.items() for a, b in sp}
+    out = [[g for g in grp if tuple(g) in have] for grp in join]
+    return sorted(sorted(g) for g in out if len(g) > 1)
 
 
 def _generate(wid: str, tok: List[str], parts: Iterable[Tuple[int, int, int]], p: dict, rnd: int,

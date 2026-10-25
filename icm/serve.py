@@ -56,7 +56,8 @@ def stage(pid: str, run: str, name: str) -> Optional[dict]:
             auto = out.get("auto_clauses") or sp                # (earlier still: every search cut the seed automatically)
             by = out.get("clauses_by") or "auto"
             out = dict(out, seed_tokens=out["tokens"], cuts={w: sp}, auto_cuts={w: [list(x) for x in auto]}, cuts_by={w: by},
-                       cut_tokens={w: len(out["tokens"])}, auto_by={w: out.get("auto_by") if isinstance(out.get("auto_by"), str) else "rules"})
+                       cut_tokens={w: len(out["tokens"])}, auto_by={w: out.get("auto_by") if isinstance(out.get("auto_by"), str) else "rules"},
+                       join=dict(built=False, groups=[], fresh=[], stale=False), legacy=True)
         return search_mod.with_marks(out)
     if name == "align" and out["clauses"] and "key" not in out["clauses"][0]:
         for c, k in zip(out["clauses"], align_mod.part_keys(out["clauses"])):
