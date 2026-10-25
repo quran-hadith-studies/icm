@@ -325,6 +325,50 @@ if __name__ == "__main__":
     sys.exit(1 if fails else 0)
 
 
+def test_the_first_hadith_of_step_1_can_be_taken_away_and_the_next_takes_its_place():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        W0, W1 = "v02:800316143", "v02:800316145"
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid)
+        dec = lambda step, pl: c.post(f"/icm/api/project/{pid}/decide/{step}", json={"payload": pl}, headers=H("alice"))
+        Sget = lambda: c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        press_search(c, pid, seeds=[W1])
+        S1 = Sget()
+        assert S1["seed"]["wid"] == W0 and S1["seeds"] == [W1]
+        n = len(S1["tokens"])
+        assert dec("parts", {"seed": [[0, 3], [3, n]], "seed_confirmed": [[0, 3], [3, n]]}).status_code == 200
+        pipeline.advance(pid)
+        # nothing else seeds the project: the first hadith goes, the second is the reference, the cut that was on the first starts again
+        assert dec("search", {"anchor": W1, "seeds": [], "extra_ids": []}).status_code == 200
+        assert project.decision(pid, "search")["anchor"] == W1 and project.decision(pid, "search")["seeds"] == []
+        pp = project.decision(pid, "parts")
+        assert pp["seed"] is None and pp["seed_confirmed"] is None and not pp["slots"]
+        pipeline.advance(pid)
+        S2 = Sget()
+        assert S2["seed"]["wid"] == W1 and S2["seeds"] == [] and S2["stale"] and W1 not in {x["wid"] for x in S2["candidates"]}
+        assert W0 not in {x["wid"] for x in S2["candidates"]}                               # taken away, not left as a candidate
+        # the next decisions keep the new first hadith, and it cannot be edited or be its own further seed
+        assert dec("search", {"extra_ids": []}).status_code == 200 and project.decision(pid, "search")["anchor"] == W1
+        assert dec("search", {"edits": {W1: "x"}}).status_code == 400 and dec("search", {"seeds": [W1]}).status_code == 200
+        assert project.decision(pid, "search")["seeds"] == [] and project.decision(pid, "search")["anchor"] == W1
+        sel = c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [W1]}}, headers=H("alice"))
+        assert sel.status_code == 200 and project.decision(pid, "selection")["selected"] == [W1]
+        # the old first hadith can be added again as an ordinary one
+        assert dec("search", {"seeds": [W0]}).status_code == 200 and project.decision(pid, "search")["seeds"] == [W0]
+        pipeline.advance(pid)
+        S3 = Sget()
+        assert S3["seed"]["wid"] == W1 and S3["seeds"] == [W0] and "seed" in next(x for x in S3["candidates"] if x["wid"] == W0)["signals"]
+        # a new press searches from the new first hadith
+        press_search(c, pid, seeds=[W0])
+        S4 = Sget()
+        assert S4["seed"]["wid"] == W1 and not S4["stale"] and project.decision(pid, "search")["ret"]["anchor"] == W1
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def test_search_is_a_button_hadiths_can_be_added_edited_and_seeded_and_a_second_search_merges():
     from icm import pipeline
     a, d = app()

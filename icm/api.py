@@ -423,6 +423,14 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             # hadiths added now join a selection already made (they would otherwise be listed unticked), and a rebuilt search clears it
             sel = project.decision(pid, "selection") or {}
             new = (set(payload["extra_ids"]) | set(payload["seeds"])) - (set(prev_search.get("extra_ids") or []) | set(prev_search.get("seeds") or []))
+            if project.anchor(p, payload) != project.anchor(p, prev_search):
+                # the first hadith of the list was taken away and the next one is the reference now: the parts (and everything keyed by
+                # them) belonged to the old one's text, so they start again; the narrators' and references' edits are kept
+                pprev = project.decision(pid, "parts") or {}
+                project.add_decision(pid, "parts", {k: pprev[k] for k in ("renames", "chain", "refs") if pprev.get(k)} | dict(
+                    seed=None, seed_confirmed=None, extras_added=[], extras_dropped=[], slots={}, confirmed={}, keep_ids=[]),
+                    u["username"], "the first hadith changed")
+                payload["part_query"] = None
             if payload.pop("_reset", False) and sel.get("selected"):
                 project.add_decision(pid, "selection", dict(selected=[], reset=True), u["username"], "search rebuilt")
             elif new and sel.get("selected"):
@@ -433,8 +441,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 # a re-cut seed searches again: the witnesses selected now stay candidates, and the
                 # «در جستجو» ticks (numbers of the old parts) no longer apply
                 sel = project.decision(pid, "selection") or {}
-                payload["keep_ids"] = sorted(set(sel.get("selected", [])) - {p["seed"]})
                 sdec = project.decision(pid, "search") or {}
+                payload["keep_ids"] = sorted(set(sel.get("selected", [])) - {project.anchor(p, sdec)})
                 if sdec.get("part_query") is not None:
                     project.add_decision(pid, "search", dict(sdec, part_query=None), u["username"], "the seed's parts changed")
             else:
@@ -573,12 +581,13 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 return dict(selected=[], reset=True)
             sel = pl.get("selected", [])
             S = project.run_stage(pid, "current", "search")
-            known = {c["wid"] for c in (S or {}).get("candidates", [])} | {p["seed"]}
+            first = project.anchor(p, project.decision(pid, "search"))
+            known = {c["wid"] for c in (S or {}).get("candidates", [])} | {first}
             for c in (S or {}).get("candidates", []):
                 known.update(c.get("copies", []))
             if not (isinstance(sel, list) and sel and all(w in known for w in sel)):
                 raise HTTPException(400, "selection must be a non-empty list of candidates of this project")
-            return dict(selected=sorted(set(sel) | {p["seed"]}))
+            return dict(selected=sorted(set(sel) | {first}))
         if step == "identities":
             ch = pl.get("choices", {})
             ov = pl.get("overrides", {})
@@ -666,17 +675,24 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         extra, seeds = pl.get("extra_ids", []), pl.get("seeds", [])
         if not (wl(extra, 200) and wl(seeds, 20)):
             raise HTTPException(400, "extra_ids and seeds must be hadith ids")
-        extra = sorted(set(extra) - set(seeds) - {p["seed"]})
-        seeds = sorted(set(seeds) - {p["seed"]})
+        first = pl["anchor"] if pl.get("anchor") else project.anchor(p, prev) if "anchor" not in pl else p["seed"]    # the list's first hadith
+        if not (isinstance(first, str) and WID_RE.match(first) and "~" not in first):
+            raise HTTPException(400, "anchor must be a hadith id")
+        if first != p["seed"] and first not in (prev.get("seeds") or []) and first != project.anchor(p, prev) and corpus.get(first) is None:
+            raise HTTPException(400, f"unknown hadith {first}")
+        extra = sorted(set(extra) - set(seeds) - {first})
+        seeds = sorted(set(seeds) - {first})
         for w in set(extra) | set(seeds):
             if w not in (prev.get("extra_ids") or []) and w not in (prev.get("seeds") or []) and corpus.get(w) is None:
                 raise HTTPException(400, f"unknown hadith {w}")
         edits = pl.get("edits", {}) or {}
         if not (isinstance(edits, dict) and len(edits) <= 200 and all(
-                isinstance(w, str) and WID_RE.match(w) and "~" not in w and w != p["seed"] and isinstance(t, str) and 0 < len(t.strip()) <= 20000
+                isinstance(w, str) and WID_RE.match(w) and "~" not in w and w != first and isinstance(t, str) and 0 < len(t.strip()) <= 20000
                 for w, t in edits.items())):
-            raise HTTPException(400, "edits must map hadith ids to their text (not the seed's)")
+            raise HTTPException(400, "edits must map hadith ids to their text (not the first hadith's: the parts are cut on it)")
         out = dict(part_query=pq, extra_ids=extra, seeds=seeds)
+        if first != p["seed"]:
+            out["anchor"] = first
         if edits:
             out["edits"] = {w: t.strip() for w, t in edits.items()}
         S = project.run_stage(pid, "current", "search")
@@ -700,7 +716,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                     keep = list((project.decision(pid, "selection") or {}).get("selected") or [])
             cl = pdec.get("seed") or None
             ret = dict(legacy=False, n=(ret or {}).get("n", 0) + 1, clauses=cl, part_query=pq, extra=[],
-                       keep=sorted(set(keep) - {p["seed"]})[:5000], seeds=seeds)
+                       keep=sorted(set(keep) - {first})[:5000], seeds=seeds, **({"anchor": first} if first != p["seed"] else {}))
             if mode == "rebuild":
                 out["_reset"] = True
         if ret is not None:

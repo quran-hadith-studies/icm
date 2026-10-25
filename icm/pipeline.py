@@ -54,7 +54,7 @@ def _search(pid: str, p: dict, sdec: dict, pdec: dict, seldec: Optional[dict], h
     parameters of that press); the hadiths the user added, the further seeds, edited texts and a re-cut seed only score the
     candidates of that search again. Before the first press there are no candidates, only the user's own hadiths. Projects
     made before the button (no ``manual_search`` in project.json) keep their keys and search as they did."""
-    seed = p["seed"]
+    seed = project.anchor(p, sdec)                             # the first hadith of step 1's list
     cl = pdec.get("seed") or None
     cur = dict(part_query=sdec.get("part_query"), clauses=cl, keep=sorted(set(pdec.get("keep_ids") or [])) if cl else [],
                extra=sorted(set(sdec.get("extra_ids") or [])), seeds=sorted(set(sdec.get("seeds") or []) - {seed}), edits=sdec.get("edits") or {})
@@ -68,19 +68,20 @@ def _search(pid: str, p: dict, sdec: dict, pdec: dict, seldec: Optional[dict], h
         k0 = h("search0", seed, sp, cur["extra"], cur["keep"], cur["seeds"], cur["edits"], STAGE_VERSIONS["search"], config.DATA_VERSION)
         return _get_or_run(pid, "search", k0, lambda: dict(search_mod.run(seed, sp, cur["extra"], cur["keep"], seeds=cur["seeds"], retrieve=False,
                                                                            texts=cur["edits"]), searched=False, stale=False), hashes)
-    k_ret = _ret_key(seed, ret)
+    rseed = ret.get("anchor") or p["seed"]                     # the first hadith when «جستجو» was pressed
+    k_ret = _ret_key(rseed, ret)
     rsp = _sparams(ret.get("part_query"), ret.get("clauses"))
-    R = _get_or_run(pid, "search", k_ret, lambda: dict(search_mod.run(seed, rsp, ret.get("extra") or [], ret.get("keep") or [],
+    R = _get_or_run(pid, "search", k_ret, lambda: dict(search_mod.run(rseed, rsp, ret.get("extra") or [], ret.get("keep") or [],
                                                                       seeds=ret.get("seeds") or []), searched=True, stale=False), hashes)
-    if (cur["clauses"], cur["part_query"], cur["extra"], cur["keep"], cur["seeds"]) == (ret.get("clauses"), ret.get("part_query"), sorted(ret.get("extra") or []),
-                                                                                        sorted(ret.get("keep") or []), sorted(ret.get("seeds") or [])) and not cur["edits"]:
+    if (seed, cur["clauses"], cur["part_query"], cur["extra"], cur["keep"], cur["seeds"]) == (rseed, ret.get("clauses"), ret.get("part_query"), sorted(ret.get("extra") or []),
+                                                                                              sorted(ret.get("keep") or []), sorted(ret.get("seeds") or [])) and not cur["edits"]:
         return R
     prior = {}
     for c in R["candidates"]:
         sig = [g for g in c["signals"] if g not in ("user", "seed")]       # what the user added or named is read from the decision now
         for w in [c["wid"], *c.get("copies", [])]:
             prior[w] = dict(signals=sig, round=c.get("round"), via=c.get("via"))
-    stale = (cur["clauses"], cur["part_query"]) != (ret.get("clauses"), ret.get("part_query"))
+    stale = (seed, cur["clauses"], cur["part_query"]) != (rseed, ret.get("clauses"), ret.get("part_query"))
     k_fin = h("rescore", k_ret, sp, cur["extra"], cur["keep"], cur["seeds"], cur["edits"], STAGE_VERSIONS["search"])
     def rescore():
         out = search_mod.run(seed, sp, cur["extra"], cur["keep"], seeds=cur["seeds"], prior=prior, retrieve=False, texts=cur["edits"])

@@ -405,16 +405,39 @@ const panels = {
     const [S, pd, sdec] = await Promise.all([stage(c.pid, c.runId, 'search'), decOf(c, 'parts'), decOf(c, 'search')]);
     const seeds = S.candidates.filter(x => x.signals.includes('seed')), edit = c.can && !STATIC;
     const pendingSeeds = (sdec.seeds || []).filter(w => !seeds.some(x => x.wid === w));           // named, not yet scored (the job is running)
-    const seedsCard = (seeds.length || edit) ? card(['حدیث‌های مبدأ دیگر'], help('step1.seeds'),
-      el('p', { class: 'muted small' }, 'اگر روایت‌های دیگری را هم می‌شناسید که باید مبدأ باشند، بیفزایید. حدیث مبدأ بالا همچنان معیار بخش‌ها و هم‌ترازی است؛ مبدأهای دیگر همیشه جزو شاهدهای برگزیده‌اند و در «جستجو» (مرحله‌ی ۲) از متن خودشان هم پرسش فرستاده می‌شود. هر کدام با حدیث مبدأ سنجیده و بخش‌به‌بخش نشان داده می‌شود.'),
-      seeds.length ? candTable(seeds, S, new Set(seeds.map(x => x.wid)), false, () => {}, {}, () => {}, x => rowActs(c, sdec, x, 'seeds')) : el('p', { class: 'muted small' }, 'مبدأ دیگری نیفزوده‌اید.'),
+    const all = [S.seed, ...seeds];                                                               // one list: no hadith is more of a seed than another
+    /* taking a hadith out of the list; the first one's text is what the parts are cut on, so the next one takes its place and the parts start again */
+    const remove = async (x, btn) => {
+      const first = x.wid === S.seed.wid, rest = seeds.filter(y => y.wid !== x.wid).map(y => y.wid);
+      const edits = { ...(sdec.edits || {}) }; delete edits[x.wid];
+      if (first) {
+        if (!seeds.length) return;
+        const next = rest[0]; delete edits[next];
+        const cut = ['seed', 'extras_added', 'slots', 'words', 'unit_cls', 'units'].some(k => { const v = pd[k]; return v && (Array.isArray(v) ? v.length : typeof v === 'object' ? Object.keys(v).length : true); });
+        if (cut && !confirm('فرازبندی و اصلاح‌های هم‌ترازی بر پایه‌ی متن همین حدیث‌اند. با برداشتنش، فرازبندی بر متن حدیث بعدی فهرست از نو (خودکار) ساخته می‌شود و آن اصلاح‌ها از میان می‌روند. ادامه می‌دهید؟')) return;
+        btn.disabled = true; await saveSearch(c, sdec, { anchor: next, seeds: rest.slice(1), edits });
+      } else { btn.disabled = true; await saveSearch(c, sdec, { seeds: rest.filter(w => w !== S.seed.wid), edits }); }
+    };
+    const item = x => {
+      const first = x.wid === S.seed.wid, acts = [];
+      if (edit) {
+        if (x.edited) acts.push(el('span', { class: 'chip user' }, 'متن ویرایش‌شده'));
+        if (!first && !x.ref && !x.wid.includes('~')) acts.push(el('button', { class: 'small', onclick: () => editTextModal(c, sdec, x) }, '✎ ویرایش متن'));
+        acts.push(el('button', { class: 'small', disabled: all.length < 2, title: all.length < 2 ? 'دست‌کم یک حدیث باید بماند' : 'برداشتن از این فهرست', onclick: ev => remove(x, ev.currentTarget) }, '× برداشتن'));
+      }
+      return el('div', { class: 'seeditem' }, hadithBlock(x, true), acts.length ? el('div', { class: 'toolbar', style: 'margin:4px 0 0;gap:4px' }, acts) : null);
+    };
+    main.replaceChildren(card(['حدیث‌های مبدأ', partsHelp()], help('step1.seed'),
+      el('p', { class: 'muted small' }, 'همه‌ی این حدیث‌ها به یک اندازه مبدأ‌اند: همه همیشه جزو شاهدهای برگزیده‌اند و در «جستجو» (مرحله‌ی ۲) از متن هر کدام پرسش فرستاده می‌شود. هر حدیث دیگری را که می‌شناسید بیفزایید.'),
+      all.map(item),
       pendingSeeds.length ? el('p', { class: 'small muted' }, 'در حال سنجش: ', pendingSeeds.join('، ')) : null,
-      edit ? hadithAdder(c, sdec, 'seeds', S) : null) : null;
-    main.replaceChildren(card(['حدیث مبدأ', partsHelp()], help('step1.seed'), hadithBlock(S.seed, true),
-      el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)', S.clause_owners ? 'گوینده (hadith.ai)' : null].filter(Boolean).map(t => el('th', {}, t))),
-        S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text),
-          S.clause_owners ? el('td', { class: 'small' }, S.clause_owners[cl.i] || '') : null))),
-      seedPartsBox(S, c, pd, 'seed')), seedsCard);
+      edit ? hadithAdder(c, sdec, 'seeds', S) : null),
+      card('بخش‌های حدیث‌ها', help('step1.parts'),
+        el('p', { class: 'muted small' }, all.length > 1 ? 'متن‌ها به بخش‌هایی بریده می‌شوند که واحد جستجو و هم‌ترازی‌اند. بریدن بر متنِ نخستین حدیثِ بالا انجام می‌شود و همین بخش‌ها بر همه‌ی حدیث‌ها (و شاهدها) اعمال می‌شود؛ رنگ هر بخش در همه‌ی متن‌ها یکی است.' : null),
+        el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)', S.clause_owners ? 'گوینده (hadith.ai)' : null].filter(Boolean).map(t => el('th', {}, t))),
+          S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text),
+            S.clause_owners ? el('td', { class: 'small' }, S.clause_owners[cl.i] || '') : null))),
+        seedPartsBox(S, c, pd, 'seed')));
   },
 
   /* ----- 2: search and selection ----- */
@@ -2393,7 +2416,7 @@ function hadithAdder(c, sdec, kind, S) {
     let rs;
     try { rs = await api('/search?limit=40&q=' + encodeURIComponent(q.value)); } catch (e) { out.replaceChildren(el('p', { class: 'small', style: 'color:var(--warn)' }, 'خطا: ' + e.message)); return; }
     out.replaceChildren(rs.length ? el('div', { class: 'grid-wrap', style: 'max-height:50vh' }, el('table', {}, rs.map(h => {
-      const why = h.wid === S.seed.wid ? 'حدیث مبدأ' : mine.has(h.wid) ? 'افزوده شده' : null;
+      const why = h.wid === S.seed.wid ? 'در فهرست' : mine.has(h.wid) ? 'افزوده شده' : null;
       const btn = el('button', { class: 'small primary', disabled: !!why, onclick: ev => add(h.wid, ev.currentTarget) }, why || 'افزودن');
       return el('tr', {}, el('td', {}, el('b', {}, h.title || ''), el('div', { class: 'small muted' }, [h.author, h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', h.page ? 'ص ' + fa(h.page) : ''].filter(Boolean).join(' · ')),
         el('div', { class: 'small muted', dir: 'ltr' }, h.wid)), el('td', { class: 'ar', dir: 'rtl' }, h.matn), el('td', {}, btn));
@@ -2488,6 +2511,7 @@ async function narratorCard(id) {
   if (n.facts && n.facts.length) box.append(el('h3', {}, 'داده‌های استخراج‌شده'), el('table', {}, n.facts.map(f => el('tr', {}, el('td', {}, f.kind), el('td', {}, f.value || (f.lo != null ? `${f.lo}–${f.hi}` : '')), el('td', { class: 'small muted' }, f.source), el('td', { class: 'ar small' }, f.evidence || '')))));
   if (n.entries && n.entries.length) box.append(el('h3', {}, 'مدخل‌های رجالی'), n.entries.map(e => el('div', { class: 'card' }, el('b', {}, `${e.book} — ${e.heading}`), el('span', { class: 'chip ' + e.confidence }, e.confidence), el('div', { class: 'ar small matn', style: 'max-height:200px' }, e.body))));
   if (n.aqwal && n.aqwal.length) box.append(el('h3', {}, 'اقوال علمای رجال'), n.aqwal.map(a => el('div', { class: 'small' }, `${a.alem}${a.death ? ' (' + fa(a.death) + ')' : ''}: ${a.qawl}`)));
+  if (n.kind === 'wiki') { box.append(el('dl', { class: 'kv' }, ...kv('وفات', n.death && yearTxt(n.death)), ...kv('منبع', 'شخصی که دستی در ویکی راویان افزوده شده و در نور و گراف دانش شناسه ندارد'))); return modal(box); }
   const nb = (t, l) => l && l.length ? [el('h3', {}, t), l.map(x => el('div', { class: 'small' }, `${x.name} — ${fa(x.n)}`))] : [];
   box.append(...nb('استادان پرتکرار', n.teachers).flat(), ...nb('شاگردان پرتکرار', n.students).flat());
   modal(box);

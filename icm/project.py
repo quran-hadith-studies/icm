@@ -111,6 +111,12 @@ def create(seed: str, owner: str, title: Optional[str] = None) -> dict:
     return p
 
 
+def anchor(p: dict, sdec: Optional[dict]) -> str:
+    """The hadith the parts and the alignment are cut and measured on: the first of the project's seed hadiths. The user sees
+    a list of equal hadiths; the project's own ``seed`` is the first until the search decision names another (``anchor``)."""
+    return (sdec or {}).get("anchor") or p["seed"]
+
+
 def load(pid: str) -> Optional[dict]:
     return read(os.path.join(pdir(pid), "project.json"))
 
