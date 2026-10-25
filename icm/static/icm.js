@@ -2324,12 +2324,16 @@ function refCard(x, saved, st, c, canEdit, done) {
 /* a hadith that does not quote the words but refers to another text («… مثله / نحوه وزاد فيه …»): its isnad is its own,
    its words are the ones its template builds from that text; the state of that text, from the saved parts.refs */
 const refState = (x, d) => !d ? ['auto', 'متن خودکار'] : d.text !== x.ref.text || d.tpl !== x.ref.tpl || d.ref !== x.ref.ref ? ['edited', 'متن ویرایش‌شده'] : ['ok', 'متن تأییدشده'];
+/* the hadith referred to, by what it is rather than its id: its page in a new window (a KG hadith has none: the hadith pop-up) */
+const refLink = (wid, text) => { const u = hadithUrl(wid);
+  return u ? el('a', { href: u, target: '_blank', title: wid }, text + ' ↗') : el('a', { href: '#', title: wid, onclick: ev => { ev.preventDefault(); hadithModal(wid); } }, text); };
 function refLabel(x, d, open) {
   const r = x.ref, [k, t] = refState(x, d);
   return el('div', { class: 'refb' },
     el('div', { class: 'small', title: `این حدیث الفاظ را نقل نکرده و با «${r.marker}» به ${r.of === 'host' ? 'متن همان حدیثی که سندش درون آن آمده' : 'حدیثی پیش از خودش در همان کتاب'} ارجاع داده است. `
       + 'متنش را قالبش از آن متن می‌سازد؛ آن را بسنجید و تأیید کنید. هم‌ترازی با همین متن انجام می‌شود.' + (r.own ? '\n' + r.own : '') },
-      r.of === 'host' ? 'سند درون حدیث دیگر، ' : '', 'ارجاعی با «', el('b', {}, r.marker), '» به ', el('span', { dir: 'ltr' }, r.ref)),
+      r.of === 'host' ? 'سند درون حدیث دیگر، ' : '', 'ارجاعی با «', el('b', {}, r.marker), '» به ',
+      refLink((d && d.ref) || r.ref, r.of === 'host' ? 'متن همان حدیث' : d && d.ref && d.ref !== r.ref ? 'حدیث برگزیده‌ی شما' : 'حدیث پیشین در کتاب')),
     el('div', { class: 'small muted' }, (REF_TPL[r.tpl] || r.tpl).replace(/ \(.*\)$/, ''), r.conf && r.conf !== 'ok' ? el('span', { style: 'color:var(--warn)' }, ' · ' + (r.conf === 'other_bab' ? 'باب دیگر' : 'بی‌متن ارجاعی')) : null),
     el('button', { type: 'button', class: 'small refopen', onclick: open, title: 'متن ارجاعی، قالب و متن ساخته‌شده؛ ویرایش و تأیید' },
       el('span', { class: 'chip ' + (k === 'ok' ? 'approved' : k === 'edited' ? 'partial' : 'auto') }, t), ' بازبینی…'));
