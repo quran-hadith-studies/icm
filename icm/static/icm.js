@@ -920,7 +920,7 @@ const panels = {
     const chainPending = !sameJ(nonEmpty(pdec.chain), nonEmpty(I.chain_in));       // chain edits (places added/removed/re-bounded) likewise
     NV = runVer(I);
     /* dates entered on step 5 before they moved here are carried over (those keyed by a person id) */
-    const oldDates = Object.fromEntries(Object.entries(phd.dates || {}).filter(([k]) => /^(noor|kg):\d+$/.test(k)));
+    const oldDates = Object.fromEntries(Object.entries(phd.dates || {}).filter(([k]) => /^(noor|kg):\d+$|^wiki:[0-9a-f]+$/.test(k)));
     const saved = { choices: dec.choices || {}, overrides: dec.overrides || {}, dates: { ...oldDates, ...(dec.dates || {}) },
       merges: dec.merges || [], drops: dec.drops || [], dismissed: dec.dismissed || [], splits: dec.splits || {} };
     const choices = { ...saved.choices }, overrides = { ...saved.overrides }, dates = { ...saved.dates };
@@ -967,7 +967,7 @@ const panels = {
       if (/^name:/.test(id || '')) return id.slice(5);
       if (/^rel:/.test(id || '')) return 'نسبت در ' + wtitle(id.slice(4).split('#')[0]);
       if (/^anon:/.test(id || '')) return 'نامعلوم';
-      const k = [...(e ? e.cands : []), ...(cd ? cd.candidates : [])].find(x => x.id === id); return k ? k.label : extraLabel[id] || id; };
+      const k = [...(e ? e.cands : []), ...(cd ? cd.candidates : [])].find(x => x.id === id); return k ? k.label : extraLabel[id] || (known[id] && known[id].name) || id; };
     const isGap = e => e.exact && /^(موضع |اسم مبهم)/.test(e.name);      // the KG's placeholders: a gap, a cut, an unnamed man
     const cardState = cd => {
       const sts = cd.occurrences.map(o => stateOf(...splitOcc(o.join('|'))).st);
@@ -981,16 +981,16 @@ const panels = {
     /* death dates: the user's, else the databases' (fetched per id), else the work's author for a collector */
     const known = {}, asked = new Set();
     const fetchDeaths = async ids => {
-      ids = [...new Set(ids)].filter(i => /^(noor|kg):\d+$/.test(i) && !asked.has(i)); if (!ids.length) return false;
+      ids = [...new Set(ids)].filter(i => /^(noor|kg):\d+$|^wiki:[0-9a-f]+$/.test(i) && !asked.has(i)); if (!ids.length) return false;
       ids.forEach(i => asked.add(i));
       for (let k = 0; k < ids.length; k += 150) Object.assign(known, await api('/narrators/deaths?ids=' + ids.slice(k, k + 150).join(',') + verQ(I)).catch(() => ({})));
       return true;
     };
-    const dateKey = (ch, e, s) => s.id && /^(noor|kg|split):\d+$/.test(s.id) ? s.id : `occ:${ch.aid}|${e.i}`;
+    const dateKey = (ch, e, s) => s.id && /^(noor|kg|split):\d+$|^wiki:[0-9a-f]+$/.test(s.id) ? s.id : `occ:${ch.aid}|${e.i}`;
     const dateOf = (ch, e) => {
       const s = stateOf(ch, e), k = dateKey(ch, e, s);
       if (dates[k]) return { death: dates[k], src: 'user', key: k };
-      if (s.id && known[s.id]) return { death: known[s.id].death, src: known[s.id].source, key: k };
+      if (s.id && known[s.id] && known[s.id].death) return { death: known[s.id].death, src: known[s.id].source, key: k };
       const w = W.find(x => x.wid === ch.wid);
       if (e.role === 'collector' && w && w.death) return { death: [w.death, w.death], src: 'author', key: k };
       return { death: null, key: k };
@@ -1096,7 +1096,7 @@ const panels = {
 
     /* part 3: the chosen name: all its places first, then the choice */
     const part3 = el('div', { class: 'card edcard' });
-    const meta = k => [k.db === 'kg' || k.id.startsWith('kg:') ? 'گراف دانش' : 'نور', k.death ? 'ف ' + fa(k.death) : '', k.mazhab, k.grade || k.rank, k.tabaka ? 'طبقه ' + fa(k.tabaka) : ''].filter(Boolean).join(' · ');
+    const meta = k => [k.db === 'wiki' || k.id.startsWith('wiki:') ? 'شخص دستیِ ویکی راویان' : k.db === 'kg' || k.id.startsWith('kg:') ? 'گراف دانش' : 'نور', k.death ? 'ف ' + fa(k.death) : '', k.mazhab, k.grade || k.rank, k.tabaka ? 'طبقه ' + fa(k.tabaka) : ''].filter(Boolean).join(' · ');
     const snippet = o => { const [c2, e2] = splitOcc(o), x = c2.elems, i = x.indexOf(e2);
       return el('span', { class: 'chain mini' }, i > 1 ? el('span', { class: 'tm' }, '…') : null, x[i - 1] ? [chip(c2, x[i - 1]), el('span', { class: 'tm' }, e2.term || '←')] : null, chip(c2, e2),
         x[i + 1] ? [el('span', { class: 'tm' }, x[i + 1].term || '←'), chip(c2, x[i + 1])] : null, i + 2 < x.length ? el('span', { class: 'tm' }, '…') : null); };
@@ -1112,13 +1112,13 @@ const panels = {
       const m = new Map();
       I.chains.forEach(ch => ch.elems.forEach(e => {
         const id = identOf(ch, e); if (!id) return;
-        if (!m.has(id)) m.set(id, { id, label: /^(noor|kg):/.test(id) ? labelOf(id, e, cards[e.card]) : /^split:/.test(id) ? labelOf(id) : (e.raw || e.name), n: 0, places: [], trad: new Set() });
+        if (!m.has(id)) m.set(id, { id, label: /^(noor|kg|wiki):/.test(id) ? labelOf(id, e, cards[e.card]) : /^split:/.test(id) ? labelOf(id) : (e.raw || e.name), n: 0, places: [], trad: new Set() });
         const x = m.get(id); x.n++; x.places.push(`${ch.aid}|${e.i}`); if (ch.tradition) x.trad.add(ch.tradition);
       }));
       return m;
     };
     const placesOf = id => (identsOf().get(id) || { places: [] }).places;
-    const rankOf = id => ({ noor: 0, kg: 1, split: 2, name: 3, rel: 4, anon: 5 })[id.split(':')[0]] ?? 6;
+    const rankOf = id => ({ noor: 0, kg: 1, wiki: 1.5, split: 2, name: 3, rel: 4, anon: 5 })[id.split(':')[0]] ?? 6;
     const deathOf = id => dates[id] || (known[id] && known[id].death) || null;
     /* «یکی کردن / جدا کردن»: any two identities of this project are one person; some places of one identity are another */
     const mergeSplit = (ch, e) => {
@@ -1139,7 +1139,7 @@ const panels = {
           warn.map(w => el('div', { class: 'small', style: 'color:var(--warn)' }, '⚠ ' + w)),
           el('div', { class: 'small muted' }, 'در شجره هر دو یک گره می‌شوند با شناسه‌ی ', el('span', { dir: 'ltr' }, name), '. با «ذخیره» ثبت می‌شود و «واگرد» دارد.'),
           el('div', { class: 'toolbar' }, el('button', { class: 'primary small', onclick: () => { merges.push([me, x.id]); draw(); } }, 'تأیید یکی کردن'),
-            /^(noor|kg):/.test(x.id) ? el('button', { class: 'small', onclick: () => narratorCard(x.id) }, 'کارت راوی') : null,
+            /^(noor|kg|wiki):/.test(x.id) ? el('button', { class: 'small', onclick: () => narratorCard(x.id) }, 'کارت راوی') : null,
             el('button', { class: 'small', onclick: () => fill(prev) }, 'انصراف'))));
       };
       const drawM = () => fill(list, others.filter(x => !mq || x.label.includes(mq) || x.id.includes(mq)).slice(0, 25).map(x =>
@@ -1184,7 +1184,7 @@ const panels = {
         el('div', { class: 'toolbar', style: 'margin-top:0' }, el('h2', { style: 'margin:0' }, '۳. ', el('span', { class: 'ar' }, isSplit ? labelOf(id) : e.raw || e.name), help('step4.name')),
           el('span', { class: 'chip ' + (isSplit ? 'user' : 'exact') }, isSplit ? 'شخص جداشده (انتخاب کاربر)' : ST.exact), el('span', { class: 'small muted', dir: 'ltr' }, id), el('span', { class: 'grow' }),
           isSplit ? null : el('button', { class: 'small', onclick: () => narratorCard(id) }, 'کارت راوی'), el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
-        el('p', { class: 'small muted' }, isSplit ? 'این جاها را شما از هویتی که داشتند جدا کرده‌اید و شخص تازه‌ای‌اند؛ در شجره یک گره‌اند.' : `${id.startsWith('kg:') ? 'گراف دانش' : 'نور'} خودش این نام را به این راوی پیوند داده است؛ تصمیمی لازم نیست.`),
+        el('p', { class: 'small muted' }, isSplit ? 'این جاها را شما از هویتی که داشتند جدا کرده‌اید و شخص تازه‌ای‌اند؛ در شجره یک گره‌اند.' : `${id.startsWith('kg:') ? 'گراف دانش' : id.startsWith('wiki:') ? 'ویکی راویان' : 'نور'} خودش این نام را به این راوی پیوند داده است؛ تصمیمی لازم نیست.`),
         el('h3', {}, places.length > 1 ? `این شخص در ${fa(places.length)} جا آمده است` : 'این شخص فقط همین جا آمده است'),
         el('div', { class: 'occs' }, places.map(o => occRow(o, occ, false))),
         mergeSplit(ch, e),
@@ -1509,14 +1509,14 @@ const panels = {
         el('div', { class: 'small muted' }, 'نامزدهای پیشنهادی:'),
         cands.length ? cands.map(candLine) : el('p', { class: 'small muted' }, 'برای این نام نامزدی در پایگاه‌ها پیدا نشد؛ جستجو کنید.'),
         radio('none', ['هیچ‌کدام (فقط نام)']),
-        el('div', { class: 'toolbar' }, el('span', { class: 'small muted' }, 'جستجو در راویان نور و گراف دانش:'), sIn,
+        el('div', { class: 'toolbar' }, el('span', { class: 'small muted' }, 'جستجو در راویان نور، گراف دانش و ویکی راویان:'), sIn,
           el('button', { class: 'small', disabled: sbusy, onclick: () => go3(sq.trim()) }, sbusy ? 'در حال جستجو…' : 'جستجو')),
         sres && sres.error ? el('p', { class: 'small', style: 'color:var(--bad)' }, 'خطا: ' + sres.error) : null,
         Array.isArray(sres) ? (sres.length ? sres.filter(k => !cands.some(x => x.id === k.id)).map(k => { extraLabel[k.id] = k.label; return candLine(k); })
           .concat(sres.some(k => cands.some(x => x.id === k.id)) ? [el('div', { class: 'small muted' }, 'نتیجه‌هایی که در نامزدهای بالا هست تکرار نشد.')] : [])
           : el('p', { class: 'small muted' }, 'راوی‌ای با این نام پیدا نشد. بخشی از نام را بنویسید (مثلاً «زيد بن علي»).')) : null,
         c.can ? el('div', { class: 'toolbar' },
-          el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$/.test(v)) setTimeout(() => setVal(cd, occ, here, v)); else if (v) alert('قالب شناسه نادرست است'); } }),
+          el('input', { type: 'text', placeholder: 'یا شناسه: noor:2107 یا kg:3795 یا wiki:…', dir: 'ltr', onchange: ev => { const v = ev.target.value.trim(); if (/^(noor|kg):\d+$|^wiki:[0-9a-f]{6,32}$/.test(v)) setTimeout(() => setVal(cd, occ, here, v)); else if (v) alert('قالب شناسه نادرست است'); } }),
           val !== undefined ? el('button', { class: 'small', onclick: () => setVal(cd, occ, here, undefined) }, cd.default && !relOnly(cd) || (e.cands[0] || {}).derived ? 'بازگشت به انتخاب خودکار' : 'پاک کردن انتخاب') : null,
           el('span', { class: 'grow' }), el('button', { class: 'small', title: 'این راوی از سند برداشته می‌شود، همان‌گونه که با «✕ حذف» در «ویرایش سند»؛ با «ذخیره» اعمال می‌شود و تا آن زمان «بازگرداندن به سند» آن را پس می‌آورد. (واژه‌ی سند یا تکه‌ای از متن که نام خوانده شده است)', onclick: () => { drops.add(occ); draw(); } }, 'حذف از سند')) : null,
         mergeSplit(ch, e),
@@ -2548,7 +2548,7 @@ async function narratorCard(id) {
 }
 
 const yearTxt = d => d[0] === d[1] ? fa(Math.round(d[0])) : `${fa(Math.round(d[0]))}–${fa(Math.round(d[1]))}`;
-const DSRC = { user: 'واردشده‌ی کاربر', 'author-death': 'درگذشت مؤلف کتاب', 'hadith-kg': 'گراف دانش', kg: 'گراف دانش', noor: 'نور', imam: 'تاریخ امام', interpolated: 'برآورد از جای سند', wikishia: 'ویکی‌شیعه', fixed: 'ثابت' };
+const DSRC = { user: 'واردشده‌ی کاربر', 'author-death': 'درگذشت مؤلف کتاب', 'hadith-kg': 'گراف دانش', kg: 'گراف دانش', noor: 'نور', imam: 'تاریخ امام', interpolated: 'برآورد از جای سند', wikishia: 'ویکی‌شیعه', wiki: 'ویکی راویان', fixed: 'ثابت' };
 const shortName = (s, n = 4) => { const w = String(s).replace(/\s*،\s*/g, ' ').split(/\s+/).filter(Boolean); return w.length > n ? w.slice(0, n).join(' ') + '…' : w.join(' '); };
 const TREE_HELP = 'درخت بی‌تقاطع: سندها از نخستین راویشان شاخه می‌شوند؛ راوی‌ای که از دو راه رسیده دو بار آمده است (نشانگر را رویش ببرید تا همه‌ی جاهایش حلقه بگیرند). هر راوی یک بار: هر راوی زیر استادی است که بیشتر سندها می‌آورند و استادهای دیگر خط‌چین‌اند. دایره را بزنید تا زیرشاخه بسته یا باز شود؛ نام را بزنید برای کارت راوی. راویان پنهان‌شده از سند حذف نمی‌شوند: سند از رویشان می‌گذرد (خط نقطه‌چین). خط پررنگ‌تر = سندهای بیشتر.';
 /* the recorded graph (tree.js): step 5 draws it as confirmed, step 6 with the model's results on it */

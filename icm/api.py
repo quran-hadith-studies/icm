@@ -33,9 +33,9 @@ from .text import norm
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 ASSETS = ("icm.js", "users.js", "base.js", "base.css", "icm.css", "users.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
           "model_worker.js", "model.zip")
-ID_RE = re.compile(r"^(noor|kg):\d+$")
+ID_RE = re.compile(r"^(?:(?:noor|kg):\d+|wiki:[0-9a-f]{6,32})$")     # wiki:<token>: a person made by hand in the narrator wiki, with no Noor / KG id
 SPLIT_RE = re.compile(r"^split:\d{1,6}$")
-NODE_RE = re.compile(r"^(?:(?:noor|kg):\d+|split:\d{1,6}|name:[^|]{1,200}|(?:rel|anon):[^|]{1,200}:\d+)$")   # any node a merge may name
+NODE_RE = re.compile(r"^(?:(?:noor|kg):\d+|wiki:[0-9a-f]{6,32}|split:\d{1,6}|name:[^|]{1,200}|(?:rel|anon):[^|]{1,200}:\d+)$")   # any node a merge may name
 PLACE_RE = re.compile(r"^[^|]{1,200}\|\d+$")
 WID_RE = re.compile(r"^(v02|kg):\d+(~\d{1,2})?$")          # «<id>~k»: reference k inside a record (pointers.py)
 STAGES = serve.STAGES
@@ -350,6 +350,11 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
 
     @r.get("/api/narrator/{nid}")
     def narrator(nid: str, version: Optional[str] = None):
+        if nid.startswith("wiki:"):
+            w = wiki_people([nid]).get(nid)
+            if w is None:
+                raise HTTPException(404, "no such person in the narrator wiki")
+            return dict(id=nid, kind="wiki", name=w["name"], death=w["death"], wiki=dict(person_id=w["person_id"], name=w["name"], also=[]))
         out = narrator_info.card(nid)
         V = _version(version)
         mem = V.members(nid) if ID_RE.match(nid) else []
@@ -364,7 +369,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     def narrator_deaths(ids: str = "", version: Optional[str] = None):
         """Death dates the databases give, for ``ids`` = comma-separated noor:/kg: ids (the step-4 page)."""
         nids = [i for i in ids.split(",") if ID_RE.match(i)][:3000]
-        return graph_mod.known_deaths(nids, _version(version))
+        out = graph_mod.known_deaths([i for i in nids if not i.startswith("wiki:")], _version(version))
+        for i, w in wiki_people([i for i in nids if i.startswith("wiki:")]).items():     # a wiki person: its name too (no database holds it)
+            out[i] = dict(death=w["death"], source="wiki", name=w["name"])
+        return out
 
     @r.get("/api/narrators")
     def narrators(q: str, death: Optional[int] = None, version: Optional[str] = None):
@@ -394,6 +402,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                     c["wiki"] = w
                 keep.append(c)
             out = keep
+        out = _wiki_hits(q, out) + out
         return out[:25]
 
     # -- write -----------------------------------------------------------------------------------
@@ -1008,6 +1017,40 @@ def _accounts(r: APIRouter, prefix: str, get_user: Callable, need_user: Callable
         u = need_admin(request)
         b = body_of(request, await request.json())
         return run(users.admin_action, u["username"], username, str(b.get("action", "")), b.get("value"))
+
+
+def _wiki_hits(q: str, found: list) -> list:
+    """Candidates from the narrator wiki's own names: persons made by hand there (id ``wiki:<token>``, no database holds
+    them) and persons the databases' name search missed (an alias the wiki gave; under their Noor / KG id)."""
+    try:
+        from narwiki import lookup
+        hits = lookup.search(q, 15)
+    except Exception:                                   # the wiki is optional
+        return []
+    have = {c["id"] for c in found}
+    qt = set(norm(q).split())
+    out = []
+    for h in hits:
+        db = next((x for x in h["ext"] if x.startswith("noor:")), None) or next((x for x in h["ext"] if x.startswith("kg:")), None)
+        nid = db or (f"wiki:{h['wiki'][0][5:]}" if h["wiki"] else None)
+        if not nid or nid in have or any(x in have for x in h["ext"]):
+            continue
+        have.add(nid)
+        nt = set(norm(h["name"]).split())
+        cov = len(qt & nt) / len(qt | nt) if qt | nt else 0.0
+        out.append(dict(id=nid, label=h["name"], cov=round(cov, 3), score=round(2.0 + cov, 3), n=h["n_narr"], db="wiki" if nid.startswith("wiki:") else nid.split(":")[0],
+                        wiki=dict(person_id=h["person_id"], name=h["name"], also=[x for x in h["ext"] if x != nid]),
+                        **(dict(death=h["death"][0]) if h["death"] else {})))
+    return out
+
+
+def wiki_people(ids) -> dict:
+    """{wiki:<token>: {person_id, name, death}} for persons made by hand in the narrator wiki, else {}."""
+    try:
+        from narwiki import lookup
+        return lookup.wiki_people(list(ids)) if lookup.available() else {}
+    except Exception:
+        return {}
 
 
 def wiki_persons(ids) -> dict:

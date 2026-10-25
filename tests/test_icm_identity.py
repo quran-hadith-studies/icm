@@ -236,6 +236,37 @@ def test_graph_gathers_facts_over_every_id_of_a_merged_node():
         shutil.rmtree(d)
 
 
+def test_a_person_made_by_hand_in_the_wiki_can_be_chosen_and_is_a_node():
+    """A wiki person with no Noor / KG id (``wiki:<token>``) is found by the step-4 search, accepted as a choice and dated
+    from the wiki; the graph names the node by the wiki's name."""
+    from icm import api, corpus, graph
+    from narwiki import config as wcfg, store
+    if not (os.path.exists(config.NARRATORS_DB) and os.path.exists(config.KG_DB)):
+        return
+    d = tempfile.mkdtemp(prefix="icmwiki_")
+    old, wcfg.DB = wcfg.DB, os.path.join(d, "wiki.sqlite")
+    try:
+        c = store.connect()
+        pid = store.add_person(c, "محمد بن تستی الکوفی", [("death_lo", "150"), ("death_hi", "160")], "t")
+        tok = dict(store.ext_of(c, pid))["wiki"]
+        c.close()
+        nid = f"wiki:{tok}"
+        hit = api._wiki_hits("محمد بن تستی", [])
+        assert [h["id"] for h in hit] == [nid] and hit[0]["label"] == "محمد بن تستی الکوفی" and hit[0]["death"] == 150.0
+        assert api._wiki_hits("محمد بن تستی", [dict(id=nid)]) == []                  # already listed
+        assert api.ID_RE.match(nid) and api.NODE_RE.match(nid) and not api.ID_RE.match("wiki:../x")
+        ch = _chains()
+        cards = identity.make_cards(ch, {"w:1": "shia", "w:2": "shia"})
+        r = identity.resolve(dict(chains=ch, cards=cards), dict(choices={}, overrides={"w:1#t|0": nid}))
+        assert r["chains"][0]["elems"][0]["nid"] == nid and r["nodes"][nid]["ext"] == [nid]
+        A = dict(witnesses=[dict(wid="w:1"), dict(wid="w:2")], X={"w:1": [0], "w:2": [1]}, units=[], seed="w:1")
+        n = graph.run(A, r)["nodes"][nid]
+        assert n["name"] == "محمد بن تستی الکوفی" and n["death"] == [150.0, 160.0] and n["date_source"] == "wiki" and n["ids"] == {"wiki": tok}
+    finally:
+        wcfg.DB = old
+        shutil.rmtree(d)
+
+
 class _FakeDbs:
     """Stand-ins for the narrator database link table and the KG, so suggestions run without the corpora."""
     def __enter__(self):

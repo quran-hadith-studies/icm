@@ -75,7 +75,7 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
     back: Dict[str, str] = {}                          # member id -> its node
     for n in all_nids:
         mem = list((resolved["nodes"].get(n) or {}).get("ext") or [])
-        if n.startswith(("noor:", "kg:")) and n not in mem:
+        if n.startswith(("noor:", "kg:", "wiki:")) and n not in mem:
             mem.insert(0, n)
         ext[n] = sorted(mem, key=lambda x: (x != n, x.split(":")[0] != "noor", x))
         for m in ext[n]:
@@ -107,8 +107,14 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
             a_, b_ = back.get(f"kg:{r[0]}"), back.get(f"kg:{r[1]}")
             if a_ and b_ and a_ != b_:
                 teachers[b_].add(a_)
+    wikis = _wiki_people([n for n in all_nids if n.startswith("wiki:")])      # persons made by hand in the narrator wiki
     for n in all_nids:
         i = info[n]
+        w = wikis.get(n)
+        if w:                                          # no database holds this person: the wiki's name and death date
+            i.update(name=w["name"])
+            if w.get("death"):
+                i["death"], i["date_source"] = tuple(w["death"]), "wiki"
         nm = [int(m.split(":")[1]) for m in ext[n] if m.startswith("noor:") and int(m.split(":")[1]) in nrows]
         km = [int(m.split(":")[1]) for m in ext[n] if m.startswith("kg:") and int(m.split(":")[1]) in krows]
         if nm:                                         # Noor's description first (name, madhhab, grade, imams); the KG adds cities and rank
@@ -133,6 +139,8 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
                     i["date_source"] = "hadith-kg"
                     break
         ids = {}
+        if w:
+            ids["wiki"] = n[5:]
         for kind in ("noor", "kg", "dirayah"):
             got = sorted(int(m.split(":")[1]) for m in ext[n] if m.startswith(kind + ":") and m.split(":")[1].isdigit())
             if got:
@@ -234,6 +242,17 @@ def known_deaths(nids: Sequence[str], version=None) -> Dict[str, dict]:
                 out[n] = got[m]
                 break
     return out
+
+
+def _wiki_people(nids) -> dict:
+    """{wiki:<token>: {name, death}} from the narrator wiki, {} when it is absent or no node is one of its own persons."""
+    if not nids:
+        return {}
+    try:
+        from narwiki import lookup
+        return lookup.wiki_people(nids) if lookup.available() else {}
+    except Exception:                                   # the wiki is optional
+        return {}
 
 
 def info_out(info: Dict[str, dict]) -> Dict[str, dict]:

@@ -1002,7 +1002,7 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
 def _ext_ids(nid: str, version) -> List[str]:
     """Every database id of the person ``nid`` stands for (itself, for an id the version does not merge)."""
     mem = [m["id"] for m in version.members(nid)]
-    return mem or ([nid] if nid.startswith(("noor:", "kg:")) else [])
+    return mem or ([nid] if nid.startswith(("noor:", "kg:", "wiki:")) else [])
 
 
 def node_name(ch: dict, e: dict) -> str:
@@ -1039,7 +1039,7 @@ def _union(pairs) -> Dict[str, str]:
     for x in list(up):
         groups[find(x)].append(x)
     out = {}
-    rank = {"noor": 0, "kg": 1, "split": 2, "name": 3, "rel": 4, "anon": 5}
+    rank = {"noor": 0, "kg": 1, "wiki": 1.5, "split": 2, "name": 3, "rel": 4, "anon": 5}
     for g in groups.values():
         name = min(g, key=lambda x: (rank.get(x.split(":")[0], 6), x))
         out.update({x: name for x in g if x != name})
