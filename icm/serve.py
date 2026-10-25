@@ -51,9 +51,13 @@ def stage(pid: str, run: str, name: str) -> Optional[dict]:
         return None
     key = (pid, name, out.get("inputs_hash") or run)
     if name == "search":
-        if "auto_clauses" not in out:                          # every earlier search cut the seed automatically
-            out = dict(out, auto_clauses=[c["span"] for c in out["clauses"]], clauses_by="auto")
-        return search_mod.with_marks(out, _parts_decision(pid, run))
+        if "cuts" not in out:                                  # a search from before every hadith of the list was cut on its own: the seed's cut only
+            w, sp = out["seed"]["wid"], [list(c["span"]) for c in out["clauses"]]
+            auto = out.get("auto_clauses") or sp                # (earlier still: every search cut the seed automatically)
+            by = out.get("clauses_by") or "auto"
+            out = dict(out, seed_tokens=out["tokens"], cuts={w: sp}, auto_cuts={w: [list(x) for x in auto]}, cuts_by={w: by},
+                       cut_tokens={w: len(out["tokens"])}, auto_by={w: out.get("auto_by") if isinstance(out.get("auto_by"), str) else "rules"})
+        return search_mod.with_marks(out)
     if name == "align" and out["clauses"] and "key" not in out["clauses"][0]:
         for c, k in zip(out["clauses"], align_mod.part_keys(out["clauses"])):
             c["key"] = k
@@ -84,7 +88,7 @@ def words(pid: str, run: str, wid: str) -> Optional[dict]:
     if S is None:
         return None
     if wid == S["seed"]["wid"]:
-        x, tk, win = S["seed"], S["tokens"], None
+        x, tk, win = S["seed"], S.get("seed_tokens") or S["tokens"], None
     else:
         x = next((c for c in S["candidates"] if c["wid"] == wid or wid in c.get("copies", [])), None)
         if x is None:
@@ -166,7 +170,7 @@ def page_context(pid: str, run: str, full_texts: bool = True) -> dict:
 
 def align_view(A: dict) -> dict:
     """The parts of the align stage the reconstructed text needs (results.js / recon.js)."""
-    return dict(seed=A["seed"], clauses=[{k: c.get(k) for k in ("i", "kind", "text", "support")} for c in A["clauses"]],
+    return dict(seed=A["seed"], sources=A.get("sources") or [A["seed"]], clauses=[{k: c.get(k) for k in ("i", "kind", "text", "support")} for c in A["clauses"]],
                 grids=A["grids"], witnesses=[w["wid"] for w in A["witnesses"]],
                 segments={k: {"state": v.get("state"), "span": v.get("span"), "tokens": v.get("tokens")} for k, v in A["segments"].items()})
 

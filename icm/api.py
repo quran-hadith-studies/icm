@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, export, identity, jobs, narrator_info, narrator_versions, pipeline, project, serve, users, viewer
+from . import config, corpus, export, family, identity, jobs, narrator_info, narrator_versions, pipeline, project, serve, users, viewer
 from . import graph as graph_mod
 from .text import norm
 
@@ -440,21 +440,27 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             # hadiths added now join a selection already made (they would otherwise be listed unticked), and a rebuilt search clears it
             sel = project.decision(pid, "selection") or {}
             new = (set(payload["extra_ids"]) | set(payload["seeds"])) - (set(prev_search.get("extra_ids") or []) | set(prev_search.get("seeds") or []))
-            if project.anchor(p, payload) != project.anchor(p, prev_search):
-                # the first hadith of the list was taken away and the next one is the reference now: the parts (and everything keyed by
-                # them) belonged to the old one's text, so they start again; the narrators' and references' edits are kept
-                pprev = project.decision(pid, "parts") or {}
+            members = lambda d: {project.anchor(p, d), *(d.get("seeds") or [])}
+            pprev = project.decision(pid, "parts") or {}
+            if project.anchor(p, payload) != project.anchor(p, prev_search) and not pprev.get("cuts") and pprev.get("seed"):
+                # a cut made for the first hadith alone (before every hadith was cut on its own) belonged to the text of the one taken away: it starts again
                 project.add_decision(pid, "parts", {k: pprev[k] for k in ("renames", "chain", "refs") if pprev.get(k)} | dict(
                     seed=None, seed_confirmed=None, extras_added=[], extras_dropped=[], slots={}, confirmed={}, keep_ids=[]),
                     u["username"], "the first hadith changed")
-                payload["part_query"] = None
+            if members(payload) != members(prev_search):
+                payload["part_query"] = None                # the parts are the family's: another list can make other parts, so the numbers no longer mean the same
+                pprev = project.decision(pid, "parts") or {}
+                gone = {k: {w: v for w, v in (pprev.get(k) or {}).items() if w in members(payload)} for k in ("cuts", "cuts_confirmed")}
+                if any(gone[k] != (pprev.get(k) or {}) for k in gone):          # a hadith taken away takes its cut with it
+                    project.add_decision(pid, "parts", {k: v for k, v in pprev.items() if k not in ("version", "user", "created", "note", "prev")} | gone,
+                                         u["username"], "a hadith was taken away")
             if payload.pop("_reset", False) and sel.get("selected"):
                 project.add_decision(pid, "selection", dict(selected=[], reset=True), u["username"], "search rebuilt")
             elif new and sel.get("selected"):
                 project.add_decision(pid, "selection", dict(selected=sorted(set(sel["selected"]) | new)), u["username"], "hadiths added")
         if step == "parts":
             prev = project.decision(pid, "parts") or {}
-            if payload["seed"] != prev.get("seed"):
+            if (payload["seed"], payload.get("cuts")) != (prev.get("seed"), prev.get("cuts")):
                 # a re-cut seed searches again: the witnesses selected now stay candidates, and the
                 # «در جستجو» ticks (numbers of the old parts) no longer apply
                 sel = project.decision(pid, "selection") or {}
@@ -613,7 +619,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             sel = pl.get("selected", [])
             S = project.run_stage(pid, "current", "search")
             first = project.anchor(p, project.decision(pid, "search"))
-            known = {c["wid"] for c in (S or {}).get("candidates", [])} | {first}
+            known = {c["wid"] for c in (S or {}).get("candidates", [])} | {first, ((S or {}).get("seed") or {}).get("wid")}
             for c in (S or {}).get("candidates", []):
                 known.update(c.get("copies", []))
             if not (isinstance(sel, list) and sel and all(w in known for w in sel)):
@@ -718,9 +724,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 raise HTTPException(400, f"unknown hadith {w}")
         edits = pl.get("edits", {}) or {}
         if not (isinstance(edits, dict) and len(edits) <= 200 and all(
-                isinstance(w, str) and WID_RE.match(w) and "~" not in w and w != first and isinstance(t, str) and 0 < len(t.strip()) <= 20000
+                isinstance(w, str) and WID_RE.match(w) and "~" not in w and isinstance(t, str) and 0 < len(t.strip()) <= 20000
                 for w, t in edits.items())):
-            raise HTTPException(400, "edits must map hadith ids to their text (not the first hadith's: the parts are cut on it)")
+            raise HTTPException(400, "edits must map hadith ids to their text")
         out = dict(part_query=pq, extra_ids=extra, seeds=seeds)
         if first != p["seed"]:
             out["anchor"] = first
@@ -758,8 +764,13 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         S = project.run_stage(pid, "current", "search")
         if S is None:
             raise HTTPException(409, "the search has not run yet")
-        n = len(S["tokens"])
-        auto = S.get("auto_clauses") or [c["span"] for c in S["clauses"]]
+        sdec = project.decision(pid, "search") or {}
+        first = project.anchor(project.load(pid) or {}, sdec)
+        members = [first, *(sdec.get("seeds") or [])]
+        edits = sdec.get("edits") or {}
+        toks = lambda w: len((family.source(w, edits) or {}).get("tok") or [])        # the words a hadith's cut is counted in
+        n = toks(first)
+        auto = (S.get("auto_cuts") or {}).get(first) or [c["span"] for c in S["clauses"]]
 
         def spans(x, top):
             ok = isinstance(x, list) and 0 < len(x) <= 300 and all(
@@ -771,6 +782,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         for x in (seed, conf):
             if x is not None and not spans(x, n):
                 raise HTTPException(400, f"the seed's parts must be ordered, non-overlapping [start, end) token spans within {n} tokens")
+        cuts, cconf = pl.get("cuts") or {}, pl.get("cuts_confirmed") or {}
+        for name, cs in (("cuts", cuts), ("cuts_confirmed", cconf)):
+            if not (isinstance(cs, dict) and len(cs) <= 20 and all(w in members and spans(x, toks(w)) for w, x in cs.items())):
+                raise HTTPException(400, f"{name} must map a hadith of the list to ordered, non-overlapping [start, end) token spans within its words")
         added, dropped = pl.get("extras_added", []) or [], pl.get("extras_dropped", []) or []
         if not (isinstance(added, list) and len(added) <= 50 and all(
                 isinstance(a, dict) and isinstance(a.get("wid"), str) and WID_RE.match(a["wid"]) and spans([a.get("span")], 5000) for a in added)):
@@ -897,10 +912,11 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             if e.get("text", "").strip():
                 e["text"] = e["text"].strip()
                 refs_out[w] = e
-        out = dict(seed=None if seed == auto else seed, seed_confirmed=conf,
+        out = dict(seed=None if seed == auto or cuts else seed, seed_confirmed=None if cuts else conf,
                    extras_added=[dict(wid=a["wid"], span=a["span"]) for a in added], extras_dropped=sorted(set(dropped)),
                    slots={k: v for k, v in slots.items() if v}, confirmed={k: sorted(set(v)) for k, v in confirmed.items()})
-        for key, val in (("words", {k: {w: m for w, m in v.items() if m} for k, v in words.items()}), ("unit_cls", ucls),
+        for key, val in (("cuts", cuts), ("cuts_confirmed", cconf),
+                         ("words", {k: {w: m for w, m in v.items() if m} for k, v in words.items()}), ("unit_cls", ucls),
                          ("renames", {k: dict(name=v["name"].strip(), term=v.get("term", "").strip()) for k, v in renames.items()}),
                          ("chain", chain_out), ("units", units_out), ("refs", refs_out)):
             val = {k: v for k, v in val.items() if v}

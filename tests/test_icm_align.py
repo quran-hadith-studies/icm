@@ -125,37 +125,51 @@ def test_user_parts_slots_extras_and_drops():
     assert any(f["kind"] == "part_unused" for f in r3["flags"])
 
 
-def test_a_hadith_of_the_source_list_brings_its_own_parts():
-    """Step 1's hadiths are equal: text only a later one has (no second witness needed) is a part, a plain witness's
-    private text is not."""
-    own = "ستة لعنتهم، المكذب بقدر الله، والزائد في كتاب الله، والتارك لسنتي، والمستأثر بالفيء لنفسه، والمستحل من عترتي ما حرم الله"
-    S1 = _search(SEED, [own])
-    assert not [c for c in align.run(S1, ["t:0"])["clauses"] if c["kind"] == "extra"]
-    S1["candidates"][0]["signals"] = ["seed"]
-    ex = [c for c in align.run(S1, ["t:0"])["clauses"] if c["kind"] == "extra"]
-    assert ex and "المستاثر" in ex[0]["text"] and ex[0]["support"] == 1, ex
+def _cut(*pieces):
+    """tokens and spans of a hadith written as its parts."""
+    tok, sp = [], []
+    for s in pieces:
+        t = tokens(s)
+        sp.append((len(tok), len(tok) + len(t)))
+        tok += t
+    return tok, sp
 
 
-def test_step_one_lists_the_parts_the_other_hadiths_add():
-    from icm import search
+def test_source_hadiths_are_cut_on_their_own_and_the_cuts_that_agree_are_one_part():
+    from icm import family
+    ca = {"A": _cut("ستة لعنتهم", "المكذب بقدر الله", "والزائد في كتاب الله", "والتارك لسنتي"),
+          "B": _cut("ستة لعنتهم", "المكذب بقدر الله", "والمستأثر بالفيء لنفسه", "والتارك لسنتي")}
+    fwd = family.build(ca)
+    back = family.build({k: ca[k] for k in ("B", "A")})                        # the order of the list is no part of it
+    assert [(p["text"], p["members"]) for p in fwd] == [(p["text"], p["members"]) for p in back]
+    assert sorted(len(p["members"]) for p in fwd) == [1, 1, 2, 2, 2], [(p["text"], list(p["members"])) for p in fwd]
+    tok, sp = family.reference(fwd)
+    assert [" ".join(tok[x:y]) for x, y in sp] == [p["text"] for p in fwd]
+    # one hadith alone: its parts are its cut, as they were
+    one = family.build({"A": ca["A"]})
+    assert [p["members"]["A"] for p in one] == [list(x) for x in ca["A"][1]]
+    assert family.canonical({"A": {}, "B": {}}, fwd) == "A"                     # the same number of parts and words: the lower id names the family
+    lab = family.labels(len(ca["B"][0]), fwd, "B")
+    assert -1 not in lab and len(set(lab)) == 4
+
+
+def test_a_part_one_hadith_has_in_its_own_cut_is_aligned_from_that_cut():
+    """The words of each source hadith in a part are the ones its own cut has (the part's words are its representative's)."""
     own = "ستة لعنتهم، المكذب بقدر الله، والزائد في كتاب الله، والتارك لسنتي، والمستأثر بالفيء لنفسه، والمستحل من عترتي ما حرم الله"
     S = _search(SEED, [own])
-    assert align.seed_extras(S) == dict(extras=[], dropped=[], found={})            # not a seed hadith: nothing
     c = S["candidates"][0]
-    c.update(signals=["seed"], n_tokens=len(tokens(own)), parts=[])
-    S["seed"].update(matn=SEED)
-    S = search.with_marks(S)
-    assert len(S["seed_extras"]) == 1 and "المستاثر" in S["seed_extras"][0]["text"] and S["seed_extras"][0]["i"] == len(S["clauses"])
-    ks = {m[2] for m in c["marks_all"]}
-    assert ks == {S["seed_extras"][0]["i"]} and not c["marks"], (c["marks"], c["marks_all"])
-    key = S["seed_extras"][0]["key"]
-    # the user sets it aside, and cuts another from the hadith's text by hand
-    a = next(i for i, x in enumerate(tokens(own)) if "کتاب" in x)
-    S2 = search.with_marks(S, dict(extras_dropped=[key], extras_added=[dict(wid="t:0", span=[a, a + 2])]))
-    assert [e["by"] for e in S2["seed_extras"]] == ["user"] and S2["seed_extras"][0]["wid"] == "t:0"
-    assert [d["key"] for d in S2["seed_extras_dropped"]] == [key]
-    assert {m[2] for m in S2["candidates"][0]["marks_all"]} == {S2["seed_extras"][0]["i"]}
-    assert "marks_all" not in search.with_marks(S2, dict(extras_dropped=[key]))["candidates"][0]       # nothing of the hadith is left outside the parts
+    c.update(signals=["seed"])
+    tk = tokens(own)
+    x = tk.index(next(t for t in tk if "مستاثر" in t))
+    S["clauses"].append(dict(i=len(S["clauses"]), span=[len(S["tokens"]), len(S["tokens"]) + 3], text=" ".join(tk[x:x + 3]), members={"t:0": [x, x + 3]}))
+    S["tokens"] = S["tokens"] + tk[x:x + 3]
+    S["seed_tokens"] = tokens(SEED)
+    for q in S["clauses"][:-1]:
+        q["members"] = {"t:seed": q["span"]}
+    r = align.run(S, ["t:0"])
+    seg = r["segments"][f"{len(S['clauses']) - 1}|t:0"]
+    assert seg["state"] == "present" and seg["tokens"] == tk[x:x + 3] and seg["span"] == [x, x + 3], seg
+    assert r["segments"][f"{len(S['clauses']) - 1}|t:seed"]["state"] == "absent"
 
 
 def test_bare_conjunction_is_part_of_the_next_word():

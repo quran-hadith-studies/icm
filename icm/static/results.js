@@ -123,7 +123,7 @@
       kg: 'راویانی که با اطمینان زیاد یا متوسط به زندگی‌نامه‌ای در پایگاه رجالی پیوند خورده‌اند.',
       tree: 'سندها همان‌گونه که ثبت شده‌اند، از نخستین راوی (راست) تا گردآورنده و کتاب (چپ). نتیجه‌ی مدل روی یال‌هاست: یال آبی در محتمل‌ترین درخت، یال قرمزِ خط‌چین احتمال پسین زیر ۰٫۵. حلقه دور یک راوی یعنی نامزد مبدأ است (اندازه = احتمال)؛ ★ محتمل‌ترین. «مبدأ بی‌نام» در لبه‌ی راست است و طریق‌هایی که در محتمل‌ترین درخت مستقیم به آن می‌رسند با خط‌چین به آن وصل‌اند. روی نام، یال یا نام کتاب بزنید تا جزئیات کنار درخت بیاید.',
       lens: 'یک واحد اختلاف متن را برگزینید: هر راوی به رنگ احتمالِ این‌که متنی که نقل کرده این حالت را داشته باشد درمی‌آید (پررنگ = محتمل)، و کنار نام هر کتاب، آنچه متن خودش دارد. دایره‌ی خط‌چین یعنی این راوی در درخت‌های نمونه‌برداری‌شده نیامده است.',
-      texts: 'متن هر شاهد همان‌گونه که در کتاب آمده. رنگ‌ها بخش‌های حدیث مبدأاند (همان رنگ‌های مرحله‌ی ۳). با برگزیدن یک واحد اختلاف، واژه‌های آن در هر متن نشان داده می‌شود و برچسب کنار هر متن می‌گوید متن چه دارد.',
+      texts: 'متن هر شاهد همان‌گونه که در کتاب آمده. رنگ‌ها بخش‌های حدیث‌هایند (همان رنگ‌های مرحله‌ی ۳). با برگزیدن یک واحد اختلاف، واژه‌های آن در هر متن نشان داده می‌شود و برچسب کنار هر متن می‌گوید متن چه دارد.',
       sources: 'log Z (لگاریتم «شاهد») احتمال کل داده است اگر این راوی مبدأ باشد، میانگین روی همه‌ی درخت‌ها. −∞ یعنی تحت هیچ درخت نمونه‌برداری‌شده‌ای همه‌ی شاهدها از این راوی قابل دسترسی نیستند (مثلاً پس از او درگذشته‌اند). ESS (اندازه‌ی مؤثر نمونه) کیفیت برآورد را نشان می‌دهد؛ زیر ۱۰ نامطمئن است.',
       map: 'درخت بیشینه‌ی پسین (MAP) محتمل‌ترین درخت انتقال برای مبدأ برتر است. اگر سهمش بزرگ باشد، پسین روی یک ساختار متمرکز است؛ کم بودن شمار درخت‌های متمایز همچنین یعنی نمونه‌گیر روی چند درخت جمع شده و سهم رقیبان نامطمئن است.',
       unsure: 'یال‌های ثبت‌شده‌ای که احتمال پسینشان کمتر از ۰٫۹۹۹ است: جاهایی که مدل استاد دیگری (حذف یک واسطه، هم‌دوره‌ی هم‌طریق یا مبدأ بی‌نام) را محتمل‌تر یا هم‌اندازه می‌داند.',
@@ -263,7 +263,7 @@
       ATT.forEach((a, ai) => {
         const w = W[wid(a)] || {};
         if (M && !known(ai)) c1.push(`${book(ai)} در هیچ واحدی خوانش معلوم ندارد: متنش در محاسبه اثری ندارد و فقط سندش شمرده می‌شود. اگر متنش از این خانواده نیست، در مرحله‌ی ۳ با «×» کنارش بگذارید.`);
-        else if (w.cls === 'different' || w.cls === 'partial') c1.push(`${book(ai)} در مرحله‌ی ۲ «${CLSFA[w.cls]}» دسته‌بندی شده بود (سامانه از پیش تیکش نزده بود)؛ متنش را با حدیث مبدأ بسنجید. خوانش‌های معلومش: ${fa(known(ai))} از ${fa(M)}.`);
+        else if (w.cls === 'different' || w.cls === 'partial') c1.push(`${book(ai)} در مرحله‌ی ۲ «${CLSFA[w.cls]}» دسته‌بندی شده بود (سامانه از پیش تیکش نزده بود)؛ متنش را با حدیث‌های فهرست بسنجید. خوانش‌های معلومش: ${fa(known(ai))} از ${fa(M)}.`);
         if (a.sanad.length < 2) c1.push(`سند ${book(ai)} تنها یک راوی دارد (${nodeBtn(a.sanad[0])})؛ در مرحله‌ی ۴ ببینید آیا نام‌ها درست خوانده شده‌اند.`);
       });
       out.push(card('متن‌ها و سندهایی که به مدل رسید',
@@ -660,7 +660,7 @@
     function drawTexts() {
       if (!textsEl) return;
       const nc = ctx.clauses ? ctx.clauses.length : 0;
-      textsEl.querySelector('.clkey').innerHTML = nc ? 'بخش‌های حدیث مبدأ: ' + ctx.clauses.map((c, i) => `<span class="tag cl" style="--h:${hue(i)}" title="${esc(c)}">${fa(i + 1)}. ${esc(shortName(c, 4))}</span>`).join('') : '';
+      textsEl.querySelector('.clkey').innerHTML = nc ? 'بخش‌ها: ' + ctx.clauses.map((c, i) => `<span class="tag cl" style="--h:${hue(i)}" title="${esc(c)}">${fa(i + 1)}. ${esc(shortName(c, 4))}</span>`).join('') : '';
       textsEl.querySelector('.texts').innerHTML = heads.map(h => {
         const items = ATT.map((a, i) => [a, i]).filter(([a]) => a.sanad[0] === h);
         return `<h3 class="ar">${esc(nm(h))} · ${fa(items.length)} متن</h3>` + items.map(([a, i]) => {
@@ -783,13 +783,13 @@
     }
     function reconPanel(el) {
       const opts = [best, ...Object.keys(N).filter(n => n !== best && N[n].ancestral).sort((a, b) => (year(a) ?? 1e4) - (year(b) ?? 1e4))];
-      const seedT = ctx.align && ctx.texts && ctx.texts[ctx.align.seed];
+      const srcT = ctx.align && ctx.texts ? (ctx.align.sources || [ctx.align.seed]).map(w => ctx.texts[w]).filter(Boolean) : [];
       el.innerHTML = hb('step6.recon') + `<div class="card"><h2>متن بازسازی‌شده ${helpBtn('recon')}</h2>
         <div class="toolbar"><label class="small">متنِ کدام راوی: <select class="reconsel">${opts.map(n => `<option value="${esc(n)}">${n === best ? '★ منبع بیشینه: ' : ''}${esc(shortName(pname(n), 6))}${n !== UNK && year(n) != null ? ' (' + fa(Math.round(year(n))) + ')' : ''}</option>`).join('')}</select></label>
           <button type="button" class="small reconto">نمایش این راوی در درخت</button></div>
         <div class="reconbody"></div>${reconLegend}
         <h3>تصمیم هر واحد (نامطمئن‌ترها نخست)</h3><div class="recontab"></div>
-        ${seedT ? `<h3>متن حدیث مبدأ، برای مقایسه</h3><div class="matntext ar">${esc(seedT.matn)}</div>` : ''}</div>`;
+        ${srcT.length ? `<h3>${srcT.length > 1 ? 'متن حدیث‌های فهرست' : 'متن حدیث'}، برای مقایسه</h3>${srcT.map(x => `<div class="matntext ar">${esc(x.matn)}</div>`).join('')}` : ''}</div>`;
       const sel = el.querySelector('.reconsel'), body = el.querySelector('.reconbody'), tab = el.querySelector('.recontab');
       const draw = id => {
         if (!opts.includes(id)) id = best;

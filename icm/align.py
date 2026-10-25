@@ -146,16 +146,22 @@ def text_tokens(w: dict) -> List[str]:
 def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> dict:
     parts = parts or {}
     seed = search["seed"]["wid"]
-    s_tok = search["tokens"]
-    clause_defs = [dict(i=c["i"], kind="seed", text=c["text"], tokens=s_tok[c["span"][0]:c["span"][1]]) for c in search["clauses"]]
+    s_tok = search["tokens"]                           # the parts' words one after another
+    seed_tok = search.get("seed_tokens") or s_tok     # the words of the hadith the family is named by
+    clause_defs = [dict(i=c["i"], kind="seed", text=c["text"], tokens=s_tok[c["span"][0]:c["span"][1]], members=dict(c.get("members") or {seed: c["span"]}))
+                   for c in search["clauses"]]
+    member = {}                                       # (part, hadith) -> where that source hadith keeps the part (its own cut)
+    for c in search["clauses"]:
+        for w, sp in (c.get("members") or {seed: c["span"]}).items():
+            member[(c["i"], w)] = list(sp)
     cand = {c["wid"]: c for c in search["candidates"]}
     for c in list(cand.values()):
         for w in c.get("copies", []):
             cand.setdefault(w, c)
-    wits: List[dict] = [dict(wid=seed, tokens=s_tok, matn=search["seed"]["matn"], title=search["seed"]["title"],
+    wits: List[dict] = [dict(wid=seed, tokens=seed_tok, matn=search["seed"]["matn"], title=search["seed"]["title"],
                              author=search["seed"]["author"], death=search["seed"]["death"],
                              tradition=search["seed"]["tradition"], work=search["seed"]["work"], cls="seed",
-                             copies=search["seed"].get("copies", []), w0=0, full=s_tok)]
+                             copies=search["seed"].get("copies", []), w0=0, full=seed_tok, src=True)]
     flags: List[dict] = []
     for w in selected:
         if w == seed:
@@ -169,9 +175,9 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         wits.append(dict(wid=c["wid"], tokens=c["window_text"].split(), matn=c["matn"], title=c["title"],
                          author=c["author"], death=c["death"], tradition=c["tradition"], work=c["work"],
                          cls=c["suggested"], copies=c.get("copies", []), w0=(c.get("window") or [0])[0]))
-        if "seed" in (c.get("signals") or ()):          # a hadith of step 1's list is as much a source as the first: all of its text, not a window of it
+        if "seed" in (c.get("signals") or ()):          # a hadith of step 1's list: all of its text (the cuts are in it), not a window of it
             full = tokens(c["matn"])
-            wits[-1].update(seed=True, tokens=full, w0=0, full=full)
+            wits[-1].update(tokens=full, w0=0, full=full, src=True)
         if c.get("ref"):                               # «مثله / نحوه …»: the words the template builds from the text referred to (step 3)
             r = dict(c["ref"])
             own = (parts.get("refs") or {}).get(c["wid"])
@@ -217,7 +223,7 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
     for w in wits:
         found = {}
         for c in clause_defs:
-            if w["wid"] == seed and c["kind"] == "seed":
+            if c["kind"] == "seed" and (c["i"], w["wid"]) in member:        # a source hadith has its own cut of the part
                 continue
             r = align_clause(c["tokens"], w["tokens"])
             core = _core([(i, j) for i, j in r["pairs"] if r["match_a"][i]]) if r["m"] else []
@@ -225,8 +231,15 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         cores = sorted((core[0][1], core[-1][1] + 1) for _, core in found.values() if core)
         for c in clause_defs:
             if c["i"] not in found:
-                segs[(c["i"], w["wid"])] = dict(state="present", cov=1.0, tokens=list(c["tokens"]),
-                                                aligned=list(c["tokens"]), span=None)
+                x, y = member[(c["i"], w["wid"])]
+                mine = w["full"][x:y]
+                if mine == c["tokens"] or len(w["full"]) < y:
+                    segs[(c["i"], w["wid"])] = dict(state="present", cov=1.0, tokens=list(c["tokens"]),
+                                                    aligned=list(c["tokens"]), span=None if w["wid"] == seed else [x - w["w0"], y - w["w0"]])
+                else:                                                   # its words are this hadith's own (the part's words are another's)
+                    r = align_pair(c["tokens"], mine)
+                    segs[(c["i"], w["wid"])] = dict(state="present", cov=round(sum(r["match_a"]) / max(len(c["tokens"]), 1), 3),
+                                                    tokens=list(mine), aligned=r["aligned_b"], span=[x - w["w0"], y - w["w0"]])
                 continue
             r, core = found[c["i"]]
             n = max(len(c["tokens"]), 1)
@@ -268,7 +281,7 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         c = known_keys.get(k)
         for wid, v in by_wid.items():
             w = wit_by.get(wid)
-            if c is None or w is None or (w["wid"] == seed and c["kind"] == "seed"):
+            if c is None or w is None or (c["kind"] == "seed" and (c["i"], w["wid"]) in member):
                 flags.append(dict(kind="part_unused", ref=f"{k}|{wid}", message="a slot for a part or witness not in this alignment"))
                 continue
             if v in ("absent", "unknown"):
@@ -371,8 +384,9 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
     X = {w: [u["states"].get(w, NA) for u in informative] for w in wids}
     plain = lambda u: {k: v for k, v in u.items() if k not in ("minor", "n_known", "second", "n_distinct")}
     return dict(
-        seed=seed, witnesses=[{k: v for k, v in w.items() if k not in ("tokens", "matn", "full")} | dict(n_tokens=len(w["tokens"]))
-                              for w in wits],
+        seed=seed, sources=[w["wid"] for w in wits if w.get("src")],
+        witnesses=[{k: v for k, v in w.items() if k not in ("tokens", "matn", "full", "src")} | dict(n_tokens=len(w["tokens"]), src=bool(w.get("src")))
+                   for w in wits],
         clauses=[{k: v for k, v in c.items() if k != "tokens"} for c in clause_defs],
         segments={f"{ci}|{w}": {k: v for k, v in sg.items() if k != "aligned"} for (ci, w), sg in segs.items()},
         grids=grids, units=[plain(u) for u in informative],
@@ -564,16 +578,12 @@ def _apply_unit_decisions(units: List[dict], clause_defs: Sequence[dict], unit_c
 
 
 def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
-    """Unmatched runs of the witness windows, clustered across witnesses. A run of a hadith of step 1's list (all equal
-    sources, ``w["seed"]``) needs no second witness: it is a part of the family like the first hadith's own parts."""
+    """Unmatched runs of the witness windows, clustered across witnesses."""
     runs: List[Tuple[str, List[str]]] = []
-    seeds = {w["wid"] for w in wits if w.get("seed")}
     for w in wits:
         n = len(w["tokens"])
         covered = [False] * n
-        for c in clause_defs:
-            if w["wid"] == wits[0]["wid"]:
-                continue
+        for c in ([] if w.get("src") else clause_defs):          # the words a source hadith left out of its parts are left out on purpose
             r = align_clause(c["tokens"], w["tokens"])
             if r["m"]:
                 mi = [i for i, f in enumerate(r["match_a"]) if f]
@@ -581,7 +591,7 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
                 hi = min(n, r["span_b"][1] + len(c["tokens"]) - 1 - mi[-1])
                 for j in range(lo, hi):
                     covered[j] = True
-        if w["wid"] == wits[0]["wid"]:
+        if w.get("src"):             # the words a source hadith left out of its parts are left out on purpose
             continue
         j = 0
         while j < n:
@@ -596,7 +606,7 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
                 seg = seg[1:]
             edge = j == 0 or k == n
             marker = w["marker"]
-            if (len(seg) >= 3 and not (edge and len(seg) <= 3 and w["wid"] not in seeds)
+            if (len(seg) >= 3 and not (edge and len(seg) <= 3)
                     and sum(1 for t in seg if t in FORMULA) / len(seg) < 0.7
                     and (marker is None or j < marker)):
                 runs.append((w["wid"], seg))
@@ -618,55 +628,12 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
             if r["m"] / max(min(len(c["tokens"]), len(rep)), 1) >= 0.5:
                 return True
         return False
-    keep = [dict(tokens=cl["rep"], support=len(cl["members"]), members=dict(cl["members"])) for cl in clusters
-            if (len(cl["members"]) >= 2 or seeds & set(cl["members"])) and not resembles_clause(cl["rep"])]
-    private = [dict(wid=wid, text=" ".join(seg)) for cl in clusters if len(cl["members"]) < 2 and not seeds & set(cl["members"])
-               for wid, seg in cl["members"].items()]
+    keep = [dict(tokens=cl["rep"], support=len(cl["members"])) for cl in clusters
+            if len(cl["members"]) >= 2 and not resembles_clause(cl["rep"])]
+    private = [dict(wid=wid, text=" ".join(seg)) for cl in clusters if len(cl["members"]) < 2 for wid, seg in cl["members"].items()]
     # keep order stable: biggest support first
     keep.sort(key=lambda e: -e["support"])
     return dict(clauses=keep, private=private)
-
-
-def seed_extras(S: dict, parts: Optional[dict] = None) -> dict:
-    """What the hadiths of step 1's list add to the first one's parts, for step 1 to show (the same extra parts step 3
-    makes of them, with the user's ``extras_dropped`` / ``extras_added`` of those hadiths applied): ``extras``
-    [{i, key, text, by, support, wids}] numbered after the parts, ``dropped`` [{key, text, wids}] (automatic ones the user
-    set aside), ``found`` wid -> [[i, start, end)] token ranges of each extra in that hadith's text (``search.with_marks``
-    turns them into character ranges)."""
-    parts = parts or {}
-    seeds = [c for c in S["candidates"] if "seed" in (c.get("signals") or ())]
-    if not seeds:
-        return dict(extras=[], dropped=[], found={})
-    s_tok = S["tokens"]
-    defs = [dict(kind="seed", text=c["text"], tokens=s_tok[c["span"][0]:c["span"][1]]) for c in S["clauses"]]
-    first = dict(wid=S["seed"]["wid"], tokens=s_tok, marker=None)
-    toks = {c["wid"]: tokens(c["matn"]) for c in seeds}
-    wits = [first] + [dict(wid=w, tokens=t, seed=True, marker=find_marker(t)) for w, t in toks.items()]
-    more = [dict(kind="extra", text=" ".join(ex["tokens"]), tokens=ex["tokens"], support=ex["support"], by="auto", members=ex["members"])
-            for ex in _discover_extras(defs, wits)["clauses"]]
-    for a in parts.get("extras_added") or []:                       # (as run() reads them, so the keys agree)
-        t = toks.get(a["wid"], [])[a["span"][0]:a["span"][1]]
-        if t:
-            more.append(dict(kind="extra", text=" ".join(t), tokens=t, support=None, by="user", span=list(a["span"]), members={a["wid"]: t}, wid=a["wid"]))
-    keys = part_keys(defs + more)[len(defs):]
-    dropped_keys = set(parts.get("extras_dropped") or [])
-    out, drop, found = [], [], {}
-    for c, k in zip(more, keys):
-        if k in dropped_keys and c["by"] != "user":
-            drop.append(dict(key=k, text=c["text"], wids=sorted(c["members"])))
-            continue
-        i = len(defs) + len(out)
-        out.append(dict(i=i, key=k, text=c["text"], by=c["by"], support=c["support"], wids=sorted(c["members"]),
-                        **({"span": c["span"], "wid": c["wid"]} if c["by"] == "user" else {})))
-        for wid, seg in c["members"].items():
-            if c["by"] == "user":
-                found.setdefault(wid, []).append([i, c["span"][0], c["span"][1]])
-                continue
-            t = toks[wid]
-            at = next((j for j in range(len(t) - len(seg) + 1) if t[j:j + len(seg)] == seg), None)
-            if at is not None:
-                found.setdefault(wid, []).append([i, at, at + len(seg)])
-    return dict(extras=out, dropped=drop, found=found)
 
 
 def row_keys(cols: Sequence[dict], w: str) -> List[Tuple[int, str]]:

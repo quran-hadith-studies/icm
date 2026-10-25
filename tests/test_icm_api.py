@@ -213,19 +213,20 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
         assert c.get(f"/icm/api/project/{pid}/runs/current/search").json()["searched"] is False and not c.get(f"/icm/api/project/{pid}/runs/current/search").json()["queries"]
         press_search(c, pid)                                                              # the corpora are asked only when «جستجو» is pressed
         S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
-        assert S["searched"] and S["clauses_by"] == "auto" and S["auto_clauses"] == [x["span"] for x in S["clauses"]]
+        W0 = "v02:800316143"
+        assert S["searched"] and S["clauses_by"] == "auto" and S["auto_cuts"][W0] == S["cuts"][W0] == [x["members"][W0] for x in S["clauses"]]
         seed_w = c.get(f"/icm/api/project/{pid}/runs/current/words/v02:800316143").json()
-        assert seed_w["tokens"] == S["tokens"] == tokens(S["seed"]["matn"]) and len(seed_w["offsets"]) == len(S["tokens"])
+        assert seed_w["tokens"] == S["seed_tokens"] == tokens(S["seed"]["matn"]) and len(seed_w["offsets"]) == len(S["seed_tokens"])
         sel = [x["wid"] for x in S["candidates"][:3]]
         c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice"))
         c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"part_query": [0], "extra_ids": []}}, headers=H("alice"))      # ticks only; no new search
-        n = len(S["tokens"])
+        n = len(S["seed_tokens"])
         for bad in ({"seed": [[0, n + 1]]}, {"seed": [[3, 2]]}, {"seed": [[0, 4], [3, 6]]}, {"seed": []},
                     {"slots": {"bad": {"v02:1": "absent"}}}, {"slots": {"s:x": {"v02:1": "maybe"}}},
                     {"extras_added": [{"wid": "v02:1", "span": [2, 2]}]}, {"confirmed": {"s:x": "v02:1"}}):
             assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": bad}, headers=H("alice")).status_code == 400, bad
         # the same parts as the automatic ones are stored as "automatic"
-        auto = S["auto_clauses"]
+        auto = S["auto_cuts"][W0]
         assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"seed": auto, "seed_confirmed": auto}}, headers=H("alice")).status_code == 200
         assert project.decision(pid, "parts")["seed"] is None and project.decision(pid, "search")["part_query"] == [0]
         # one part for the whole text: the candidates are scored on it again (no new search: that is the button), the selected witnesses stay
@@ -402,7 +403,7 @@ def test_a_project_is_removed_with_all_its_data_by_its_owner_or_an_admin():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def test_the_first_hadith_of_step_1_can_be_taken_away_and_the_next_takes_its_place():
+def test_no_hadith_of_step_1_is_the_main_one_each_is_cut_on_its_own_and_any_can_be_taken_away():
     from icm import pipeline
     a, d = app()
     try:
@@ -414,22 +415,29 @@ def test_the_first_hadith_of_step_1_can_be_taken_away_and_the_next_takes_its_pla
         Sget = lambda: c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         press_search(c, pid, seeds=[W1])
         S1 = Sget()
-        assert S1["seed"]["wid"] == W0 and S1["seeds"] == [W1]
-        n = len(S1["tokens"])
-        assert dec("parts", {"seed": [[0, 3], [3, n]], "seed_confirmed": [[0, 3], [3, n]]}).status_code == 200
+        assert {S1["seed"]["wid"], *S1["seeds"]} == {W0, W1}                                  # the family is named by one of them, whichever the order
+        n0, n1 = S1["cut_tokens"][W0], S1["cut_tokens"][W1]
+        assert all(S1["cuts_by"][w] == "auto" for w in (W0, W1))
+        # each hadith is cut on its own; a cut for a hadith that is not in the list, or outside its words, is refused
+        assert dec("parts", {"cuts": {"v02:1": [[0, 2]]}}).status_code == 400 and dec("parts", {"cuts": {W1: [[0, n1 + 1]]}}).status_code == 400
+        cut0 = [[0, 3], [3, n0]]
+        assert dec("parts", {"cuts": {W0: cut0}, "cuts_confirmed": {W0: cut0}}).status_code == 200
         pipeline.advance(pid)
-        # nothing else seeds the project: the first hadith goes, the second is the reference, the cut that was on the first starts again
+        S = Sget()
+        assert S["cuts"][W0] == cut0 and S["cuts_by"][W0] == "user" and S["cuts_by"][W1] == "auto" and S["clauses_by"] == "user"
+        assert [c_["members"][W0] for c_ in S["clauses"] if W0 in c_["members"]] == cut0
+        # taking a hadith away takes its cut with it; the other stays, whichever was first
         assert dec("search", {"anchor": W1, "seeds": [], "extra_ids": []}).status_code == 200
         assert project.decision(pid, "search")["anchor"] == W1 and project.decision(pid, "search")["seeds"] == []
         pp = project.decision(pid, "parts")
-        assert pp["seed"] is None and pp["seed_confirmed"] is None and not pp["slots"]
+        assert not pp.get("cuts") and not pp.get("cuts_confirmed")
         pipeline.advance(pid)
         S2 = Sget()
         assert S2["seed"]["wid"] == W1 and S2["seeds"] == [] and S2["stale"] and W1 not in {x["wid"] for x in S2["candidates"]}
         assert W0 not in {x["wid"] for x in S2["candidates"]}                               # taken away, not left as a candidate
-        # the next decisions keep the new first hadith, and it cannot be edited or be its own further seed
+        # the next decisions keep the list, and a hadith cannot be its own further seed
         assert dec("search", {"extra_ids": []}).status_code == 200 and project.decision(pid, "search")["anchor"] == W1
-        assert dec("search", {"edits": {W1: "x"}}).status_code == 400 and dec("search", {"seeds": [W1]}).status_code == 200
+        assert dec("search", {"seeds": [W1]}).status_code == 200
         assert project.decision(pid, "search")["seeds"] == [] and project.decision(pid, "search")["anchor"] == W1
         sel = c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [W1]}}, headers=H("alice"))
         assert sel.status_code == 200 and project.decision(pid, "selection")["selected"] == [W1]
@@ -437,11 +445,11 @@ def test_the_first_hadith_of_step_1_can_be_taken_away_and_the_next_takes_its_pla
         assert dec("search", {"seeds": [W0]}).status_code == 200 and project.decision(pid, "search")["seeds"] == [W0]
         pipeline.advance(pid)
         S3 = Sget()
-        assert S3["seed"]["wid"] == W1 and S3["seeds"] == [W0] and "seed" in next(x for x in S3["candidates"] if x["wid"] == W0)["signals"]
-        # a new press searches from the new first hadith
+        assert {S3["seed"]["wid"], *S3["seeds"]} == {W0, W1} and "seed" in next(x for x in S3["candidates"] if x["wid"] == S3["seeds"][0])["signals"]
+        # a new press searches from both
         press_search(c, pid, seeds=[W0])
         S4 = Sget()
-        assert S4["seed"]["wid"] == W1 and not S4["stale"] and project.decision(pid, "search")["ret"]["anchor"] == W1
+        assert {S4["seed"]["wid"], *S4["seeds"]} == {W0, W1} and not S4["stale"] and project.decision(pid, "search")["ret"]["anchor"] == W1
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -460,7 +468,7 @@ def test_search_is_a_button_hadiths_can_be_added_edited_and_seeded_and_a_second_
         near = "v02:800316144"
         assert dec({"extra_ids": ["v02:1"]}).status_code == 400 and dec({"extra_ids": ["nope"]}).status_code == 400    # unknown / malformed ids
         assert dec({"seeds": [W0]}).status_code == 200 and project.decision(pid, "search")["seeds"] == []              # the seed is not its own further seed
-        assert dec({"edits": {W0: "x"}}).status_code == 400 and dec({"edits": {near: "  "}}).status_code == 400
+        assert dec({"edits": {near: "  "}}).status_code == 400                                                         # every hadith of the list can be edited, an empty text cannot
         # before any search: only the user's own hadiths are scored
         assert dec({"extra_ids": [near]}).status_code == 200
         pipeline.advance(pid)
@@ -470,15 +478,16 @@ def test_search_is_a_button_hadiths_can_be_added_edited_and_seeded_and_a_second_
         press_search(c, pid, extra_ids=[near], seeds=["v02:800316145"])
         S2 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         by = {x["wid"]: x for x in S2["candidates"]}
-        assert S2["searched"] and S2["retrieved"] and S2["queries"] and not S2["stale"] and S2["seeds"] == ["v02:800316145"]
-        assert "user" in by[near]["signals"] and "seed" in by["v02:800316145"]["signals"] and len(S2["candidates"]) > 3
-        pick = [x["wid"] for x in S2["candidates"] if x["wid"] not in (near, "v02:800316145") and x["suggested"] in ("witness", "variant", "extended", "abridged")][:2] or \
-               [x["wid"] for x in S2["candidates"] if x["wid"] not in (near, "v02:800316145")][:2]
+        other = next(w for w in (W0, "v02:800316145") if w != S2["seed"]["wid"])      # no hadith of the list is the main one: the family is named by whichever is in most parts
+        assert S2["searched"] and S2["retrieved"] and S2["queries"] and not S2["stale"] and {S2["seed"]["wid"], *S2["seeds"]} == {W0, "v02:800316145"}
+        assert "user" in by[near]["signals"] and "seed" in by[other]["signals"] and len(S2["candidates"]) > 3
+        pick = [x["wid"] for x in S2["candidates"] if x["wid"] not in (near, "v02:800316145", W0) and x["suggested"] in ("witness", "variant", "extended", "abridged")][:2] or \
+               [x["wid"] for x in S2["candidates"] if x["wid"] not in (near, "v02:800316145", W0)][:2]
         sel = lambda ws: c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": ws}}, headers=H("alice"))
         assert sel(pick + [near]).status_code == 200
         ask(c, pid, "align")
         A = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
-        assert {"v02:800316145", near, *pick} <= {w["wid"] for w in A["witnesses"]}           # the further seed was not asked for in the selection
+        assert {W0, "v02:800316145", near, *pick} <= {w["wid"] for w in A["witnesses"]}           # the further seed was not asked for in the selection
         # an edited text is scored as edited; its row shows the new score
         old = by[near]["score"]["cov_seed"]
         ed = {near: " ".join(S2["tokens"])}

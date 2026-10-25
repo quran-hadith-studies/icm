@@ -118,6 +118,13 @@ def anchor(p: dict, sdec: Optional[dict]) -> str:
     return (sdec or {}).get("anchor") or p["seed"]
 
 
+def cuts_of(pdec: Optional[dict]):
+    """The user's cuts of the source hadiths from a parts decision: ``{wid: spans}`` (every hadith of the list is cut on its
+    own), or the list of spans an earlier decision made for the first hadith alone, or None (all automatic)."""
+    pdec = pdec or {}
+    return pdec.get("cuts") or pdec.get("seed") or None
+
+
 def delete(pid: str) -> None:
     """Remove a project with everything in it: decisions, stages, runs, log (and so every version). Not undoable."""
     d = pdir(pid)

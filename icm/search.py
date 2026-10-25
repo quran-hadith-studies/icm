@@ -21,7 +21,7 @@ import time
 from difflib import SequenceMatcher
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from . import corpus, hadithai, pointers, relations
+from . import corpus, family, pointers, relations
 from .similarity import align_clauses, classify, match_key
 from .text import clauses, grams, marks, norm, squeeze, strip_tags, tokens, union_cuts
 
@@ -58,37 +58,43 @@ DEFAULTS = dict(
 
 def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (), keep_ids: Sequence[str] = (), *,
         seeds: Sequence[str] = (), prior: Optional[dict] = None, retrieve: bool = True, texts: Optional[dict] = None) -> dict:
-    """``keep_ids``: witnesses selected before the user re-cut the seed; they are scored whatever their score.
-    ``extra_ids``: hadiths the user added; scored whatever their score. ``seeds``: further seed hadiths: searched from like the
-    seed (their own words are queried), always candidates, never folded away. ``retrieve=False`` asks the corpora nothing: only
-    ``prior`` (wid -> signals/round/via of an earlier search's candidates), the extras, kept and seed hadiths are scored again,
-    against the seed's parts as they are now. ``texts``: wid -> the text the user edited, used instead of the corpus's."""
+    """``seed`` and ``seeds`` are the hadiths of step 1's list, all equal: each is cut into parts on its own
+    (``params["clauses"]``: the user's cuts, ``{wid: [[start, end), ...]}``, or a list for ``seed``) and the cuts that are
+    the same part make the family's parts (``family.py``); candidates are compared with those. ``seed`` of the result is
+    the one the family is named by (``family.canonical``), whatever the order they were given in.
+    ``keep_ids``: witnesses selected before the user re-cut the hadiths; they are scored whatever their score.
+    ``extra_ids``: hadiths the user added; scored whatever their score. ``seeds`` are searched from like ``seed``
+    (their own words are queried), always candidates, never folded away. ``retrieve=False`` asks the corpora nothing: only
+    ``prior`` (wid -> signals/round/via of an earlier search's candidates), the extras, kept and source hadiths are scored again,
+    against the parts as they are now. ``texts``: wid -> the text the user edited, used instead of the corpus's."""
     p = {**DEFAULTS, **(params or {})}
     t0 = time.time()
-    rec = corpus.get(seed)
-    if rec is None:
+    texts = texts or {}
+    order = list(dict.fromkeys([seed, *seeds]))
+    src = {w: s for w in order for s in [family.source(w, texts)] if s is not None}
+    if seed not in src:
         raise KeyError(f"seed {seed} not found")
-    sp = pointers.split(rec)
-    if sp["refs"] and sp["main"]:                 # «… حدثنا وكيع … بمثله، إلا أن وكيعا قال: …»: the seed is its own words, not the isnads after them
-        rec = dict(rec, matn=sp["main"])
-    s_tok, auto_spans = clauses(rec["matn"])
-    auto_by, auto_owners = "rules", None
-    hai = hadithai.parts(rec["hid"], s_tok) if rec["corpus"] == "v02" else None
-    if hai:
-        # hadith.ai's segments are semantic but coarse in lists («الزائد… والمكذب… والتارك…» is one segment), and a
-        # part is the unit of presence: cut at the boundaries of both, each part keeping its segment's speaker
-        h_spans, h_owners = hai
-        auto_spans = union_cuts(s_tok, auto_spans, h_spans)
-        auto_owners = [next((o for (x, y), o in zip(h_spans, h_owners) if x <= a < y), None) for a, _ in auto_spans]
-        auto_by = "hadith.ai+rules"
-    s_spans = auto_spans
-    if p.get("clauses"):                          # the user's segmentation (step 2), checked by the API
-        s_spans = [(int(a), int(b)) for a, b in p["clauses"] if 0 <= int(a) < int(b) <= len(s_tok)] or auto_spans
+    user = p.get("clauses")                       # the user's cuts (checked by the API): one list = the first hadith's
+    cuts, by_user = {}, {}
+    for w, s in src.items():
+        cuts[w], by_user[w] = family.cut(s, user.get(w) if isinstance(user, dict) else user if w == seed else None)
+    parts = family.build({w: (src[w]["tok"], cuts[w]) for w in src})
+    if not parts:
+        raise ValueError("seed has no text")
+    seed = family.canonical({w: s for w, s in src.items() if any(w in q["members"] for q in parts)}, parts)
+    seeds = [w for w in src if w != seed]
+    rec, s_tok_seed = src[seed]["rec"], src[seed]["tok"]
+    s_tok, s_spans = family.reference(parts)
+    owners = None                                 # who speaks each part (hadith.ai), from a hadith whose automatic cut it is
+    for q in parts:
+        for w in sorted(q["members"], key=lambda x: x != seed):
+            if not by_user[w] and src[w]["owners"] and list(q["members"][w]) in [list(x) for x in cuts[w]]:
+                owners = owners or [None] * len(parts)
+                owners[q["i"]] = src[w]["owners"][[list(x) for x in cuts[w]].index(list(q["members"][w]))]
+                break
     flags: List[dict] = []
     if len(s_tok) < 6:
         flags.append(dict(kind="seed_short", ref=seed, message="seed has fewer than 6 tokens; search is unreliable"))
-    if not s_spans:
-        raise ValueError("seed has no text")
     n_seed = sum(y - x for x, y in s_spans)
     sel = p["part_query"]
     q_clauses = [c for c in range(len(s_spans)) if sel is None or c in sel]
@@ -99,21 +105,14 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
     scored: Dict[str, dict] = {}
     seed_norm = norm(rec["matn"])
 
-    texts = texts or {}
-    sources = [(seed, s_tok, s_spans)]
-    if retrieve:
-        for w in seeds:                           # the further seeds are searched from like the seed, all their parts
-            r2 = corpus.get(w) if w != seed else None
-            if r2 is not None:
-                t2, sp2 = clauses(texts.get(w, r2["matn"]))
-                if sp2:
-                    sources.append((w, t2, sp2))
+    def own_parts(w):                             # the ticked parts a source hadith has, in its own words
+        return [(q["i"], *q["members"][w]) for q in parts if w in q["members"] and q["i"] in q_clauses]
+    sources = [(w, src[w]["tok"], own_parts(w)) for w in [seed, *seeds]] if retrieve else []
     for rnd in range(1, (int(p["rounds"]) if retrieve else 1) + 1):
         new_pool: Dict[str, dict] = {}
         if retrieve:
-            for src_wid, src_tok, src_spans in sources:
-                _generate(src_wid, src_tok, src_spans, q_clauses if rnd == 1 and src_wid == seed else range(len(src_spans)),
-                          p, rnd, new_pool, queries)
+            for src_wid, src_tok, src_parts in sources:
+                _generate(src_wid, src_tok, src_parts, p, rnd, new_pool, queries)
         elif rnd == 1:
             for w, d in (prior or {}).items():
                 new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"))
@@ -151,11 +150,13 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
     if len(cands) > 300:
         flags.append(dict(kind="family_large", ref=None, message=f"{len(cands)} candidates"))
     return dict(
-        seed=seed_out, tokens=s_tok, clauses=[dict(i=i, span=list(sp), text=" ".join(s_tok[sp[0]:sp[1]]))
-                                              for i, sp in enumerate(s_spans)],
-        auto_clauses=[list(sp) for sp in auto_spans], clauses_by="user" if s_spans is not auto_spans else "auto",
-        auto_by=auto_by, clause_owners=auto_owners if s_spans is auto_spans else None,
-        params=p, seeds=[w for w in seeds if w != seed], retrieved=bool(retrieve), candidates=cands, queries=queries, rounds=rounds_info, flags=flags,
+        seed=seed_out, tokens=s_tok, seed_tokens=s_tok_seed,
+        clauses=[dict(i=q["i"], span=list(s_spans[q["i"]]), text=q["text"], members=q["members"]) for q in parts],
+        cuts={w: [list(x) for x in cuts[w]] for w in src}, auto_cuts={w: [list(x) for x in src[w]["auto"]] for w in src},
+        cuts_by={w: ("user" if by_user[w] else "auto") for w in src}, cut_tokens={w: len(src[w]["tok"]) for w in src},
+        clauses_by="user" if any(by_user.values()) else "auto",
+        auto_by={w: src[w]["by"] for w in src}, clause_owners=owners,
+        params=p, seeds=seeds, retrieved=bool(retrieve), candidates=cands, queries=queries, rounds=rounds_info, flags=flags,
         seconds=round(time.time() - t0, 1))
 
 
@@ -172,9 +173,9 @@ def _best_terms(tok: Sequence[str], dfs: Dict[str, Tuple[int, int]], idx: int, d
     return cand[:k]
 
 
-def _generate(wid: str, tok: List[str], spans, q_clauses: Iterable[int], p: dict, rnd: int,
+def _generate(wid: str, tok: List[str], parts: Iterable[Tuple[int, int, int]], p: dict, rnd: int,
               pool: Dict[str, dict], queries: List[dict]) -> None:
-    """Fill ``pool`` with candidate ids proposed for source ``wid``."""
+    """Fill ``pool`` with candidate ids proposed for source ``wid``; ``parts``: (part, start, end) of the words to query."""
     def add(w: str, sig: str):
         d = pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None if rnd == 1 else wid))
         d["signals"].add(sig)
@@ -185,8 +186,7 @@ def _generate(wid: str, tok: List[str], spans, q_clauses: Iterable[int], p: dict
             add(w, "rel:" + sig)
     all_terms = sorted({t for t in tok if len(t) >= 3})
     dfs = corpus.term_df(all_terms)
-    for c in q_clauses:
-        x, y = spans[c]
+    for c, x, y in parts:
         ct = tok[x:y]
         for idx, name in enumerate(("v02", "kg")):
             if name not in p["corpora"]:
@@ -300,7 +300,7 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
             no=rec.get("no"), suggested=cls, score=score, parts=res["parts"],
             signals=sorted(pool[w]["signals"]), round=pool[w]["round"], via=pool[w]["via"],
             window=window, window_text=" ".join(c_tok[window[0]:window[1]]), reference=is_reference(rec),
-            n_tokens=len(c_tok), matn=rec["matn"][:1500], matn_len=len(rec["matn"]),
+            n_tokens=len(c_tok), matn=rec["matn"] if "seed" in pool[w]["signals"] else rec["matn"][:1500], matn_len=len(rec["matn"]),
             sanad=(rec["sanad"] or "")[:800],
             norm_hash=hashlib.sha1((" ".join(c_tok) + "|" + norm(rec["sanad"] or "")).encode()).hexdigest()[:16],
             text_hash=hashlib.sha1((" ".join(c_tok) + ("|ref:" + w if pt is not None else "")).encode()).hexdigest()[:16])
@@ -349,7 +349,7 @@ def _next_sources(scored: Dict[str, dict], p: dict, seed_norm: str):
         rec = corpus.get(c["wid"])
         tk, sp = clauses(rec["matn"])
         if sp:
-            out.append((c["wid"], tk, sp))
+            out.append((c["wid"], tk, [(i, x, y) for i, (x, y) in enumerate(sp)]))
         if len(out) >= p["expand_max"]:
             break
     return out
@@ -428,38 +428,39 @@ def _fold_across_corpora(rows: List[dict]) -> List[dict]:
     return [r for r in rows if r["wid"] not in drop]
 
 
-def with_marks(S: dict, parts: Optional[dict] = None) -> dict:
+def with_marks(S: dict) -> dict:
     """Add ``marks`` (``[start, end, clause]`` character ranges, see ``text.marks``) to the seed and to every
-    candidate of a search result, for display: where each seed clause is in each text. Not stored (stage files
+    candidate of a search result, for display: where each part is in each text. A hadith of step 1's list shows its own
+    cut (``clauses[i].members``), any other text where the part was found in it. Not stored (stage files
     stay as computed); the API adds it when serving the stage."""
     seed = S["seed"]
-    lab = [-1] * len(S["tokens"])
+    members = {w: [] for w in (S.get("cuts") or {})}
     for c in S["clauses"]:
-        x, y = c["span"]
-        lab[x:y] = [c["i"]] * (y - x)
+        if c.get("members"):
+            for w, (x, y) in c["members"].items():
+                members.setdefault(w, []).append((c["i"], x, y))
+        else:                                                    # a search from before every hadith of the list was cut: the seed's
+            members.setdefault(seed["wid"], []).append((c["i"], *c["span"]))
+    def own(w: str, n: int) -> List[int]:
+        lab = [-1] * n
+        for i, x, y in members.get(w, []):
+            lab[x:y] = [i] * max(0, min(y, n) - x)
+        return lab
     seed["matn"] = strip_tags(seed["matn"])
-    seed["marks"] = marks(seed["matn"], lab)
+    seed["marks"] = marks(seed["matn"], own(seed["wid"], len(S.get("seed_tokens") or S["tokens"])))
     for cand in S["candidates"]:
         cand["matn"] = strip_tags(cand["matn"])
-    from . import align                                          # (align does not import search)
-    sx = align.seed_extras(S, parts)                             # the parts the other hadiths of step 1's list add
-    S["seed_extras"], S["seed_extras_dropped"] = sx["extras"], sx["dropped"]
-    for cand in S["candidates"]:
-        cand.pop("marks_all", None)
-        lab = [-1] * cand["n_tokens"]
-        # the best-matched clause claims a token first (two clauses of the seed may share words)
-        for part in sorted(cand["parts"], key=lambda q: -q["cov"]):
-            if part["state"] == "absent" or not part["window"]:
-                continue
-            x, y = part["window"]
-            for j in range(x, min(y, len(lab))):
-                if lab[j] < 0:
-                    lab[j] = part["clause"]
-        cand["marks"] = marks(cand["matn"], lab)
-        if cand["wid"] in sx["found"]:                           # for step 1 only (steps that list the parts know the first hadith's)
-            for i, x, y in sx["found"][cand["wid"]]:
+        if "seed" in cand["signals"] and cand["wid"] in members and S.get("cuts"):
+            lab = own(cand["wid"], cand["n_tokens"])
+        else:
+            lab = [-1] * cand["n_tokens"]
+            # the best-matched clause claims a token first (two clauses of the seed may share words)
+            for part in sorted(cand["parts"], key=lambda q: -q["cov"]):
+                if part["state"] == "absent" or not part["window"]:
+                    continue
+                x, y = part["window"]
                 for j in range(x, min(y, len(lab))):
                     if lab[j] < 0:
-                        lab[j] = i
-            cand["marks_all"] = marks(cand["matn"], lab)
+                        lab[j] = part["clause"]
+        cand["marks"] = marks(cand["matn"], lab)
     return S
