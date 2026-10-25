@@ -32,6 +32,19 @@ def press_search(c, pid, mode=None, **more):
     return pipeline.advance(pid)
 
 
+def ask(c, pid, *stages):
+    """«ساخت هم‌ترازی» / «یافتن راویان» pressed (the steps run only when asked), and the job run."""
+    from icm import jobs, pipeline
+    p = pipeline.advance(pid)                             # what the decisions made so far give (the page is of that run)
+    for st in stages:
+        for j in jobs.for_project(pid, 50):
+            if j["status"] in ("queued", "running"):
+                jobs.finish(j["id"])                      # tests run the pipeline themselves; no worker takes the jobs
+        assert c.post(f"/icm/api/project/{pid}/decide/go", json={"payload": {"stage": st}}, headers=H("alice")).status_code == 200
+        p = pipeline.advance(pid)
+    return p
+
+
 def _version_file(d, name="t1"):
     c = sqlite3.connect(os.path.join(d, f"{name}.sqlite"))
     c.executescript("""create table meta(k text primary key, v text);
@@ -163,7 +176,7 @@ def test_the_tree_is_built_only_when_step_5_orders_it():
         S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         sel = [S["seed"]["wid"]] + [x["wid"] for x in S["candidates"] if search.preselected(x)]
         assert c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice")).status_code == 200
-        p = pipeline.advance(pid)
+        p = ask(c, pid, "align", "identify")
         assert p["step"] == "identities"
         assert c.post(f"/icm/api/project/{pid}/decide/identities", json={"payload": {"choices": {}}}, headers=H("alice")).status_code == 200
         p = pipeline.advance(pid)                                                       # saved: step 5, but no tree yet
@@ -220,7 +233,7 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
         got = project.decision(pid, "parts")
         assert got["seed"] == [[0, n]] and got["keep_ids"] == sorted(set(sel) - {"v02:800316143"})
         assert project.decision(pid, "search")["part_query"] is None                    # the old ticks are reset
-        pipeline.advance(pid)
+        ask(c, pid, "align", "identify")
         S2 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         assert S2["clauses_by"] == "user" and [x["span"] for x in S2["clauses"]] == [[0, n]]
         assert S2["searched"] and S2["stale"] and S2["queries"] == S["queries"]                 # the corpora were not asked again; the candidates are scored on the new parts
@@ -325,6 +338,70 @@ if __name__ == "__main__":
     sys.exit(1 if fails else 0)
 
 
+def test_each_step_runs_only_when_the_user_asks_for_it_and_old_projects_keep_what_they_had():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        W0 = "v02:800316143"
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid)
+        press_search(c, pid)
+        S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        sel = [x["wid"] for x in S["candidates"][:3]]
+        stage = lambda st: project.run_stage(pid, "current", st)
+        go = lambda st, who="alice": c.post(f"/icm/api/project/{pid}/decide/go", json={"payload": {"stage": st}}, headers=H(who)).status_code
+        assert go("align") == 409                                                     # nothing chosen yet
+        assert c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice")).status_code == 200
+        p = pipeline.advance(pid)                                                     # chosen, but nothing is computed until asked
+        assert p["step"] == "alignment" and p["status"] == "draft" and stage("align") is None and stage("identify") is None
+        assert go("go") == 400 and go("identify") == 409 and go("align", "bob") == 403
+        p = ask(c, pid, "align")                                                      # step 3's button: the alignment only
+        assert p["step"] == "identities" and stage("align") is not None and stage("identify") is None
+        p = ask(c, pid, "identify")                                                   # step 4's button
+        assert stage("identify") is not None and p["step"] == "identities"
+        # another selection is another question: the alignment waits to be asked for again, the earlier answers stay on disk
+        assert c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel[:2]}}, headers=H("alice")).status_code == 200
+        p = pipeline.advance(pid)
+        assert p["step"] == "alignment" and stage("align") is None
+        p = ask(c, pid, "align", "identify")
+        assert stage("identify") is not None
+        # a project from before the steps were buttons: what it had already computed counts as asked for
+        pid2 = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid2)
+        press_search(c, pid2)
+        q = project.load(pid2)
+        q.pop("manual_steps")
+        project.save(q)
+        assert c.post(f"/icm/api/project/{pid2}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice")).status_code == 200
+        p = pipeline.advance(pid2)
+        assert p["step"] == "identities" and project.run_stage(pid2, "current", "identify") is not None
+        assert project.load(pid2)["manual_steps"] is True and project.decision(pid2, "go")["user"] == "system"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_a_project_is_removed_with_all_its_data_by_its_owner_or_an_admin():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        pid = c.post("/icm/api/project", json={"seed": "v02:800316143"}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid)
+        gone = lambda who: c.post(f"/icm/api/project/{pid}/delete", json={}, headers=H(who))
+        assert gone("bob").status_code == 403 and os.path.isdir(project.pdir(pid))
+        assert gone("alice").status_code == 409                                       # its job is still queued
+        from icm import jobs
+        for j in jobs.for_project(pid, 50):
+            jobs.finish(j["id"])
+        assert gone("alice").status_code == 200
+        assert not os.path.exists(project.pdir(pid)) and project.load(pid) is None
+        assert pid not in [x["pid"] for x in c.get("/icm/api/index").json()["projects"]] and c.get(f"/icm/api/project/{pid}").status_code == 404
+        assert not jobs.for_project(pid, 5) and gone("alice").status_code == 404
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def test_the_first_hadith_of_step_1_can_be_taken_away_and_the_next_takes_its_place():
     from icm import pipeline
     a, d = app()
@@ -399,7 +476,7 @@ def test_search_is_a_button_hadiths_can_be_added_edited_and_seeded_and_a_second_
                [x["wid"] for x in S2["candidates"] if x["wid"] not in (near, "v02:800316145")][:2]
         sel = lambda ws: c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": ws}}, headers=H("alice"))
         assert sel(pick + [near]).status_code == 200
-        pipeline.advance(pid)
+        ask(c, pid, "align")
         A = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
         assert {"v02:800316145", near, *pick} <= {w["wid"] for w in A["witnesses"]}           # the further seed was not asked for in the selection
         # an edited text is scored as edited; its row shows the new score
@@ -465,7 +542,7 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         press_search(c, pid)
         S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [x["wid"] for x in S["candidates"][:2]]}}, headers=H("alice"))
-        pipeline.advance(pid)
+        ask(c, pid, "align", "identify")
         T = c.get(f"/icm/api/hadith/{W0}/tokens", params={"pid": pid}, headers=H("alice")).json()
         assert T["chains"]
         assert c.get("/icm/api/hadith/bad/tokens").status_code == 400 and c.get("/icm/api/hadith/v02:1/tokens").status_code == 404
@@ -540,7 +617,7 @@ def test_a_place_removed_on_the_main_page_leaves_the_chain():
         press_search(c, pid)
         S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [x["wid"] for x in S["candidates"][:2]]}}, headers=H("alice"))
-        pipeline.advance(pid)
+        ask(c, pid, "align", "identify")
         I = c.get(f"/icm/api/project/{pid}/runs/current/identify").json()
         ch = next(x for x in I["chains"] if x["wid"] == W0)
         e = next(x for x in ch["elems"] if x.get("role") != "collector")

@@ -14,7 +14,7 @@ def test_decisions_are_append_only():
     d = _tmp()
     try:
         p = project.create("v02:1", "u")
-        assert project.versions(p["pid"]) == dict(search=0, selection=0, identities=0, phylogeny=0, parts=0, narrators=0)
+        assert project.versions(p["pid"]) == dict(search=0, selection=0, identities=0, phylogeny=0, parts=0, narrators=0, go=0)
         n1 = project.add_decision(p["pid"], "selection", dict(selected=["v02:1", "v02:2"]), "u")
         n2 = project.add_decision(p["pid"], "selection", dict(selected=["v02:1"]), "u", "removed one")
         assert (n1, n2) == (1, 2)

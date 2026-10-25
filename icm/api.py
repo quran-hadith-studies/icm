@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, export, identity, jobs, narrator_info, narrator_versions, project, serve, users, viewer
+from . import config, corpus, export, identity, jobs, narrator_info, narrator_versions, pipeline, project, serve, users, viewer
 from . import graph as graph_mod
 from .text import norm
 
@@ -419,6 +419,14 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         body = await request.json()
         prev_search = project.decision(pid, "search") or {} if step == "search" else {}
         payload = _validate(step, body.get("payload") or {}, pid, p)
+        if step == "go":
+            if jobs.active(pid):
+                raise HTTPException(409, "the project is being computed; try again when it is done")
+            n = pipeline.request(pid, payload["stage"], u["username"])
+            if n is None:
+                raise HTTPException(409, "choose the witnesses (step 2)" if payload["stage"] == "align" else "build the alignment (step 3) first")
+            jobs.enqueue(pid)
+            return dict(ok=True)
         if step == "search":
             # hadiths added now join a selection already made (they would otherwise be listed unticked), and a rebuilt search clears it
             sel = project.decision(pid, "selection") or {}
@@ -561,6 +569,16 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         project.rename_branch(pid, _bid(pid, bid), _bname(await request.json()))
         return dict(ok=True)
 
+    @r.post("/api/project/{pid}/delete")
+    async def project_delete(request: Request, pid: str):
+        """The owner (or an admin) removes a project with all its data. Refused while the worker is computing it."""
+        own_project(request, pid)
+        if jobs.active(pid):
+            raise HTTPException(409, "the project is being computed; try again when it is done")
+        jobs.forget(pid)
+        project.delete(pid)
+        return dict(ok=True)
+
     @r.post("/api/project/{pid}/versions/{bid}/delete")
     async def version_delete(request: Request, pid: str, bid: str):
         own_project(request, pid)
@@ -576,6 +594,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     def _validate(step: str, pl: dict, pid: str, p: dict) -> dict:
         if step == "search":
             return _validate_search(pl, pid, p)
+        if step == "go":                                 # «build the alignment» / «find the narrators»: asked for, on this search and selection
+            if pl.get("stage") not in ("align", "identify"):
+                raise HTTPException(400, "stage must be align or identify")
+            return dict(stage=pl["stage"])
         if step == "selection":
             if pl.get("reset"):                          # a rebuilt search: the ticks belong to candidates that are gone
                 return dict(selected=[], reset=True)

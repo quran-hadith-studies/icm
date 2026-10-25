@@ -148,7 +148,7 @@ const canMake = () => !!ME.user && ME.role !== 'viewer';      // a viewer accoun
 let pageDirty = null;      // a step with unsaved work sets it (() => true while unsaved): the page is then not redrawn under it
 const SITE_TITLE = 'تحلیل منبع حدیث';
 const setTitle = (...parts) => { document.title = [...parts.filter(Boolean), SITE_TITLE].join(' — '); };
-const PSTEP = { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', analysis: 'تحلیل', done: 'پایان' };
+const PSTEP = { search: 'جستجو', selection: 'انتخاب شاهدها', alignment: 'هم‌ترازی', identities: 'راویان', phylogeny: 'شجره', analysis: 'تحلیل', done: 'پایان' };
 
 function route() {
   const m = here().slice(BASE.length).split('/').filter(Boolean);
@@ -189,10 +189,11 @@ async function home() {
   $app.replaceChildren(
     el('div', { class: 'card' }, el('div', { class: 'toolbar', style: 'margin:0' }, el('h2', { style: 'margin:0' }, 'پروژه‌ها', help('home')),
         el('button', { class: 'primary', disabled: !canMake(), title: canMake() ? '' : ME.user ? 'حساب شما فقط خواندنی است' : 'برای ساخت پروژه وارد شوید', onclick: () => go('/new') }, 'پروژه‌ی تازه')),
-      idx.projects.length ? el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی'].map(t => el('th', {}, t)))), el('tbody', {},
+      idx.projects.length ? el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ...['عنوان', 'حدیث مبدأ', 'سازنده', 'وضعیت', 'مرحله', 'به‌روزرسانی', ''].map(t => el('th', {}, t)))), el('tbody', {},
         idx.projects.map(p => el('tr', {}, el('td', {}, el('a', { href: `${BASE}/p/${p.pid}`, onclick: ev => { ev.preventDefault(); go('/p/' + p.pid); } }, p.title)),
           el('td', { dir: 'ltr', class: 'small' }, p.seed), el('td', {}, p.owner), el('td', {}, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status)),
-          el('td', {}, PSTEP[p.step] || (STEPS.find(s => s[0] === p.step) || [0, p.step])[1]), el('td', { class: 'small muted', dir: 'ltr' }, p.updated.replace('T', ' ').slice(0, 16)))))))
+          el('td', {}, PSTEP[p.step] || (STEPS.find(s => s[0] === p.step) || [0, p.step])[1]), el('td', { class: 'small muted', dir: 'ltr' }, p.updated.replace('T', ' ').slice(0, 16)),
+          el('td', {}, ME.user && (ME.user === p.owner || ME.admin) && !STATIC ? el('button', { class: 'small', title: 'حذف پروژه با همه‌ی داده‌هایش', onclick: () => deleteProject(p.pid, p.title, render) }, '× حذف') : null))))))
         : el('p', { class: 'empty-state' }, 'هنوز پروژه‌ای نیست؛ با «پروژه‌ی تازه» یک حدیث را جستجو کنید.')));
 }
 
@@ -235,9 +236,9 @@ async function project(pid, run) {
   const p = P.project, readonly = !!run, runId = run || p.current_run || 'current';
   const pname = p.label || p.title;
   const can = ME.user && (ME.user === p.owner || ME.admin) && !readonly;
-  const cur = run ? 'analysis' : ({ search: 'selection', selection: 'selection', identities: 'identities', phylogeny: 'phylogeny', analysis: 'analysis', done: 'analysis' }[p.step] || 'selection');
+  const cur = run ? 'analysis' : ({ search: 'selection', selection: 'selection', alignment: 'alignment', identities: 'identities', phylogeny: 'phylogeny', analysis: 'analysis', done: 'analysis' }[p.step] || 'selection');
   const after = ['identities', 'phylogeny', 'analysis', 'done'];
-  const reached = s => run ? true : ({ seed: true, selection: true, alignment: after.includes(p.step), identities: after.includes(p.step),
+  const reached = s => run ? true : ({ seed: true, selection: true, alignment: p.step === 'alignment' || after.includes(p.step), identities: after.includes(p.step),
     phylogeny: after.slice(1).includes(p.step), analysis: after.slice(2).includes(p.step) })[s];
   const want = route().step;
   const SHOWN = STATIC ? STEPS.filter(([k]) => STATIC.steps.includes(k)) : STEPS;
@@ -286,7 +287,10 @@ async function project(pid, run) {
     stepBtn.replaceChildren((SHOWN.find(x => x[0] === step) || SHOWN[0])[1], el('span', { class: 'caret', 'aria-hidden': 'true' }, ' ▾'));
     const setInfo = (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title }));
     try { await panels[step](main, { pid, p, runId, can, readonly, setInfo }); }
-    catch (e) { main.replaceChildren(el('div', { class: 'card' }, e.status === 404 ? 'این مرحله هنوز آماده نیست.' : 'خطا: ' + e.message)); }
+    catch (e) {
+      if (e.status === 404 && (step === 'alignment' || step === 'identities') && !readonly) return runPanel(main, step, { pid, p, can });
+      main.replaceChildren(el('div', { class: 'card' }, e.status === 404 ? 'این مرحله هنوز آماده نیست.' : 'خطا: ' + e.message));
+    }
   };
   await draw();
   if (P.job || p.status === 'running') {
@@ -303,18 +307,44 @@ async function project(pid, run) {
     timer = setTimeout(poll, 3000);
   }
 }
+/* steps 3 and 4 are computed only when the user asks (a job on the server): until then the page is this card with its button */
+async function runPanel(main, step, c) {
+  const al = step === 'alignment', busy = c.p.status === 'running' || !!(P && P.job);
+  const toStep = (k, t) => el('a', { href: BASE + stepUrl(c.pid, null, k), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, k)); } }, t);
+  const sel = c.p.step === 'selection' ? null : await decOf(c, 'selection').catch(() => null);
+  const n = sel && sel.selected ? sel.selected.length : 0;
+  let body;
+  if (al && c.p.step === 'selection') body = el('p', { class: 'muted' }, 'هنوز شاهدی انتخاب نشده است: در ', toStep('selection', 'مرحله‌ی ۲'), ' جستجو کنید و شاهدها را تیک بزنید.');
+  else if (!al && c.p.step === 'alignment') body = el('p', { class: 'muted' }, 'راویان از روی هم‌ترازی ساخته می‌شوند: نخست در ', toStep('alignment', 'مرحله‌ی ۳'), ' هم‌ترازی را بسازید.');
+  else {
+    const go_ = async ev => { ev.currentTarget.disabled = true; try { await post(`/project/${c.pid}/decide/go`, { payload: { stage: al ? 'align' : 'identify' } }); } catch (e) { alert(e.message); ev.currentTarget.disabled = false; return; } reloadAt(c.pid, step); };
+    body = [el('p', {}, al ? `${fa(n)} شاهد برگزیده‌اید (و حدیث‌های مبدأ). هم‌ترازی تا نخواهید ساخته نمی‌شود؛ با دکمه‌ی زیر متن شاهدها بخش‌به‌بخش و واژه‌به‌واژه هم‌تراز می‌شود.`
+        : 'راویان هر سند از متن شاهدها استخراج و با پایگاه راویان سنجیده می‌شوند. این کار تا نخواهید انجام نمی‌شود.'),
+      c.p.status === 'failed' ? el('p', { class: 'small', style: 'color:var(--warn)' }, 'اجرای پیشین به خطا خورد: ' + (c.p.error || '')) : null,
+      c.can ? el('div', { class: 'toolbar' }, el('button', { class: 'primary', disabled: busy, onclick: go_ }, al ? 'ساخت هم‌ترازی' : 'یافتن راویان'), busy ? el('span', { class: 'small muted' }, 'در حال محاسبه…') : null)
+        : el('p', { class: 'small muted' }, 'فقط سازنده‌ی پروژه می‌تواند این مرحله را اجرا کند.')];
+  }
+  main.replaceChildren(card(al ? '۳ هم‌ترازی' : '۴ راویان', body));
+}
 /* the current step of an open project sits in the site header, in place of its subtitle; null: no project open */
 function headSteps(tabs, extra) {
   const nav = document.getElementById('hsteps'); if (!nav) return;
   nav.replaceChildren(...(tabs || []), ...(tabs && extra ? [extra] : []));
   nav.hidden = !tabs; document.body.classList.toggle('inproj', !!tabs);
 }
+/* remove a project with everything in it (decisions, versions, results); asks first */
+async function deleteProject(pid, title, after) {
+  if (!confirm(`پروژه‌ی «${title}» با همه‌ی داده‌هایش (تصمیم‌ها، نسخه‌ها و نتیجه‌ها) برای همیشه حذف شود؟ این کار برگشت‌پذیر نیست.`)) return;
+  try { await post(`/project/${pid}/delete`, {}); } catch (e) { alert(e.message); return; }
+  cache.clear(); await after();
+}
 /* behind the project's (i): its owner, the downloads, and every decision and the run log */
 function projInfo(p, exportSel) {
   return [el('h3', {}, 'پروژه'), el('p', {}, 'سازنده: ', el('b', {}, p.owner)),
     ...(exportSel ? [el('h3', {}, 'دانلود'), exportSel, help('export', true)] : []),
+    ...(ME.user && (ME.user === p.owner || ME.admin) && !STATIC ? [el('h3', {}, 'حذف'), el('button', { class: 'small', onclick: () => { closeModal(); deleteProject(p.pid, p.label || p.title, () => go('/')); } }, '× حذف این پروژه با همه‌ی داده‌هایش')] : []),
     el('h3', {}, `تصمیم‌های نسخه‌ی «${(P.branches && (P.branches.versions.find(b => b.id === P.branches.active) || {}).name) || ''}» و گزارش اجرا`),
-    ...Object.entries(P.decisions).map(([s, list]) => el('div', { class: 'small' }, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی', narrators: 'پایگاه راویان' }[s] + ': ', list.length ? list.map(d => `#${fa(d.version)} (${d.user})`).join('، ') : '—')),
+    ...Object.entries(P.decisions).map(([s, list]) => el('div', { class: 'small' }, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی', narrators: 'پایگاه راویان', go: 'درخواست مرحله‌ها' }[s] + ': ', list.length ? list.map(d => `#${fa(d.version)} (${d.user})`).join('، ') : '—')),
     el('div', { class: 'log' }, P.log.slice().reverse().map(l => el('div', {}, `${l.ts.slice(11, 19)} ${l.stage}: ${l.msg}`)))];
 }
 /* a version picked in the project bar: the active one is the live page; another becomes active (owner, admin), or is shown read-only */
@@ -430,7 +460,7 @@ const panels = {
     main.replaceChildren(card(['حدیث‌های مبدأ', partsHelp()], help('step1.seed'),
       el('p', { class: 'muted small' }, 'همه‌ی این حدیث‌ها به یک اندازه مبدأ‌اند: همه همیشه جزو شاهدهای برگزیده‌اند و در «جستجو» (مرحله‌ی ۲) از متن هر کدام پرسش فرستاده می‌شود. هر حدیث دیگری را که می‌شناسید بیفزایید.'),
       all.map(item),
-      pendingSeeds.length ? el('p', { class: 'small muted' }, 'در حال سنجش: ', pendingSeeds.join('، ')) : null,
+      pendingSeeds.length ? el('p', { class: 'small muted' }, `در حال سنجش ${fa(pendingSeeds.length)} حدیث افزوده…`) : null,
       edit ? hadithAdder(c, sdec, 'seeds', S) : null),
       card('بخش‌های حدیث‌ها', help('step1.parts'),
         el('p', { class: 'muted small' }, all.length > 1 ? 'متن‌ها به بخش‌هایی بریده می‌شوند که واحد جستجو و هم‌ترازی‌اند. بریدن بر متنِ نخستین حدیثِ بالا انجام می‌شود و همین بخش‌ها بر همه‌ی حدیث‌ها (و شاهدها) اعمال می‌شود؛ رنگ هر بخش در همه‌ی متن‌ها یکی است.' : null),
@@ -1930,7 +1960,7 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closePop()
 addEventListener('resize', closePop);
 document.addEventListener('scroll', ev => { if (POP && !POP.contains(ev.target)) closePop(); }, true);
 function hadithBlock(h, colored) {
-  return el('div', {}, el('div', { class: 'small muted' }, [h.title, h.author, h.death ? 'ف ' + fa(h.death) : '', h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', h.wid].filter(Boolean).join(' · '), ' ', hadithLink(h.wid)),
+  return el('div', {}, el('div', { class: 'small muted' }, [h.title, h.author, h.death ? 'ف ' + fa(h.death) : '', h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه'].filter(Boolean).join(' · '), ' ', hadithLink(h.wid)),
     h.sanad ? el('div', { class: 'ar small matn' }, h.sanad) : null, colored && h.marks ? marked(h.matn, h.marks, 'ar seedtext') : el('div', { class: 'ar' }, h.matn));
 }
 /* clause colours: one hue per part of the seed, the same everywhere (seed, strips, candidate texts) */
@@ -2401,7 +2431,7 @@ const isMine = x => x.signals.includes('user') || x.signals.includes('seed');   
 /* the search decision is the full state: the page sends all of it with the one thing that changed, then the pipeline scores again */
 async function saveSearch(c, sdec, change) {
   const edits = change.edits !== undefined ? change.edits : sdec.edits;
-  const pl = { part_query: sdec.part_query == null ? null : sdec.part_query, extra_ids: sdec.extra_ids || [], seeds: sdec.seeds || [], ...(edits && Object.keys(edits).length ? { edits } : {}), ...change };
+  const pl = { part_query: sdec.part_query == null ? null : sdec.part_query, extra_ids: sdec.extra_ids || [], seeds: sdec.seeds || [], ...(sdec.anchor ? { anchor: sdec.anchor } : {}), ...(edits && Object.keys(edits).length ? { edits } : {}), ...change };
   if (!(pl.edits && Object.keys(pl.edits).length)) delete pl.edits;
   await post(`/project/${c.pid}/decide/search`, { payload: pl }); reloadAt(c.pid, route().step || 'selection');      // stay on the step the change was made in
 }

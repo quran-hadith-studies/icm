@@ -99,6 +99,32 @@ def _set(pid: str, **kw) -> dict:
     return p
 
 
+def _selected(S: dict, seldec: dict) -> list:
+    known = {c["wid"] for c in S["candidates"]} | {w for c in S["candidates"] for w in c.get("copies", [])}
+    return sorted((set(seldec.get("selected", [])) & known) | (set(S.get("seeds") or []) & known))    # a re-search may have taken a ticked one away; further seeds are always in
+
+
+def go_key(k_search: str, selected: list) -> str:
+    """What «build the alignment» / «find the narrators» were asked for: the search and the witnesses it was asked on. The user's
+    later edits of the alignment itself (words, units, parts) do not change it; another selection or search does."""
+    return h("go", k_search, selected)
+
+
+def request(pid: str, stage: str, user: str) -> Optional[str]:
+    """The user asks for a step to be computed (``align`` or ``identify``) on the search and selection on screen; ``identify``
+    needs the alignment asked for first. Returns the key, or None when there is nothing to ask for yet."""
+    hs, seldec = project.run_hashes(pid).get("search"), project.decision(pid, "selection") or {}
+    S = project.run_stage(pid, "current", "search")
+    if not hs or S is None or not seldec.get("selected"):
+        return None
+    key = go_key(hs, _selected(S, seldec))
+    go = project.decision(pid, "go") or {}
+    if stage == "identify" and go.get("align") != key:
+        return None
+    project.add_decision(pid, "go", dict({k: go[k] for k in ("align", "identify") if go.get(k)}, **{stage: key}), user, f"{stage} asked for")
+    return key
+
+
 def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = None) -> dict:
     def say(stage, frac, msg=""):
         if progress:
@@ -118,13 +144,23 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
         seldec = project.decision(pid, "selection")
         if not seldec or not seldec.get("selected"):
             return _finish(pid, vers, hashes, "draft", "selection")
-        known = {c["wid"] for c in S["candidates"]} | {w for c in S["candidates"] for w in c.get("copies", [])}
-        selected = sorted((set(seldec.get("selected", [])) & known) | (set(S.get("seeds") or []) & known))    # a re-search may have taken a ticked one away; further seeds are always in
-        # --- alignment + identity candidates --------------------------------------------------------
+        selected = _selected(S, seldec)
+        # --- alignment: only when the user asked for it (step 3's button) on this search and selection -------------
+        key = go_key(k_search, selected)
+        if not p.get("manual_steps"):
+            # a project from before the steps were buttons: what it had already computed counts as asked for
+            project.add_decision(pid, "go", dict(align=key, identify=key), "system", "steps made before they were buttons")
+            _set(pid, manual_steps=True)
+            p = project.load(pid)
+        go = project.decision(pid, "go") or {}
+        if go.get("align") != key:
+            return _finish(pid, vers, hashes, "draft", "alignment")
         say("align", 0.2, "aligning")
         parts_in = {k: pdec[k] for k in ("extras_dropped", "extras_added", "slots", "words", "unit_cls", "units", "refs") if pdec.get(k)}
         k_align = h("align", k_search, selected, STAGE_VERSIONS["align"], *([parts_in] if parts_in else []))
         A = _get_or_run(pid, "align", k_align, lambda: align_mod.run(S, selected, parts_in), hashes)
+        if go.get("identify") != key:                             # likewise step 4's button
+            return _finish(pid, vers, hashes, "draft", "identities")
         say("identify", 0.4, "finding the narrators")
         V = project.narrator_version(pid)
         ren = pdec.get("renames") or None                         # step 4: where a name begins and ends (only then, so keys stay)

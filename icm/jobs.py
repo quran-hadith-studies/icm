@@ -102,3 +102,9 @@ def active(pid: str) -> Optional[dict]:
         if j["status"] in ("queued", "running"):
             return j
     return None
+
+
+def forget(pid: str) -> int:
+    """Drop a project's jobs (it was deleted); a running one is not touched (the caller refuses while one runs)."""
+    with _db() as c:
+        return c.execute("delete from jobs where pid=? and status!='running'", (pid,)).rowcount

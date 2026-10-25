@@ -29,8 +29,15 @@ def _auto(pid: str, user: str) -> dict:
             S = project.run_stage(pid, "current", "search")
             sel = [S["seed"]["wid"]] + [c["wid"] for c in S["candidates"] if search.preselected(c)]
             project.add_decision(pid, "selection", dict(selected=sel), user, "auto")
+        elif p["step"] == "alignment":
+            if pipeline.request(pid, "align", user) is None:
+                return p
         elif p["step"] == "identities":
-            project.add_decision(pid, "identities", dict(choices={}), user, "auto")
+            if "identify" not in project.run_hashes(pid):
+                if pipeline.request(pid, "identify", user) is None:
+                    return p
+            else:
+                project.add_decision(pid, "identities", dict(choices={}), user, "auto")
         elif p["step"] == "phylogeny":
             project.add_decision(pid, "phylogeny", dict(build=p["graph_hash"], confirmed=p["graph_hash"]), user, "auto")
         else:

@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
 import time
 from typing import Dict, List, Optional
@@ -32,7 +33,7 @@ from hadith_phylogeny.report import finite
 
 from . import config, narrator_versions
 
-STEPS = ("search", "selection", "identities", "phylogeny", "parts", "narrators")      # steps with decisions (newer ones last: run ids keep their leading numbers)
+STEPS = ("search", "selection", "identities", "phylogeny", "parts", "narrators", "go")      # steps with decisions (newer ones last: run ids keep their leading numbers)
 WIZARD = ("seed", "search", "selection", "alignment", "identities", "phylogeny", "analysis", "done")
 
 
@@ -104,7 +105,7 @@ def hadith_label(seed: str, words: int = 7) -> str:
 def create(seed: str, owner: str, title: Optional[str] = None) -> dict:
     pid = h(seed, owner, time.time())[:10]
     p = dict(pid=pid, title=title or hadith_label(seed), seed=seed, owner=owner, created=now(), updated=now(),
-             status="running", step="search", current_run=None, manual_search=True)
+             status="running", step="search", current_run=None, manual_search=True, manual_steps=True)
     with lock(pid):
         atomic_write(os.path.join(pdir(pid), "project.json"), p)
     refresh_indexes()
@@ -115,6 +116,15 @@ def anchor(p: dict, sdec: Optional[dict]) -> str:
     """The hadith the parts and the alignment are cut and measured on: the first of the project's seed hadiths. The user sees
     a list of equal hadiths; the project's own ``seed`` is the first until the search decision names another (``anchor``)."""
     return (sdec or {}).get("anchor") or p["seed"]
+
+
+def delete(pid: str) -> None:
+    """Remove a project with everything in it: decisions, stages, runs, log (and so every version). Not undoable."""
+    d = pdir(pid)
+    with lock(pid):
+        shutil.rmtree(d, ignore_errors=True)
+    shutil.rmtree(d, ignore_errors=True)                  # the lock file was re-made by the context's open
+    refresh_indexes()
 
 
 def load(pid: str) -> Optional[dict]:
@@ -319,6 +329,15 @@ def runs(pid: str) -> List[dict]:
     d = os.path.join(pdir(pid), "runs")
     out = [read(os.path.join(d, r, "manifest.json")) for r in os.listdir(d)] if os.path.isdir(d) else []
     return sorted([r for r in out if r], key=lambda r: r["created"])
+
+
+def run_hashes(pid: str, run: str = "current") -> Dict[str, str]:
+    """The stage files (stage -> hash) a run is made of."""
+    if run == "current":
+        p = load(pid)
+        run = p and p.get("current_run")
+    m = read(os.path.join(pdir(pid), "runs", run or "", "manifest.json"))
+    return dict((m or {}).get("stages") or {})
 
 
 def run_stage(pid: str, run: str, stage: str):
