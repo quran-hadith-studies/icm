@@ -627,28 +627,46 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
     return dict(clauses=keep, private=private)
 
 
-def seed_extras(S: dict) -> dict:
+def seed_extras(S: dict, parts: Optional[dict] = None) -> dict:
     """What the hadiths of step 1's list add to the first one's parts, for step 1 to show (the same extra parts step 3
-    makes of them): ``extras`` [{i, text, support, wids}] numbered after the parts, ``found`` wid -> [[i, start, end)] token
-    ranges of each extra in that hadith's text (``search.with_marks`` turns them into character ranges)."""
+    makes of them, with the user's ``extras_dropped`` / ``extras_added`` of those hadiths applied): ``extras``
+    [{i, key, text, by, support, wids}] numbered after the parts, ``dropped`` [{key, text, wids}] (automatic ones the user
+    set aside), ``found`` wid -> [[i, start, end)] token ranges of each extra in that hadith's text (``search.with_marks``
+    turns them into character ranges)."""
+    parts = parts or {}
     seeds = [c for c in S["candidates"] if "seed" in (c.get("signals") or ())]
     if not seeds:
-        return dict(extras=[], found={})
+        return dict(extras=[], dropped=[], found={})
     s_tok = S["tokens"]
-    defs = [dict(tokens=s_tok[c["span"][0]:c["span"][1]]) for c in S["clauses"]]
+    defs = [dict(kind="seed", text=c["text"], tokens=s_tok[c["span"][0]:c["span"][1]]) for c in S["clauses"]]
     first = dict(wid=S["seed"]["wid"], tokens=s_tok, marker=None)
     toks = {c["wid"]: tokens(c["matn"]) for c in seeds}
     wits = [first] + [dict(wid=w, tokens=t, seed=True, marker=find_marker(t)) for w, t in toks.items()]
-    out, found = [], {}
-    for k, ex in enumerate(_discover_extras(defs, wits)["clauses"]):
-        i = len(defs) + k
-        out.append(dict(i=i, text=" ".join(ex["tokens"]), support=ex["support"], wids=sorted(ex["members"])))
-        for wid, seg in ex["members"].items():
+    more = [dict(kind="extra", text=" ".join(ex["tokens"]), tokens=ex["tokens"], support=ex["support"], by="auto", members=ex["members"])
+            for ex in _discover_extras(defs, wits)["clauses"]]
+    for a in parts.get("extras_added") or []:                       # (as run() reads them, so the keys agree)
+        t = toks.get(a["wid"], [])[a["span"][0]:a["span"][1]]
+        if t:
+            more.append(dict(kind="extra", text=" ".join(t), tokens=t, support=None, by="user", span=list(a["span"]), members={a["wid"]: t}, wid=a["wid"]))
+    keys = part_keys(defs + more)[len(defs):]
+    dropped_keys = set(parts.get("extras_dropped") or [])
+    out, drop, found = [], [], {}
+    for c, k in zip(more, keys):
+        if k in dropped_keys and c["by"] != "user":
+            drop.append(dict(key=k, text=c["text"], wids=sorted(c["members"])))
+            continue
+        i = len(defs) + len(out)
+        out.append(dict(i=i, key=k, text=c["text"], by=c["by"], support=c["support"], wids=sorted(c["members"]),
+                        **({"span": c["span"], "wid": c["wid"]} if c["by"] == "user" else {})))
+        for wid, seg in c["members"].items():
+            if c["by"] == "user":
+                found.setdefault(wid, []).append([i, c["span"][0], c["span"][1]])
+                continue
             t = toks[wid]
             at = next((j for j in range(len(t) - len(seg) + 1) if t[j:j + len(seg)] == seg), None)
             if at is not None:
                 found.setdefault(wid, []).append([i, at, at + len(seg)])
-    return dict(extras=out, found=found)
+    return dict(extras=out, dropped=drop, found=found)
 
 
 def row_keys(cols: Sequence[dict], w: str) -> List[Tuple[int, str]]:

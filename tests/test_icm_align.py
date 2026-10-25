@@ -140,7 +140,7 @@ def test_step_one_lists_the_parts_the_other_hadiths_add():
     from icm import search
     own = "ستة لعنتهم، المكذب بقدر الله، والزائد في كتاب الله، والتارك لسنتي، والمستأثر بالفيء لنفسه، والمستحل من عترتي ما حرم الله"
     S = _search(SEED, [own])
-    assert align.seed_extras(S) == dict(extras=[], found={})            # not a seed hadith: nothing
+    assert align.seed_extras(S) == dict(extras=[], dropped=[], found={})            # not a seed hadith: nothing
     c = S["candidates"][0]
     c.update(signals=["seed"], n_tokens=len(tokens(own)), parts=[])
     S["seed"].update(matn=SEED)
@@ -148,6 +148,14 @@ def test_step_one_lists_the_parts_the_other_hadiths_add():
     assert len(S["seed_extras"]) == 1 and "المستاثر" in S["seed_extras"][0]["text"] and S["seed_extras"][0]["i"] == len(S["clauses"])
     ks = {m[2] for m in c["marks_all"]}
     assert ks == {S["seed_extras"][0]["i"]} and not c["marks"], (c["marks"], c["marks_all"])
+    key = S["seed_extras"][0]["key"]
+    # the user sets it aside, and cuts another from the hadith's text by hand
+    a = next(i for i, x in enumerate(tokens(own)) if "کتاب" in x)
+    S2 = search.with_marks(S, dict(extras_dropped=[key], extras_added=[dict(wid="t:0", span=[a, a + 2])]))
+    assert [e["by"] for e in S2["seed_extras"]] == ["user"] and S2["seed_extras"][0]["wid"] == "t:0"
+    assert [d["key"] for d in S2["seed_extras_dropped"]] == [key]
+    assert {m[2] for m in S2["candidates"][0]["marks_all"]} == {S2["seed_extras"][0]["i"]}
+    assert "marks_all" not in search.with_marks(S2, dict(extras_dropped=[key]))["candidates"][0]       # nothing of the hadith is left outside the parts
 
 
 def test_bare_conjunction_is_part_of_the_next_word():

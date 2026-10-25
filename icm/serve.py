@@ -12,6 +12,7 @@ served, never written back:
 from __future__ import annotations
 
 import copy
+import os
 from typing import Dict, Optional
 
 from . import align as align_mod, corpus, identity, narrator_versions, paths, project
@@ -32,6 +33,16 @@ def _cached(key: tuple, make):
     return _CACHE[key]
 
 
+def _parts_decision(pid: str, run: str) -> dict:
+    """The parts decision a run is read with: the active one for the current run, the run's own for an older one."""
+    p = project.load(pid) or {}
+    if run != "current" and run != p.get("current_run"):
+        m = project.read(os.path.join(project.pdir(pid), "runs", run, "manifest.json")) or {}
+        v = int((m.get("versions") or {}).get("parts") or 0)
+        return (project.decision(pid, "parts", v) if v else None) or {}
+    return project.decision(pid, "parts") or {}
+
+
 def stage(pid: str, run: str, name: str) -> Optional[dict]:
     """``name`` is a stage or ``viz`` / ``results`` (the two halves of ``infer``)."""
     src = "infer" if name in ("viz", "results") else name
@@ -42,7 +53,7 @@ def stage(pid: str, run: str, name: str) -> Optional[dict]:
     if name == "search":
         if "auto_clauses" not in out:                          # every earlier search cut the seed automatically
             out = dict(out, auto_clauses=[c["span"] for c in out["clauses"]], clauses_by="auto")
-        return search_mod.with_marks(out)
+        return search_mod.with_marks(out, _parts_decision(pid, run))
     if name == "align" and out["clauses"] and "key" not in out["clauses"][0]:
         for c, k in zip(out["clauses"], align_mod.part_keys(out["clauses"])):
             c["key"] = k

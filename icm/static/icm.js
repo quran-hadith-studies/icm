@@ -2047,7 +2047,7 @@ function seedPartsBox(S, c, pd, step) {
   const from = !st.user ? el('span', { class: 'small muted', title: hai ? 'مرزهای بخش‌بندی hadith.ai برای همین حدیث و مرزهای قاعده‌های نگارشی، هر دو؛ گوینده‌ی هر بخش از hadith.ai' : 'بریدن با قاعده‌های نگارشی' },
     hai ? 'پیشنهاد: بخش‌بندی hadith.ai و قاعده‌های نگارشی' : 'پیشنهاد: قاعده‌های نگارشی') : null;
   const by = pd.user && pd.created ? el('span', { class: 'small muted' }, `${pd.user}، ${fa(pd.created.slice(0, 10))}`) : null;
-  const editBtn = c.can && !st.pending ? el('button', { class: 'small', onclick: () => { editBtn.disabled = true; seedPartsEditor(ed, S, c, () => { ed.replaceChildren(); editBtn.disabled = false; }, step); } }, 'ویرایش فرازبندی') : null;
+  const editBtn = c.can && !st.pending ? el('button', { class: 'small', onclick: () => { editBtn.disabled = true; seedPartsEditor(ed, S, c, () => { ed.replaceChildren(); editBtn.disabled = false; }, step, pd); } }, 'ویرایش فرازبندی') : null;
   const okBtn = c.can && !st.pending && !st.confirmed ? el('button', { class: 'small primary', onclick: async () => {
     await saveParts(c.pid, () => ({ seed: st.user ? st.cur : null, seed_confirmed: st.cur }), 'seed parts confirmed'); reloadAt(c.pid, step);
   } }, 'تأیید همین فرازبندی') : null;
@@ -2055,7 +2055,7 @@ function seedPartsBox(S, c, pd, step) {
   return box;
 }
 /* the seed's text as words: a word click takes it in or out of the parts, a click between two words cuts or joins */
-async function seedPartsEditor(box, S, c, done, step) {
+async function seedPartsEditor(box, S, c, done, step, pd) {
   box.replaceChildren(el('p', { class: 'muted small' }, 'در حال بارگذاری…'));
   let W;
   try { W = await wordsOf(c.pid, c.runId, S.seed.wid); } catch (e) { box.replaceChildren(el('p', {}, 'خطا: ' + e.message)); return; }
@@ -2066,6 +2066,8 @@ async function seedPartsEditor(box, S, c, done, step) {
     return out; };
   load(S.clauses.map(x => x.span));
   const text = el('div', { class: 'ar pedit' }), list = el('div'), msg = el('div', { class: 'small', style: 'color:var(--warn)' });
+  const xs = { add: (pd.extras_added || []).map(a => ({ wid: a.wid, span: [...a.span] })), drop: new Set(pd.extras_dropped || []) };     // the other hadiths' parts, saved with the first one's
+  const others = otherPartsEditor(S, c, xs);
   const draw = () => {
     const sp = spans(), lab = new Array(n).fill(-1);
     sp.forEach(([a, b], k) => { for (let i = a; i < b; i++) lab[i] = k; });
@@ -2087,17 +2089,53 @@ async function seedPartsEditor(box, S, c, done, step) {
     const sp = spans();
     if (!sp.length) return;
     const same = sameJ(sp, S.clauses.map(x => x.span));
+    const xsame = sameJ(xs.add, pd.extras_added || []) && sameJ([...xs.drop].sort(), [...(pd.extras_dropped || [])].sort());
     if (!same && !confirm('با این فرازبندی نامزدها دوباره سنجیده می‌شوند و هم‌ترازی و مرحله‌های بعد از نو ساخته می‌شوند (شاهدهای انتخاب‌شده می‌مانند؛ تیک‌های «در جستجو» برداشته می‌شوند). ادامه؟')) return;
     save.disabled = true;
-    try { await saveParts(c.pid, () => ({ seed: sp, seed_confirmed: sp }), same ? 'seed parts confirmed' : 'seed parts edited'); reloadAt(c.pid, step); }
+    try { await saveParts(c.pid, () => ({ seed: sp, seed_confirmed: sp, extras_added: xs.add, extras_dropped: [...xs.drop].sort() }), same && xsame ? 'seed parts confirmed' : 'seed parts edited'); reloadAt(c.pid, step); }
     catch (e) { save.disabled = false; msg.textContent = 'خطا: ' + e.message; }
   } }, 'ذخیره و تأیید');
   box.replaceChildren(el('div', { class: 'edbox' },
     el('p', { class: 'small' }, 'واژه‌ای را بزنید تا از بخش‌ها بیرون رود (خط‌خورده) یا به آن‌ها برگردد. میان دو واژه‌ی یک بخش «|» را بزنید تا بخش آنجا بریده شود؛ «|» پررنگ را بزنید تا دو بخش یکی شوند.'),
-    text, list, msg,
+    text, list, msg, others,
     el('div', { class: 'toolbar' }, save,
       el('button', { onclick: () => { load(S.auto_clauses || S.clauses.map(x => x.span)); draw(); } }, 'بازگشت به پیشنهاد خودکار'),
       el('button', { onclick: done }, 'انصراف'))));
+}
+
+/* the other hadiths of step 1's list, in the parts editor: the parts only they have (automatic ones can be set aside) and
+   parts cut by hand from their text. Edits go to `xs` ({add: [{wid, span}], drop: Set of part keys}); the editor saves them. */
+function otherPartsEditor(S, c, xs) {
+  const hs = S.candidates.filter(x => (x.signals || []).includes('seed'));
+  if (!hs.length) return null;
+  const hueAt = S.clauses.length + (S.seed_extras || []).length;
+  const box = el('div', { class: 'otherparts' }, el('h4', {}, 'حدیث‌های دیگر فهرست'),
+    el('p', { class: 'small' }, 'بخش‌هایی که فقط در این حدیث‌ها هست (رنگ‌شان از شماره‌ی پس از بخش‌های حدیث نخست آغاز می‌شود). بخش خودکار نادرست را کنار بگذارید، یا نخستین و واپسین واژه‌ی تکه‌ای از متن را بزنید و آن را بخش کنید. با «ذخیره و تأیید» همراه فرازبندی حدیث نخست ثبت می‌شود.'));
+  hs.forEach((h, k) => {
+    const sec = el('div', { class: 'edbox' }, el('p', { class: 'muted small' }, 'در حال بارگذاری…'));
+    box.append(sec);
+    wordsOf(c.pid, c.runId, h.wid).then(W => {
+      const labels = [];                                              // token ranges of the parts already in this text
+      (h.marks_all || h.marks || []).forEach(([ma, mb, ci]) => W.offsets.forEach((o, i) => { if (o && o[0] >= ma && o[0] < mb) labels.push([ci, i, i + 1]); }));
+      let picked = null;
+      const draw = () => {
+        const auto = [...(S.seed_extras || []).filter(e => e.by !== 'user' && e.wids.includes(h.wid)), ...(S.seed_extras_dropped || []).filter(e => e.wids.includes(h.wid))];
+        const mine = xs.add.map((a, ix) => [a, ix]).filter(([a]) => a.wid === h.wid);
+        const add = el('button', { class: 'small', disabled: !picked, onclick: () => { xs.add.push({ wid: h.wid, span: picked }); picked = null; draw(); } }, 'افزودن این تکه به‌عنوان بخش');
+        sec.replaceChildren(
+          el('div', { class: 'small muted' }, `حدیث ${fa(k + 2)}: `, [h.title, h.author].filter(Boolean).join(' · ')),
+          auto.length || mine.length ? el('table', { class: 'small' },
+            auto.map(e => { const off = xs.drop.has(e.key);
+              return el('tr', {}, el('td', {}, e.i != null && !off ? swatch(e.i) : '–'), el('td', { class: 'ar' + (off ? ' muted' : ''), style: off ? 'text-decoration:line-through' : null }, e.text),
+                el('td', {}, el('button', { class: 'small', onclick: () => { if (off) xs.drop.delete(e.key); else xs.drop.add(e.key); draw(); } }, off ? 'برگرداندن' : 'کنار گذاشتن'))); }),
+            mine.map(([a, ix]) => el('tr', {}, el('td', {}, 'دستی'), el('td', { class: 'ar' }, rawSpan(W, a.span[0], a.span[1])),
+              el('td', {}, el('button', { class: 'small', onclick: () => { xs.add.splice(ix, 1); draw(); } }, 'برداشتن'))))) : el('p', { class: 'small muted' }, 'این حدیث بخش افزوده‌ای ندارد.'),
+          wordPicker(W, { others: labels, hue: hueAt, onPick: sp => { picked = sp; add.disabled = false; } }), add);
+      };
+      draw();
+    }).catch(e => sec.replaceChildren(el('p', {}, 'خطا: ' + e.message)));
+  });
+  return box;
 }
 
 /* a witness's text as words; the first and the last word clicked are a part's new slot */

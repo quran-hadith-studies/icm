@@ -428,7 +428,7 @@ def _fold_across_corpora(rows: List[dict]) -> List[dict]:
     return [r for r in rows if r["wid"] not in drop]
 
 
-def with_marks(S: dict) -> dict:
+def with_marks(S: dict, parts: Optional[dict] = None) -> dict:
     """Add ``marks`` (``[start, end, clause]`` character ranges, see ``text.marks``) to the seed and to every
     candidate of a search result, for display: where each seed clause is in each text. Not stored (stage files
     stay as computed); the API adds it when serving the stage."""
@@ -442,9 +442,10 @@ def with_marks(S: dict) -> dict:
     for cand in S["candidates"]:
         cand["matn"] = strip_tags(cand["matn"])
     from . import align                                          # (align does not import search)
-    sx = align.seed_extras(S)                                    # the parts the other hadiths of step 1's list add
-    S["seed_extras"] = sx["extras"]
+    sx = align.seed_extras(S, parts)                             # the parts the other hadiths of step 1's list add
+    S["seed_extras"], S["seed_extras_dropped"] = sx["extras"], sx["dropped"]
     for cand in S["candidates"]:
+        cand.pop("marks_all", None)
         lab = [-1] * cand["n_tokens"]
         # the best-matched clause claims a token first (two clauses of the seed may share words)
         for part in sorted(cand["parts"], key=lambda q: -q["cov"]):
