@@ -463,7 +463,7 @@ const panels = {
       pendingSeeds.length ? el('p', { class: 'small muted' }, `در حال سنجش ${fa(pendingSeeds.length)} حدیث افزوده…`) : null,
       edit ? hadithAdder(c, sdec, 'seeds', S) : null),
       card('بخش‌های حدیث‌ها', help('step1.parts'),
-        el('p', { class: 'muted small' }, all.length > 1 ? 'متن‌ها به بخش‌هایی بریده می‌شوند که واحد جستجو و هم‌ترازی‌اند. بریدن بر متنِ نخستین حدیثِ بالا انجام می‌شود و همین بخش‌ها بر همه‌ی حدیث‌ها (و شاهدها) اعمال می‌شود؛ رنگ هر بخش در همه‌ی متن‌ها یکی است.' : null),
+        el('p', { class: 'muted small' }, all.length > 1 ? 'متن‌ها به بخش‌هایی بریده می‌شوند که واحد جستجو و هم‌ترازی‌اند. بریدن بر متنِ نخستین حدیثِ بالا انجام می‌شود و همین بخش‌ها بر همه‌ی حدیث‌ها (و شاهدها) اعمال می‌شود؛ رنگ هر بخش در همه‌ی متن‌ها یکی است. متنی که فقط در حدیث‌های دیگر این فهرست باشد، در مرحله‌ی ۳ به‌صورت «بخش افزوده» به بخش‌ها می‌پیوندد.' : null),
         el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)', S.clause_owners ? 'گوینده (hadith.ai)' : null].filter(Boolean).map(t => el('th', {}, t))),
           S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text),
             S.clause_owners ? el('td', { class: 'small' }, S.clause_owners[cl.i] || '') : null))),

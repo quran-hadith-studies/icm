@@ -125,6 +125,17 @@ def test_user_parts_slots_extras_and_drops():
     assert any(f["kind"] == "part_unused" for f in r3["flags"])
 
 
+def test_a_hadith_of_the_source_list_brings_its_own_parts():
+    """Step 1's hadiths are equal: text only a later one has (no second witness needed) is a part, a plain witness's
+    private text is not."""
+    own = "ستة لعنتهم، المكذب بقدر الله، والزائد في كتاب الله، والتارك لسنتي، والمستأثر بالفيء لنفسه، والمستحل من عترتي ما حرم الله"
+    S1 = _search(SEED, [own])
+    assert not [c for c in align.run(S1, ["t:0"])["clauses"] if c["kind"] == "extra"]
+    S1["candidates"][0]["signals"] = ["seed"]
+    ex = [c for c in align.run(S1, ["t:0"])["clauses"] if c["kind"] == "extra"]
+    assert ex and "المستاثر" in ex[0]["text"] and ex[0]["support"] == 1, ex
+
+
 def test_bare_conjunction_is_part_of_the_next_word():
     from icm.similarity import align_pair, conj_groups, match_key
     assert conj_groups(["قال", "و", "و", "الصوم", "و"]) == [(0, 1), (1, 4), (4, 5)]

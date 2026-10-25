@@ -169,6 +169,9 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         wits.append(dict(wid=c["wid"], tokens=c["window_text"].split(), matn=c["matn"], title=c["title"],
                          author=c["author"], death=c["death"], tradition=c["tradition"], work=c["work"],
                          cls=c["suggested"], copies=c.get("copies", []), w0=(c.get("window") or [0])[0]))
+        if "seed" in (c.get("signals") or ()):          # a hadith of step 1's list is as much a source as the first: all of its text, not a window of it
+            full = tokens(c["matn"])
+            wits[-1].update(seed=True, tokens=full, w0=0, full=full)
         if c.get("ref"):                               # «مثله / نحوه …»: the words the template builds from the text referred to (step 3)
             r = dict(c["ref"])
             own = (parts.get("refs") or {}).get(c["wid"])
@@ -561,8 +564,10 @@ def _apply_unit_decisions(units: List[dict], clause_defs: Sequence[dict], unit_c
 
 
 def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
-    """Unmatched runs of the witness windows, clustered across witnesses."""
+    """Unmatched runs of the witness windows, clustered across witnesses. A run of a hadith of step 1's list (all equal
+    sources, ``w["seed"]``) needs no second witness: it is a part of the family like the first hadith's own parts."""
     runs: List[Tuple[str, List[str]]] = []
+    seeds = {w["wid"] for w in wits if w.get("seed")}
     for w in wits:
         n = len(w["tokens"])
         covered = [False] * n
@@ -591,7 +596,7 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
                 seg = seg[1:]
             edge = j == 0 or k == n
             marker = w["marker"]
-            if (len(seg) >= 3 and not (edge and len(seg) <= 3)
+            if (len(seg) >= 3 and not (edge and len(seg) <= 3 and w["wid"] not in seeds)
                     and sum(1 for t in seg if t in FORMULA) / len(seg) < 0.7
                     and (marker is None or j < marker)):
                 runs.append((w["wid"], seg))
@@ -614,8 +619,9 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
                 return True
         return False
     keep = [dict(tokens=cl["rep"], support=len(cl["members"])) for cl in clusters
-            if len(cl["members"]) >= 2 and not resembles_clause(cl["rep"])]
-    private = [dict(wid=wid, text=" ".join(seg)) for cl in clusters if len(cl["members"]) < 2 for wid, seg in cl["members"].items()]
+            if (len(cl["members"]) >= 2 or seeds & set(cl["members"])) and not resembles_clause(cl["rep"])]
+    private = [dict(wid=wid, text=" ".join(seg)) for cl in clusters if len(cl["members"]) < 2 and not seeds & set(cl["members"])
+               for wid, seg in cl["members"].items()]
     # keep order stable: biggest support first
     keep.sort(key=lambda e: -e["support"])
     return dict(clauses=keep, private=private)
