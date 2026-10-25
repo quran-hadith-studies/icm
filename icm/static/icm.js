@@ -432,7 +432,7 @@ let NV = null;              // the narrator version of the run on screen (step 4
 
 const panels = {
   async seed(main, c) {
-    const [S, pd, sdec] = await Promise.all([stage(c.pid, c.runId, 'search'), decOf(c, 'parts'), decOf(c, 'search')]);
+    const [S, sdec] = await Promise.all([stage(c.pid, c.runId, 'search'), decOf(c, 'search')]);
     const edit = c.can && !STATIC, ids = listOf(sdec), all = sourcesOf(S, sdec);
     const pendingSeeds = ids.filter(w => !all.some(x => x.wid === w));                           // named, not yet scored (the job is running)
     /* taking a hadith out of the list: any of them can go, the others keep their cuts; the one taken away takes its own */
@@ -453,14 +453,10 @@ const panels = {
       return el('div', { class: 'seeditem' }, el('div', { class: 'small muted' }, `حدیث ${fa(k + 1)}`), hadithBlock(x, true), acts.length ? el('div', { class: 'toolbar', style: 'margin:4px 0 0;gap:4px' }, acts) : null);
     };
     main.replaceChildren(card(['حدیث‌های فهرست', partsHelp()], help('step1.seed'),
-      el('p', { class: 'muted small' }, 'همه‌ی این حدیث‌ها به یک اندازه‌اند و هیچ‌کدام اصلی نیست: هر کدام بخش‌های خودش را دارد، همه همیشه جزو شاهدهای برگزیده‌اند و در «جستجو» (مرحله‌ی ۲) از متن هر کدام پرسش فرستاده می‌شود. هر حدیث دیگری را که می‌شناسید بیفزایید.'),
+      el('p', { class: 'muted small' }, 'همه‌ی این حدیث‌ها به یک اندازه‌اند و هیچ‌کدام اصلی نیست: هر کدام بخش‌های خودش را دارد (در مرحله‌ی ۲ می‌بینید و درست می‌کنید)، همه همیشه جزو شاهدهای برگزیده‌اند و در «جستجو» (مرحله‌ی ۲) از متن هر کدام پرسش فرستاده می‌شود. هر حدیث دیگری را که می‌شناسید بیفزایید.'),
       all.map(item),
       pendingSeeds.length ? el('p', { class: 'small muted' }, `در حال سنجش ${fa(pendingSeeds.length)} حدیث افزوده…`) : null,
-      edit ? hadithAdder(c, sdec, 'seeds', S) : null),
-      card('بخش‌های حدیث‌ها', help('step1.parts'),
-        el('p', { class: 'muted small' }, all.length > 1 ? 'هر حدیث جداگانه به بخش‌هایی بریده می‌شود که واحد جستجو و هم‌ترازی‌اند؛ بخش‌هایی که در چند حدیث یکی‌اند با دکمه‌ی «ساخت بخش‌های مشترک» یک بخش می‌شوند. رنگ هر بخش در همه‌ی متن‌ها یکی است و ستون هر حدیث می‌گوید آن بخش را دارد یا نه.' : null),
-        familyTable(S, all),
-        seedPartsBox(S, c, pd, 'seed', sdec)));
+      edit ? hadithAdder(c, sdec, 'seeds', S) : null));
   },
 
   /* ----- 2: search and selection ----- */
@@ -565,14 +561,15 @@ const panels = {
         el('div', { class: 'toolbar' }, el('button', { onclick: closeModal }, 'انصراف'))));
     };
     const VERS = await narratorVersions();
+    const srcsList = sourcesOf(S, sdec);
     main.replaceChildren(
       card(['حدیث‌ها و بخش‌هایشان', partsHelp()], help('step2.search'), el('details', { class: 'fullt' }, el('summary', { class: 'small' }, 'متن حدیث‌ها'), sourcesOf(S, sdec).map(h => hadithBlock(h, true))),
         el('table', {}, el('tr', {}, el('th', {}, 'بخش'), el('th', { title: 'بخش‌های تیک‌خورده در دور نخست جستجو پرسیده می‌شوند' }, 'در جستجو', helpOf('تیک «در جستجو» برای چیست؟', el('p', {}, 'فقط برای یافتن نامزدها. هر بخش تیک‌خورده جداگانه در پیکره پرسیده می‌شود. اگر بخشی بسیار رایج باشد (مثل «قال رسول الله») و نامزدهای بی‌ربط بیاورد، تیکش را بردارید، یا اگر فقط حدیث‌هایی را می‌خواهید که بخش خاصی را دارند، فقط آن را نگه دارید؛ سپس «جستجوی دوباره» را بزنید.'),
-          el('p', {}, 'این تیک روی مرحله‌ی بعد اثری ندارد: مقایسه‌ی هر نامزد با بخش‌های حدیث‌ها و هم‌ترازی همیشه با همه‌ی بخش‌ها انجام می‌شود. آنچه به مرحله‌ی بعد می‌رود، شاهدهایی است که پایین‌تر تیک می‌زنید.'))), el('th', {}, 'متن بخش'), el('th', {}, 'در شاهدهای انتخاب‌شده'), el('th', {}, 'پرسش‌های جستجو')),
+          el('p', {}, 'این تیک روی مرحله‌ی بعد اثری ندارد: مقایسه‌ی هر نامزد با بخش‌های حدیث‌ها و هم‌ترازی همیشه با همه‌ی بخش‌ها انجام می‌شود. آنچه به مرحله‌ی بعد می‌رود، شاهدهایی است که پایین‌تر تیک می‌زنید.'))), el('th', {}, 'متن بخش'), srcsList.length > 1 ? el('th', { title: 'کدام حدیث‌های فهرست مرحله‌ی ۱ این بخش را دارند' }, 'در حدیث‌ها') : null, el('th', {}, 'در شاهدهای انتخاب‌شده'), el('th', {}, 'پرسش‌های جستجو')),
           S.clauses.map(cl => { const qs = queriesOf(cl.i);
             return el('tr', {}, el('td', {}, swatch(cl.i)),
               el('td', {}, el('input', { type: 'checkbox', checked: clausesSel.has(cl.i), disabled: !c.can, title: 'این بخش در جستجو پرسیده شود', onchange: ev => { ev.target.checked ? clausesSel.add(cl.i) : clausesSel.delete(cl.i); } })),
-              el('td', { class: 'ar' }, clauseRaw(S, cl.i)), covCells[cl.i],
+              el('td', { class: 'ar' }, clauseRaw(S, cl.i)), srcsList.length > 1 ? el('td', { class: 'small' }, srcsList.map((h, k) => ((cl.members || { [S.seed.wid]: cl.span })[h.wid]) ? fa(k + 1) : null).filter(Boolean).join('، ')) : null, covCells[cl.i],
               el('td', {}, qs.length ? el('details', {}, el('summary', { class: 'small' }, `${fa(qs.length)} پرسش، ${fa(qs.reduce((t, q) => t + q.hits, 0))} یافته`),
                 qs.map(q => el('div', { class: 'small', dir: 'ltr', style: 'text-align:left' }, `${q.corpus} · ${q.expr} → ${q.hits}${q.capped ? ' (capped)' : ''}`)))
                 : el('span', { class: 'small muted' }, clausesSel.has(cl.i) ? 'بی‌واژه‌ی کمیاب' : 'پرسیده نشد')));
@@ -1717,7 +1714,7 @@ const panels = {
     const seedUnconf = S5 && !seedPartsState(S5, pd5).confirmed;
     const toStep = (k, t) => el('a', { href: BASE + stepUrl(c.pid, null, k), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, k)); } }, t);
     const partsNote = !c.readonly && (unconf.length || seedUnconf) ? el('p', { class: 'small', style: 'color:var(--warn)' }, 'فرازبندی هنوز کامل تأیید نشده است: ',
-      seedUnconf ? ['بریدن حدیث‌ها به بخش‌ها (', toStep('seed', 'مرحله‌ی ۱'), ')', unconf.length ? '، و ' : ''] : null,
+      seedUnconf ? ['بریدن حدیث‌ها به بخش‌ها (', toStep('selection', 'مرحله‌ی ۲'), ')', unconf.length ? '، و ' : ''] : null,
       unconf.length ? [`${fa(unconf.length)} از ${fa(A5.clauses.length)} بخش در شاهدها (`, toStep('alignment', 'مرحله‌ی ۳'), ')'] : null,
       '. تحلیل با پیشنهادهای خودکار همان‌ها انجام می‌شود.') : null;
     const preset = el('select', { 'aria-label': 'دقت اجرا' }, ...['', 'quick', 'standard', 'thorough'].map(p => el('option', { value: p, selected: (dec.preset || '') === p }, p ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[p] : 'خودکار (بر پایه‌ی اندازه)')));
@@ -2033,16 +2030,6 @@ const listOf = sdec => [sdec.anchor || P.project.seed, ...(sdec.seeds || [])];
 function sourcesOf(S, sdec) {
   const by = w => w === S.seed.wid ? S.seed : S.candidates.find(x => x.wid === w);
   return listOf(sdec).map(by).filter(Boolean);
-}
-/* the family's parts, and which hadith has each */
-function familyTable(S, hs) {
-  const n = hs.length, has = (cl, h) => ((cl.members || { [S.seed.wid]: cl.span })[h.wid]);
-  return el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)'].map(t => el('th', {}, t)),
-      n > 1 ? hs.map((h, k) => el('th', { title: [h.title, h.author].filter(Boolean).join(' · ') }, 'حدیث ' + fa(k + 1))) : null,
-      S.clause_owners ? el('th', {}, 'گوینده (hadith.ai)') : null),
-    S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text),
-      n > 1 ? hs.map(h => el('td', { class: 'small', style: 'text-align:center' }, has(cl, h) ? '✓' : '–')) : null,
-      S.clause_owners ? el('td', { class: 'small' }, S.clause_owners[cl.i] || '') : null)));
 }
 /* the user's cuts of a parts decision: {hadith: spans} (an earlier decision cut the first hadith alone) */
 const cutsOf = (S, pd, key) => (pd[key] && Object.keys(pd[key]).length) ? pd[key] : (key === 'cuts' ? pd.seed : pd.seed_confirmed) ? { [S.seed.wid]: key === 'cuts' ? pd.seed : pd.seed_confirmed } : {};
