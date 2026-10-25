@@ -618,13 +618,37 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
             if r["m"] / max(min(len(c["tokens"]), len(rep)), 1) >= 0.5:
                 return True
         return False
-    keep = [dict(tokens=cl["rep"], support=len(cl["members"])) for cl in clusters
+    keep = [dict(tokens=cl["rep"], support=len(cl["members"]), members=dict(cl["members"])) for cl in clusters
             if (len(cl["members"]) >= 2 or seeds & set(cl["members"])) and not resembles_clause(cl["rep"])]
     private = [dict(wid=wid, text=" ".join(seg)) for cl in clusters if len(cl["members"]) < 2 and not seeds & set(cl["members"])
                for wid, seg in cl["members"].items()]
     # keep order stable: biggest support first
     keep.sort(key=lambda e: -e["support"])
     return dict(clauses=keep, private=private)
+
+
+def seed_extras(S: dict) -> dict:
+    """What the hadiths of step 1's list add to the first one's parts, for step 1 to show (the same extra parts step 3
+    makes of them): ``extras`` [{i, text, support, wids}] numbered after the parts, ``found`` wid -> [[i, start, end)] token
+    ranges of each extra in that hadith's text (``search.with_marks`` turns them into character ranges)."""
+    seeds = [c for c in S["candidates"] if "seed" in (c.get("signals") or ())]
+    if not seeds:
+        return dict(extras=[], found={})
+    s_tok = S["tokens"]
+    defs = [dict(tokens=s_tok[c["span"][0]:c["span"][1]]) for c in S["clauses"]]
+    first = dict(wid=S["seed"]["wid"], tokens=s_tok, marker=None)
+    toks = {c["wid"]: tokens(c["matn"]) for c in seeds}
+    wits = [first] + [dict(wid=w, tokens=t, seed=True, marker=find_marker(t)) for w, t in toks.items()]
+    out, found = [], {}
+    for k, ex in enumerate(_discover_extras(defs, wits)["clauses"]):
+        i = len(defs) + k
+        out.append(dict(i=i, text=" ".join(ex["tokens"]), support=ex["support"], wids=sorted(ex["members"])))
+        for wid, seg in ex["members"].items():
+            t = toks[wid]
+            at = next((j for j in range(len(t) - len(seg) + 1) if t[j:j + len(seg)] == seg), None)
+            if at is not None:
+                found.setdefault(wid, []).append([i, at, at + len(seg)])
+    return dict(extras=out, found=found)
 
 
 def row_keys(cols: Sequence[dict], w: str) -> List[Tuple[int, str]]:

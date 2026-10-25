@@ -136,6 +136,20 @@ def test_a_hadith_of_the_source_list_brings_its_own_parts():
     assert ex and "المستاثر" in ex[0]["text"] and ex[0]["support"] == 1, ex
 
 
+def test_step_one_lists_the_parts_the_other_hadiths_add():
+    from icm import search
+    own = "ستة لعنتهم، المكذب بقدر الله، والزائد في كتاب الله، والتارك لسنتي، والمستأثر بالفيء لنفسه، والمستحل من عترتي ما حرم الله"
+    S = _search(SEED, [own])
+    assert align.seed_extras(S) == dict(extras=[], found={})            # not a seed hadith: nothing
+    c = S["candidates"][0]
+    c.update(signals=["seed"], n_tokens=len(tokens(own)), parts=[])
+    S["seed"].update(matn=SEED)
+    S = search.with_marks(S)
+    assert len(S["seed_extras"]) == 1 and "المستاثر" in S["seed_extras"][0]["text"] and S["seed_extras"][0]["i"] == len(S["clauses"])
+    ks = {m[2] for m in c["marks_all"]}
+    assert ks == {S["seed_extras"][0]["i"]} and not c["marks"], (c["marks"], c["marks_all"])
+
+
 def test_bare_conjunction_is_part_of_the_next_word():
     from icm.similarity import align_pair, conj_groups, match_key
     assert conj_groups(["قال", "و", "و", "الصوم", "و"]) == [(0, 1), (1, 4), (4, 5)]

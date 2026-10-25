@@ -440,6 +440,11 @@ def with_marks(S: dict) -> dict:
     seed["matn"] = strip_tags(seed["matn"])
     seed["marks"] = marks(seed["matn"], lab)
     for cand in S["candidates"]:
+        cand["matn"] = strip_tags(cand["matn"])
+    from . import align                                          # (align does not import search)
+    sx = align.seed_extras(S)                                    # the parts the other hadiths of step 1's list add
+    S["seed_extras"] = sx["extras"]
+    for cand in S["candidates"]:
         lab = [-1] * cand["n_tokens"]
         # the best-matched clause claims a token first (two clauses of the seed may share words)
         for part in sorted(cand["parts"], key=lambda q: -q["cov"]):
@@ -449,6 +454,11 @@ def with_marks(S: dict) -> dict:
             for j in range(x, min(y, len(lab))):
                 if lab[j] < 0:
                     lab[j] = part["clause"]
-        cand["matn"] = strip_tags(cand["matn"])
         cand["marks"] = marks(cand["matn"], lab)
+        if cand["wid"] in sx["found"]:                           # for step 1 only (steps that list the parts know the first hadith's)
+            for i, x, y in sx["found"][cand["wid"]]:
+                for j in range(x, min(y, len(lab))):
+                    if lab[j] < 0:
+                        lab[j] = i
+            cand["marks_all"] = marks(cand["matn"], lab)
     return S

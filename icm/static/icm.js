@@ -463,10 +463,12 @@ const panels = {
       pendingSeeds.length ? el('p', { class: 'small muted' }, `در حال سنجش ${fa(pendingSeeds.length)} حدیث افزوده…`) : null,
       edit ? hadithAdder(c, sdec, 'seeds', S) : null),
       card('بخش‌های حدیث‌ها', help('step1.parts'),
-        el('p', { class: 'muted small' }, all.length > 1 ? 'متن‌ها به بخش‌هایی بریده می‌شوند که واحد جستجو و هم‌ترازی‌اند. بریدن بر متنِ نخستین حدیثِ بالا انجام می‌شود و همین بخش‌ها بر همه‌ی حدیث‌ها (و شاهدها) اعمال می‌شود؛ رنگ هر بخش در همه‌ی متن‌ها یکی است. متنی که فقط در حدیث‌های دیگر این فهرست باشد، در مرحله‌ی ۳ به‌صورت «بخش افزوده» به بخش‌ها می‌پیوندد.' : null),
+        el('p', { class: 'muted small' }, all.length > 1 ? 'متن‌ها به بخش‌هایی بریده می‌شوند که واحد جستجو و هم‌ترازی‌اند. بریدن بر متنِ نخستین حدیثِ بالا انجام می‌شود و همین بخش‌ها بر همه‌ی حدیث‌ها (و شاهدها) اعمال می‌شود؛ رنگ هر بخش در همه‌ی متن‌ها یکی است. متنی که فقط در حدیث‌های دیگر این فهرست باشد، در همین جدول با نشان «بخش افزوده» می‌آید و در مرحله‌ی ۳ هم‌تراز می‌شود.' : null),
         el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)', S.clause_owners ? 'گوینده (hadith.ai)' : null].filter(Boolean).map(t => el('th', {}, t))),
           S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text),
-            S.clause_owners ? el('td', { class: 'small' }, S.clause_owners[cl.i] || '') : null))),
+            S.clause_owners ? el('td', { class: 'small' }, S.clause_owners[cl.i] || '') : null)),
+          (S.seed_extras || []).map(ex => el('tr', {}, el('td', {}, swatch(ex.i)), el('td', { class: 'ar' }, ex.text), el('td', { class: 'small muted', colspan: S.clause_owners ? 2 : 1 },
+            `بخش افزوده از ${ex.wids.length > 1 ? 'حدیث‌های' : 'حدیث'} دیگر فهرست`)))),
         seedPartsBox(S, c, pd, 'seed')));
   },
 
@@ -1961,7 +1963,7 @@ addEventListener('resize', closePop);
 document.addEventListener('scroll', ev => { if (POP && !POP.contains(ev.target)) closePop(); }, true);
 function hadithBlock(h, colored) {
   return el('div', {}, el('div', { class: 'small muted' }, [h.title, h.author, h.death ? 'ف ' + fa(h.death) : '', h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه'].filter(Boolean).join(' · '), ' ', hadithLink(h.wid)),
-    h.sanad ? el('div', { class: 'ar small matn' }, h.sanad) : null, colored && h.marks ? marked(h.matn, h.marks, 'ar seedtext') : el('div', { class: 'ar' }, h.matn));
+    h.sanad ? el('div', { class: 'ar small matn' }, h.sanad) : null, colored && h.marks ? marked(h.matn, h.marks_all || h.marks, 'ar seedtext') : el('div', { class: 'ar' }, h.matn));
 }
 /* clause colours: one hue per part of the seed, the same everywhere (seed, strips, candidate texts) */
 const HUES = [210, 28, 140, 330, 48, 268, 178, 0, 95, 300, 235, 15];
