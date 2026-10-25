@@ -24,6 +24,14 @@ def app():
     return a, d
 
 
+def press_search(c, pid, mode=None, **more):
+    """«جستجو» pressed (the corpora are asked only then), and the job run."""
+    from icm import pipeline
+    pl = dict(part_query=None, extra_ids=[], go=True) | ({"mode": mode} if mode else {}) | more
+    assert c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": pl}, headers=H("alice")).status_code == 200
+    return pipeline.advance(pid)
+
+
 def _version_file(d, name="t1"):
     c = sqlite3.connect(os.path.join(d, f"{name}.sqlite"))
     c.executescript("""create table meta(k text primary key, v text);
@@ -189,13 +197,15 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
         pid = c.post("/icm/api/project", json={"seed": "v02:800316143"}, headers=H("alice")).json()["pid"]
         assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {}}, headers=H("alice")).status_code == 409   # nothing searched yet
         pipeline.advance(pid)
+        assert c.get(f"/icm/api/project/{pid}/runs/current/search").json()["searched"] is False and not c.get(f"/icm/api/project/{pid}/runs/current/search").json()["queries"]
+        press_search(c, pid)                                                              # the corpora are asked only when «جستجو» is pressed
         S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
-        assert S["clauses_by"] == "auto" and S["auto_clauses"] == [x["span"] for x in S["clauses"]]
+        assert S["searched"] and S["clauses_by"] == "auto" and S["auto_clauses"] == [x["span"] for x in S["clauses"]]
         seed_w = c.get(f"/icm/api/project/{pid}/runs/current/words/v02:800316143").json()
         assert seed_w["tokens"] == S["tokens"] == tokens(S["seed"]["matn"]) and len(seed_w["offsets"]) == len(S["tokens"])
         sel = [x["wid"] for x in S["candidates"][:3]]
         c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice"))
-        c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"part_query": [0], "extra_ids": []}}, headers=H("alice"))
+        c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"part_query": [0], "extra_ids": []}}, headers=H("alice"))      # ticks only; no new search
         n = len(S["tokens"])
         for bad in ({"seed": [[0, n + 1]]}, {"seed": [[3, 2]]}, {"seed": [[0, 4], [3, 6]]}, {"seed": []},
                     {"slots": {"bad": {"v02:1": "absent"}}}, {"slots": {"s:x": {"v02:1": "maybe"}}},
@@ -205,7 +215,7 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
         auto = S["auto_clauses"]
         assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"seed": auto, "seed_confirmed": auto}}, headers=H("alice")).status_code == 200
         assert project.decision(pid, "parts")["seed"] is None and project.decision(pid, "search")["part_query"] == [0]
-        # one part for the whole text: the search runs again with it, the selected witnesses stay
+        # one part for the whole text: the candidates are scored on it again (no new search: that is the button), the selected witnesses stay
         assert c.post(f"/icm/api/project/{pid}/decide/parts", json={"payload": {"seed": [[0, n]], "seed_confirmed": [[0, n]]}}, headers=H("alice")).status_code == 200
         got = project.decision(pid, "parts")
         assert got["seed"] == [[0, n]] and got["keep_ids"] == sorted(set(sel) - {"v02:800316143"})
@@ -213,6 +223,7 @@ def test_parts_decision_recuts_the_seed_and_corrects_slots():
         pipeline.advance(pid)
         S2 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         assert S2["clauses_by"] == "user" and [x["span"] for x in S2["clauses"]] == [[0, n]]
+        assert S2["searched"] and S2["stale"] and S2["queries"] == S["queries"]                 # the corpora were not asked again; the candidates are scored on the new parts
         known = {x["wid"] for x in S2["candidates"]} | {w for x in S2["candidates"] for w in x.get("copies", [])}
         assert set(sel) - {"v02:800316143"} <= known
         A = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
@@ -314,6 +325,88 @@ if __name__ == "__main__":
     sys.exit(1 if fails else 0)
 
 
+def test_search_is_a_button_hadiths_can_be_added_edited_and_seeded_and_a_second_search_merges():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        W0 = "v02:800316143"
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid)
+        S0 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert S0["searched"] is False and S0["queries"] == [] and S0["retrieved"] is False and len(S0["clauses"]) >= 1
+        dec = lambda pl: c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": pl}, headers=H("alice"))
+        near = "v02:800316144"
+        assert dec({"extra_ids": ["v02:1"]}).status_code == 400 and dec({"extra_ids": ["nope"]}).status_code == 400    # unknown / malformed ids
+        assert dec({"seeds": [W0]}).status_code == 200 and project.decision(pid, "search")["seeds"] == []              # the seed is not its own further seed
+        assert dec({"edits": {W0: "x"}}).status_code == 400 and dec({"edits": {near: "  "}}).status_code == 400
+        # before any search: only the user's own hadiths are scored
+        assert dec({"extra_ids": [near]}).status_code == 200
+        pipeline.advance(pid)
+        S1 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert S1["searched"] is False and [x["wid"] for x in S1["candidates"] if "user" in x["signals"]] == [near]
+        # the first press asks the corpora; what was added stays, the further seed is always a candidate and always selected
+        press_search(c, pid, extra_ids=[near], seeds=["v02:800316145"])
+        S2 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        by = {x["wid"]: x for x in S2["candidates"]}
+        assert S2["searched"] and S2["retrieved"] and S2["queries"] and not S2["stale"] and S2["seeds"] == ["v02:800316145"]
+        assert "user" in by[near]["signals"] and "seed" in by["v02:800316145"]["signals"] and len(S2["candidates"]) > 3
+        pick = [x["wid"] for x in S2["candidates"] if x["wid"] not in (near, "v02:800316145") and x["suggested"] in ("witness", "variant", "extended", "abridged")][:2] or \
+               [x["wid"] for x in S2["candidates"] if x["wid"] not in (near, "v02:800316145")][:2]
+        sel = lambda ws: c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": ws}}, headers=H("alice"))
+        assert sel(pick + [near]).status_code == 200
+        pipeline.advance(pid)
+        A = c.get(f"/icm/api/project/{pid}/runs/current/align").json()
+        assert {"v02:800316145", near, *pick} <= {w["wid"] for w in A["witnesses"]}           # the further seed was not asked for in the selection
+        # an edited text is scored as edited; its row shows the new score
+        old = by[near]["score"]["cov_seed"]
+        ed = {near: " ".join(S2["tokens"])}
+        assert dec({"extra_ids": [near], "seeds": ["v02:800316145"], "edits": ed}).status_code == 200
+        pipeline.advance(pid)
+        S3 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        row = next(x for x in S3["candidates"] if x["wid"] == near)
+        assert row["edited"] and row["score"]["cov_seed"] > max(old, 0.95) and S3["queries"] == S2["queries"] and not S3["stale"]
+        # removing the added hadith: it is a plain candidate again or gone, never still «user»
+        assert dec({"extra_ids": [], "seeds": ["v02:800316145"]}).status_code == 200
+        pipeline.advance(pid)
+        S4 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert not any("user" in x["signals"] for x in S4["candidates"]) and "edited" not in next((x for x in S4["candidates"] if x["wid"] == near), {})
+        # a second press: «selected» keeps the ticked ones with the new findings, «rebuild» clears the ticks
+        n_all = len(S4["candidates"])
+        assert sel(pick).status_code == 200
+        press_search(c, pid, "selected", seeds=["v02:800316145"])
+        S5 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert set(pick) <= {x["wid"] for x in S5["candidates"]} and project.decision(pid, "selection")["selected"] == sorted(set(pick) | {W0})
+        press_search(c, pid, "rebuild", seeds=["v02:800316145"])
+        assert project.decision(pid, "selection")["selected"] == [] and project.decision(pid, "selection")["reset"] is True
+        P = c.get(f"/icm/api/project/{pid}").json()["project"]
+        assert P["status"] == "draft" and P["step"] == "selection"                              # the ticks are gone: step 2 waits again
+        assert c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"go": True, "mode": "nope"}}, headers=H("alice")).status_code == 400
+    finally:
+        shutil.rmtree(d)
+
+
+def test_a_project_made_before_the_button_keeps_searching_by_itself_and_its_keys():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        W0 = "v02:800316143"
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        p = project.load(pid); p.pop("manual_search"); project.save(p)
+        pipeline.advance(pid)
+        S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert S.get("searched") is not False and S["queries"] and S["candidates"]
+        key = project.load(pid)["current_run"]
+        # the first change takes the project into the button's way without computing the search again
+        assert c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"part_query": None, "extra_ids": []}}, headers=H("alice")).status_code == 200
+        assert project.decision(pid, "search")["ret"]["legacy"] is True
+        pipeline.advance(pid)
+        assert project.load(pid)["current_run"].split("-")[1] != "" and c.get(f"/icm/api/project/{pid}/runs/current/search").json()["generated"] == S["generated"]
+    finally:
+        shutil.rmtree(d)
+
+
 def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
     from icm import pipeline
     a, d = app()
@@ -325,6 +418,7 @@ def test_chain_edits_add_a_narrator_from_the_text_and_keep_place_ids():
         T = c.get(f"/icm/api/hadith/{W0}/tokens", params={"pid": pid}, headers=H("alice")).json()
         assert len(T["tokens"]) == len(T["words"]) == len(T["tflag"]) and 0 <= T["n_sanad"] <= len(T["tokens"]) and T["chains"] == []   # no narrators yet
         assert T["words"][0] == "41" and not any(w.endswith(("،", ":", ".")) for w in T["words"])
+        press_search(c, pid)
         S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [x["wid"] for x in S["candidates"][:2]]}}, headers=H("alice"))
         pipeline.advance(pid)
@@ -399,7 +493,7 @@ def test_a_place_removed_on_the_main_page_leaves_the_chain():
         c = TestClient(a)
         W0 = "v02:800316143"
         pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
-        pipeline.advance(pid)
+        press_search(c, pid)
         S = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": [x["wid"] for x in S["candidates"][:2]]}}, headers=H("alice"))
         pipeline.advance(pid)

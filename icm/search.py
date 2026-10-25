@@ -56,8 +56,13 @@ DEFAULTS = dict(
 )
 
 
-def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (), keep_ids: Sequence[str] = ()) -> dict:
-    """``keep_ids``: witnesses selected before the user re-cut the seed; they are scored whatever their score."""
+def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (), keep_ids: Sequence[str] = (), *,
+        seeds: Sequence[str] = (), prior: Optional[dict] = None, retrieve: bool = True, texts: Optional[dict] = None) -> dict:
+    """``keep_ids``: witnesses selected before the user re-cut the seed; they are scored whatever their score.
+    ``extra_ids``: hadiths the user added; scored whatever their score. ``seeds``: further seed hadiths: searched from like the
+    seed (their own words are queried), always candidates, never folded away. ``retrieve=False`` asks the corpora nothing: only
+    ``prior`` (wid -> signals/round/via of an earlier search's candidates), the extras, kept and seed hadiths are scored again,
+    against the seed's parts as they are now. ``texts``: wid -> the text the user edited, used instead of the corpus's."""
     p = {**DEFAULTS, **(params or {})}
     t0 = time.time()
     rec = corpus.get(seed)
@@ -94,31 +99,45 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
     scored: Dict[str, dict] = {}
     seed_norm = norm(rec["matn"])
 
+    texts = texts or {}
     sources = [(seed, s_tok, s_spans)]
-    for rnd in range(1, int(p["rounds"]) + 1):
+    if retrieve:
+        for w in seeds:                           # the further seeds are searched from like the seed, all their parts
+            r2 = corpus.get(w) if w != seed else None
+            if r2 is not None:
+                t2, sp2 = clauses(texts.get(w, r2["matn"]))
+                if sp2:
+                    sources.append((w, t2, sp2))
+    for rnd in range(1, (int(p["rounds"]) if retrieve else 1) + 1):
         new_pool: Dict[str, dict] = {}
-        for src_wid, src_tok, src_spans in sources:
-            _generate(src_wid, src_tok, src_spans, q_clauses if rnd == 1 else range(len(src_spans)),
-                      p, rnd, new_pool, queries)
+        if retrieve:
+            for src_wid, src_tok, src_spans in sources:
+                _generate(src_wid, src_tok, src_spans, q_clauses if rnd == 1 and src_wid == seed else range(len(src_spans)),
+                          p, rnd, new_pool, queries)
+        elif rnd == 1:
+            for w, d in (prior or {}).items():
+                new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"))
         for w in extra_ids:
             new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("user")
+        for w in seeds:
+            new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("seed")
         for w in keep_ids:
             new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("kept")
         for w in list(new_pool):
             if w == seed or w in scored:
                 del new_pool[w]
         n_cand = len(new_pool)
-        batch = _score_pool(seed, s_tok, s_spans, n_seed, new_pool, p, scored, flags)
+        batch = _score_pool(seed, s_tok, s_spans, n_seed, new_pool, p, scored, flags, texts)
         rounds_info.append(dict(round=rnd, n_candidates=n_cand, n_scored=batch["n_scored"],
                                 n_dropped=batch["n_dropped"], n_witness_like=batch["n_witness_like"]))
-        if rnd == int(p["rounds"]):
+        if not retrieve or rnd == int(p["rounds"]):
             break
         sources = _next_sources(scored, p, seed_norm)
         if not sources:
             break
 
-    n_ptr = _pointers_after([seed] + [w for w, c in scored.items() if c["suggested"] != "different"], s_tok, s_spans, n_seed, p,
-                            scored, flags, len(rounds_info) + 1)
+    n_ptr = (retrieve or prior) and _pointers_after([seed] + [w for w, c in scored.items() if c["suggested"] != "different"], s_tok, s_spans, n_seed, p,
+                            scored, flags, len(rounds_info) + 1, texts=texts)
     if n_ptr:
         rounds_info.append(dict(round=len(rounds_info) + 1, kind="pointers", n_candidates=n_ptr, n_scored=n_ptr, n_dropped=0,
                                 n_witness_like=sum(1 for c in scored.values() if c.get("ref") and c["suggested"] in PRESELECTED)))
@@ -136,7 +155,7 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
                                               for i, sp in enumerate(s_spans)],
         auto_clauses=[list(sp) for sp in auto_spans], clauses_by="user" if s_spans is not auto_spans else "auto",
         auto_by=auto_by, clause_owners=auto_owners if s_spans is auto_spans else None,
-        params=p, candidates=cands, queries=queries, rounds=rounds_info, flags=flags,
+        params=p, seeds=[w for w in seeds if w != seed], retrieved=bool(retrieve), candidates=cands, queries=queries, rounds=rounds_info, flags=flags,
         seconds=round(time.time() - t0, 1))
 
 
@@ -198,7 +217,7 @@ def _generate(wid: str, tok: List[str], spans, q_clauses: Iterable[int], p: dict
 
 
 def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[str, dict], p: dict,
-                scored: Dict[str, dict], flags: List[dict]) -> dict:
+                scored: Dict[str, dict], flags: List[dict], texts: Optional[dict] = None) -> dict:
     order = sorted(pool, key=lambda w: (-len(pool[w]["signals"]), -pool[w]["nq"]))
     capped = len(order) > p["pool_max"]
     if capped:
@@ -209,6 +228,9 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
     clause_grams = [grams(" ".join(s_tok[x:y]), p["gram_n"]) for x, y in s_spans]
     n_scored = n_dropped = n_wl = 0
     recs = corpus.get_many(order)
+    for w, t in (texts or {}).items():                                  # the user's own text of a hadith (step 2 «ویرایش»)
+        if w in recs:
+            recs[w] = dict(recs[w], matn=t)
     # references («مثله / نحوه وزاد فيه …», pointers.py): a record that is one is scored on the text it stands for; one
     # inside a record («… و رواه الصدوق عن … مثله») is a candidate of its own, «<host>~k», and its host keeps its own words
     refd: Dict[str, dict] = {}
@@ -256,7 +278,7 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
         g = grams(" ".join(c_tok), p["gram_n"])
         share = len(seed_grams & g) / max(len(seed_grams), 1)
         cl_hit = any(cg and len(cg & g) / len(cg) >= 0.5 for cg in clause_grams)
-        user = bool({"user", "kept", "ref"} & pool[w]["signals"])
+        user = bool({"user", "kept", "ref", "seed"} & pool[w]["signals"])
         if share < p["prefilter"] and not cl_hit and not user:
             n_dropped += 1
             continue
@@ -284,11 +306,13 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
             text_hash=hashlib.sha1((" ".join(c_tok) + ("|ref:" + w if pt is not None else "")).encode()).hexdigest()[:16])
         if pt is not None:
             scored[w]["ref"] = pt
+        if texts and w in texts:
+            scored[w]["edited"] = True
     return dict(n_scored=n_scored, n_dropped=n_dropped, n_witness_like=n_wl)
 
 
 def _pointers_after(bases: Sequence[str], s_tok: List[str], s_spans, n_seed: int, p: dict, scored: Dict[str, dict],
-                    flags: List[dict], rnd: int, look: int = 10) -> int:
+                    flags: List[dict], rnd: int, look: int = 10, texts: Optional[dict] = None) -> int:
     """The hadiths right after a found text that only point back at it («… عن أبي عبد الله عليه السلام مثله»): no words
     of the seed are in them, so no query finds them. Each is scored on the text it points at; returns how many."""
     pool: Dict[str, dict] = {}
@@ -310,7 +334,7 @@ def _pointers_after(bases: Sequence[str], s_tok: List[str], s_spans, n_seed: int
     if not pool:
         return 0
     before = len(scored)
-    _score_pool(bases[0], s_tok, s_spans, n_seed, pool, p, scored, flags)
+    _score_pool(bases[0], s_tok, s_spans, n_seed, pool, p, scored, flags, texts)
     return len(scored) - before
 
 
@@ -331,13 +355,18 @@ def _next_sources(scored: Dict[str, dict], p: dict, seed_norm: str):
     return out
 
 
+def mine(c: dict) -> bool:
+    """A hadith the user added or named a seed: never folded into another row (others fold into it)."""
+    return bool({"user", "seed"} & set(c["signals"]))
+
+
 def _fold_copies(scored: Dict[str, dict], seed: str, seed_rec: dict) -> List[dict]:
     """Collapse byte-identical (normalised matn + sanad) candidates into one row with ``copies``."""
     seed_hash = hashlib.sha1((" ".join(tokens(seed_rec["matn"]))).encode()).hexdigest()[:16]
     by_hash: Dict[str, dict] = {}
     out: List[dict] = []
-    for c in sorted(scored.values(), key=lambda c: c["wid"]):
-        if c["text_hash"] == seed_hash and c["score"]["cov_seed"] >= 0.99:
+    for c in sorted(scored.values(), key=lambda c: (not mine(c), c["wid"])):
+        if c["text_hash"] == seed_hash and c["score"]["cov_seed"] >= 0.99 and not mine(c):
             c["copy_of"] = seed
             out.append(c)
             continue
@@ -386,7 +415,7 @@ def _fold_across_corpora(rows: List[dict]) -> List[dict]:
                 if a["corpus"] != "kg" or a["wid"] in drop:
                     continue
                 for b in titles[kb]:
-                    if b["corpus"] == "kg" or b["wid"] in drop:
+                    if b["corpus"] == "kg" or b["wid"] in drop or mine(b):
                         continue
                     if a["text_hash"] != b["text_hash"]:
                         la, lb = a["n_tokens"], b["n_tokens"]

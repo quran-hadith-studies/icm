@@ -402,12 +402,19 @@ let NV = null;              // the narrator version of the run on screen (step 4
 
 const panels = {
   async seed(main, c) {
-    const [S, pd] = await Promise.all([stage(c.pid, c.runId, 'search'), decOf(c, 'parts')]);
+    const [S, pd, sdec] = await Promise.all([stage(c.pid, c.runId, 'search'), decOf(c, 'parts'), decOf(c, 'search')]);
+    const seeds = S.candidates.filter(x => x.signals.includes('seed')), edit = c.can && !STATIC;
+    const pendingSeeds = (sdec.seeds || []).filter(w => !seeds.some(x => x.wid === w));           // named, not yet scored (the job is running)
+    const seedsCard = (seeds.length || edit) ? card(['حدیث‌های مبدأ دیگر'], help('step1.seeds'),
+      el('p', { class: 'muted small' }, 'اگر روایت‌های دیگری را هم می‌شناسید که باید مبدأ باشند، بیفزایید. حدیث مبدأ بالا همچنان معیار بخش‌ها و هم‌ترازی است؛ مبدأهای دیگر همیشه جزو شاهدهای برگزیده‌اند و در «جستجو» (مرحله‌ی ۲) از متن خودشان هم پرسش فرستاده می‌شود. هر کدام با حدیث مبدأ سنجیده و بخش‌به‌بخش نشان داده می‌شود.'),
+      seeds.length ? candTable(seeds, S, new Set(seeds.map(x => x.wid)), false, () => {}, {}, () => {}, x => rowActs(c, sdec, x, 'seeds')) : el('p', { class: 'muted small' }, 'مبدأ دیگری نیفزوده‌اید.'),
+      pendingSeeds.length ? el('p', { class: 'small muted' }, 'در حال سنجش: ', pendingSeeds.join('، ')) : null,
+      edit ? hadithAdder(c, sdec, 'seeds', S) : null) : null;
     main.replaceChildren(card(['حدیث مبدأ', partsHelp()], help('step1.seed'), hadithBlock(S.seed, true),
       el('table', {}, el('tr', {}, ...['بخش', 'متن بخش', 'شکل یکسان‌شده (برای جستجو)', S.clause_owners ? 'گوینده (hadith.ai)' : null].filter(Boolean).map(t => el('th', {}, t))),
         S.clauses.map(cl => el('tr', {}, el('td', {}, swatch(cl.i)), el('td', { class: 'ar' }, clauseRaw(S, cl.i)), el('td', { class: 'ar small muted' }, cl.text),
           S.clause_owners ? el('td', { class: 'small' }, S.clause_owners[cl.i] || '') : null))),
-      seedPartsBox(S, c, pd, 'seed')));
+      seedPartsBox(S, c, pd, 'seed')), seedsCard);
   },
 
   /* ----- 2: search and selection ----- */
@@ -418,7 +425,10 @@ const panels = {
     const pd = await decOf(c, 'parts');
     const pre = new Set(['witness', 'variant', 'extended', 'abridged']);
     const presel = x => pre.has(x.suggested) && !x.reference;      // a Dorar quotation without isnad is not pre-selected
-    const sel = new Set(dec.selected || S.candidates.filter(presel).map(x => x.wid));
+    const searched = S.searched !== false, edit = c.can && !STATIC;
+    const sel = new Set(dec.selected && dec.selected.length ? dec.selected : S.candidates.filter(x => presel(x) || isMine(x)).map(x => x.wid));
+    S.candidates.filter(x => x.signals.includes('seed')).forEach(x => sel.add(x.wid));        // a further seed is always a witness
+    const nominees = S.candidates.filter(x => !isMine(x)), added = S.candidates.filter(isMine);
     const show = new Set(['witness', 'variant', 'extended', 'abridged', 'partial']);
     let filter = '', onlyRefs = false;
     /* references («مثله / نحوه وزاد فيه …»): the texts their templates build, confirmed or edited here (parts.refs) */
@@ -427,13 +437,12 @@ const panels = {
       if (e) refs[x.wid] = e; else delete refs[x.wid];
       cache.clear(); closeModal(); draw(); }));
     const clausesSel = new Set(sdec.part_query || S.clauses.map(x => x.i));
-    const extra = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث برای افزودن (مثلاً v02:800316143)', dir: 'ltr' });
-    const list = el('div'), count = el('span', { class: 'muted' });
-    const byClass = {}; S.candidates.forEach(x => byClass[x.suggested] = (byClass[x.suggested] || 0) + 1);
+    const list = el('div'), addedList = el('div'), count = el('span', { class: 'muted' });
+    const byClass = {}; nominees.forEach(x => byClass[x.suggested] = (byClass[x.suggested] || 0) + 1);
     /* a ticked candidate is always listed, whatever its class: hidden it could not be unticked (a search re-run may move it to «متفاوت») */
-    const shown = () => S.candidates.filter(x => (show.has(x.suggested) || sel.has(x.wid)) && (!onlyRefs || x.ref) && (!filter || (x.title || '').includes(filter) || x.matn.includes(filter)))
+    const shown = () => nominees.filter(x => (show.has(x.suggested) || sel.has(x.wid)) && (!onlyRefs || x.ref) && (!filter || (x.title || '').includes(filter) || x.matn.includes(filter)))
       .sort((a, b) => (show.has(a.suggested) ? 1 : 0) - (show.has(b.suggested) ? 1 : 0));
-    const hiddenSel = () => S.candidates.filter(x => sel.has(x.wid) && !show.has(x.suggested));
+    const hiddenSel = () => nominees.filter(x => sel.has(x.wid) && !show.has(x.suggested));
 
     /* per part: in how many of the selected witnesses it is found, and by which queries */
     const covCells = S.clauses.map(() => el('td', { style: 'min-width:170px' }));
@@ -459,16 +468,17 @@ const panels = {
           const add = Object.fromEntries(auto.map(x => [x.wid, refEntry(x.ref, x.ref.text, x.ref.approx)]));
           await saveParts(c.pid, d => ({ refs: { ...d.refs, ...add } }), 'step 2: references confirmed as built');
           Object.assign(refs, add); cache.clear(); draw(); } }, 'تأیید متن خودکار همه') : null] : [])); };
-    const upd = () => { count.textContent = `${fa(sel.size)} انتخاب‌شده از ${fa(S.candidates.length)} نامزد`; coverage(); refsUpd();
+    const upd = () => { count.textContent = `${fa(nominees.filter(x => sel.has(x.wid)).length)} انتخاب‌شده از ${fa(nominees.length)} نامزد` + (added.length ? `؛ ${fa(added.filter(x => sel.has(x.wid)).length)} از ${fa(added.length)} حدیث افزوده` : ''); coverage(); refsUpd();
       const h = hiddenSel();
       hidNote.replaceChildren(...(h.length ? [`${fa(h.length)} نامزدِ تیک‌خورده در دسته‌ای است که پیشنهاد نشده (${[...new Set(h.map(x => CLS[x.suggested]))].join('، ')}); بالای فهرست آمده‌اند تا اگر نمی‌خواهید، تیکشان را بردارید.`,
         ...(c.can ? [' ', el('button', { class: 'small', onclick: () => { h.forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک همه‌ی این‌ها')] : [])] : [])); };
-    const queriesOf = i => S.queries.filter(q => q.round === 1 && q.source === S.seed.wid && q.clause === i);
+    const queriesOf = i => S.stale ? [] : S.queries.filter(q => q.round === 1 && q.source === S.seed.wid && q.clause === i);
     const draw = () => {
       upd();
-      list.replaceChildren(el('div', { class: 'grid-wrap', style: 'max-height:75vh' }, el('table', { class: 'cands' },
-        el('tr', {}, ...['', 'دسته', 'کتاب و راه یافتن', 'شباهت', 'بخش‌ها', 'متن (رنگ = بخش حدیث مبدأ)'].map(t => el('th', {}, t))),
-        shown().map(x => candRow(x, S, sel, c.can, upd, refs, openRef)))));
+      const acts = x => rowActs(c, sdec, x, null);
+      list.replaceChildren(searched || nominees.length ? candTable(shown(), S, sel, c.can, upd, refs, openRef, acts)
+        : el('p', { class: 'empty-state' }, edit ? 'هنوز جستجویی نشده است. بخش‌هایی را که می‌خواهید در پیکره پرسیده شوند تیک بزنید و «جستجو» را بزنید؛ یا خودتان حدیث بیفزایید.' : 'جستجویی نشده است.'));
+      addedList.replaceChildren(added.length ? candTable(added, S, sel, c.can, upd, refs, openRef, x => rowActs(c, sdec, x, x.signals.includes('seed') ? null : 'extra_ids')) : el('p', { class: 'muted small' }, 'هنوز حدیثی نیفزوده‌اید.'));
     };
     const chips = Object.keys(CLS).map(k => el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => { ev.target.checked ? show.add(k) : show.delete(k); draw(); } }), ' ', el('span', { class: 'chip ' + k }, `${CLS[k]} ${fa(byClass[k] || 0)}`), ' '));
     const r1 = S.rounds[0] || {}, r2 = S.rounds[1];
@@ -489,6 +499,25 @@ const panels = {
           el('p', {}, el('b', {}, 'شباهت: '), '«از حدیث مبدأ» = چند درصد واژه‌های حدیث مبدأ در این متن پیدا شد؛ «از این متن» = چند درصد این متن با حدیث مبدأ منطبق شد. اولی پایین یعنی بخش‌هایی نیامده؛ دومی پایین یعنی این متن افزوده دارد.'),
           el('p', {}, el('b', {}, 'بخش‌ها: '), 'یک خانه برای هر بخش حدیث مبدأ به رنگ همان بخش: ', strip([{ clause: 0, state: 'present', cov: 1 }], S), ' کامل (≥۸۰٪ واژه‌ها)، ', strip([{ clause: 0, state: 'partial', cov: .5 }], S), ' بخشی (۴۰–۸۰٪)، ', strip([{ clause: 0, state: 'changed', cov: 0 }], S), ' دگرگون (واژه‌های جایگزین)، ', strip([{ clause: 0, state: 'absent', cov: 0 }], S), ' نیامده.'),
           el('p', {}, el('b', {}, 'متن: '), 'جای هر بخش در متن نامزد به رنگ همان بخش است؛ متن بی‌رنگ در حدیث مبدأ نیست (افزوده‌ی این روایت).'));
+    const pressSearch = async mode => {
+      const all = clausesSel.size === S.clauses.length;
+      await saveSearch(c, sdec, { part_query: all ? null : [...clausesSel], go: true, mode });
+    };
+    /* a second search: what becomes of the candidates already there (the hadiths the user added always stay) */
+    const researchModal = () => {
+      const nSel = nominees.filter(x => sel.has(x.wid)).length;
+      const opt = (mode, title, text, pre) => el('div', { class: 'cardbox', style: 'margin:8px 0' }, el('b', {}, title), el('p', { class: 'small' }, text),
+        el('button', { class: mode === 'rebuild' ? '' : 'primary', onclick: async ev => {
+          ev.currentTarget.disabled = true;
+          if (mode === 'selected') await post(`/project/${c.pid}/decide/selection`, { payload: { selected: [...sel] } });      // the ticks on screen are what is kept
+          closeModal(); await pressSearch(mode); } }, 'انجام'));
+      modal(el('div', {}, el('h2', {}, 'جستجوی دوباره'),
+        el('p', { class: 'small muted' }, `اکنون ${fa(nominees.length)} نامزد هست و ${fa(nSel)} از آن‌ها تیک خورده است. حدیث‌هایی که خودتان افزوده‌اید و مبدأهای دیگر در هر سه حالت می‌مانند.`),
+        opt('rebuild', 'ساختن دوباره‌ی نامزدها', 'فهرست نامزدها فقط از نتیجه‌ی جستجوی تازه ساخته می‌شود. تیک‌ها برداشته می‌شود و باید دوباره شاهدها را برگزینید (مرحله‌های بعد از نو ساخته می‌شوند).'),
+        opt('selected', 'نگه داشتن تیک‌خورده‌ها', 'نامزدهای تیک‌خورده می‌مانند، بقیه‌ی نامزدهای پیشین برداشته می‌شوند و آنچه جستجوی تازه می‌یابد افزوده می‌شود.'),
+        opt('all', 'نگه داشتن همه', 'همه‌ی نامزدهای پیشین (با تیک‌هایشان) می‌مانند و فقط یافته‌های تازه به فهرست افزوده می‌شوند.'),
+        el('div', { class: 'toolbar' }, el('button', { onclick: closeModal }, 'انصراف'))));
+    };
     const VERS = await narratorVersions();
     main.replaceChildren(
       card(['حدیث مبدأ و بخش‌هایش', partsHelp()], help('step2.search'), el('details', { class: 'fullt' }, el('summary', { class: 'small' }, 'متن حدیث مبدأ'), hadithBlock(S.seed, true)),
@@ -503,11 +532,9 @@ const panels = {
                 : el('span', { class: 'small muted' }, clausesSel.has(cl.i) ? 'بی‌واژه‌ی کمیاب' : 'پرسیده نشد')));
           })),
         seedPartsBox(S, c, pd, 'selection'),
-        c.can ? el('div', { class: 'toolbar' }, extra, el('button', { onclick: async () => {
-          const all = clausesSel.size === S.clauses.length;
-          await post(`/project/${c.pid}/decide/search`, { payload: { part_query: all ? null : [...clausesSel], extra_ids: [...(sdec.extra_ids || []), ...(extra.value.trim() ? [extra.value.trim()] : [])] } });
-          reload(c.pid);
-        } }, 'جستجوی دوباره با بخش‌های تیک‌خورده')) : null,
+        S.stale ? el('div', { class: 'help warnbox' }, 'بخش‌های حدیث مبدأ یا بخش‌های «در جستجو» از آخرین جستجو عوض شده‌اند. نامزدها با بخش‌های تازه دوباره سنجیده شده‌اند، اما نامزدهای تازه‌ای که این بخش‌ها می‌یابند فقط با «جستجوی دوباره» پیدا می‌شوند.') : null,
+        edit ? el('div', { class: 'toolbar' }, el('button', { class: searched ? '' : 'primary', onclick: () => searched && nominees.length ? researchModal() : pressSearch('rebuild') },
+          searched ? 'جستجوی دوباره با بخش‌های تیک‌خورده…' : 'جستجو با بخش‌های تیک‌خورده')) : null,
         S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
       narratorsBox(c, VERS),
       card(['نامزدها: حدیث‌هایی که بخشی از حدیث مبدأ را دارند', searchHelp], help('step2.candidates'),
@@ -516,11 +543,14 @@ const panels = {
         el('div', { class: 'toolbar' }, ...chips, el('input', { type: 'text', placeholder: 'پالایش با نام کتاب یا کلمه', oninput: ev => { filter = ev.target.value; draw(); } }), count,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.add(x.wid)); draw(); } }, 'تیک همه‌ی نمایش‌داده‌ها') : null,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک نمایش‌داده‌ها') : null),
-        hidNote, refNote, list,
-        el('div', { class: 'toolbar actionbar' }, c.can ? el('button', { class: 'primary', disabled: !sel.size, onclick: async () => {
+        hidNote, refNote, list),
+      card(['حدیث‌های افزوده‌ی شما'], help('step2.added'),
+        el('p', { class: 'muted small' }, 'حدیثی را که جستجو پیدا نکرد، بیابید و بیفزایید. هر حدیث افزوده مثل نامزدها با حدیث مبدأ بخش‌به‌بخش سنجیده می‌شود و ردیفش (نوار بخش‌ها و متن رنگی) همین‌جا می‌آید. با «ویرایش متن» می‌توانید متن آن را (یا هر نامزد دیگر را) درست کنید؛ پس از ذخیره دوباره سنجیده می‌شود. حدیث‌های افزوده با جستجوی دوباره از میان نمی‌روند. مبدأهای دیگر را در مرحله‌ی ۱ می‌افزایید.'),
+        edit ? hadithAdder(c, sdec, 'extra_ids', S) : null, addedList),
+      el('div', { class: 'card' }, el('div', { class: 'toolbar actionbar' }, c.can ? el('button', { class: 'primary', disabled: !sel.size, onclick: async () => {
           await post(`/project/${c.pid}/decide/selection`, { payload: { selected: [...sel] } }); reload(c.pid);
         } }, 'تأیید انتخاب و ادامه') : el('span', { class: 'muted' }, ME.user ? 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.' : 'برای تصمیم‌گیری وارد شوید.'),
-          el('span', { class: 'small muted' }, `اجرای جستجو ${fa(S.seconds)} ثانیه؛ دورهای گسترش: ${fa(S.rounds.length)}`))));
+          searched ? el('span', { class: 'small muted' }, `اجرای جستجو ${fa(S.seconds)} ثانیه؛ دورهای گسترش: ${fa(S.rounds.length)}`) : null)));
     draw();
   },
 
@@ -1955,7 +1985,7 @@ function seedPartsState(S, pd) {
 }
 function seedPartsBox(S, c, pd, step) {
   const st = seedPartsState(S, pd), box = el('div', { class: 'partsbox' }), ed = el('div');
-  const chip = st.pending ? el('span', { class: 'chip running' }, 'فرازبندی تازه ثبت شد؛ جستجو دوباره اجرا می‌شود')
+  const chip = st.pending ? el('span', { class: 'chip running' }, 'فرازبندی تازه ثبت شد؛ نامزدها با آن دوباره سنجیده می‌شوند')
     : st.user ? el('span', { class: 'chip user' }, 'فرازبندی دستی' + (st.confirmed ? '، تأییدشده' : ''))
     : st.confirmed ? el('span', { class: 'chip auto' }, 'فرازبندی خودکار، تأییدشده') : el('span', { class: 'chip und' }, 'فرازبندی خودکار، تأییدنشده');
   const hai = /hadith\.ai/.test(S.auto_by || '');
@@ -2002,7 +2032,7 @@ async function seedPartsEditor(box, S, c, done, step) {
     const sp = spans();
     if (!sp.length) return;
     const same = sameJ(sp, S.clauses.map(x => x.span));
-    if (!same && !confirm('با این فرازبندی جستجو دوباره اجرا می‌شود و هم‌ترازی و مرحله‌های بعد از نو ساخته می‌شوند (شاهدهای انتخاب‌شده می‌مانند؛ تیک‌های «در جستجو» برداشته می‌شوند). ادامه؟')) return;
+    if (!same && !confirm('با این فرازبندی نامزدها دوباره سنجیده می‌شوند و هم‌ترازی و مرحله‌های بعد از نو ساخته می‌شوند (شاهدهای انتخاب‌شده می‌مانند؛ تیک‌های «در جستجو» برداشته می‌شوند). ادامه؟')) return;
     save.disabled = true;
     try { await saveParts(c.pid, () => ({ seed: sp, seed_confirmed: sp }), same ? 'seed parts confirmed' : 'seed parts edited'); reloadAt(c.pid, step); }
     catch (e) { save.disabled = false; msg.textContent = 'خطا: ' + e.message; }
@@ -2338,15 +2368,80 @@ function refLabel(x, d, open) {
     el('button', { type: 'button', class: 'small refopen', onclick: open, title: 'متن ارجاعی، قالب و متن ساخته‌شده؛ ویرایش و تأیید' },
       el('span', { class: 'chip ' + (k === 'ok' ? 'approved' : k === 'edited' ? 'partial' : 'auto') }, t), ' بازبینی…'));
 }
-function candRow(x, S, sel, can, upd, refs, openRef) {
-  const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', user: 'افزوده‌ی کاربر' };
+/* the candidates table of step 2 (and the lists of added hadiths and further seeds): one row per hadith, parts strip and coloured text */
+function candTable(rows, S, sel, can, upd, refs, openRef, acts) {
+  return el('div', { class: 'grid-wrap', style: 'max-height:75vh' }, el('table', { class: 'cands' },
+    el('tr', {}, ...['', 'دسته', 'کتاب و راه یافتن', 'شباهت', 'بخش‌ها', 'متن (رنگ = بخش حدیث مبدأ)'].map(t => el('th', {}, t))),
+    rows.map(x => candRow(x, S, sel, can, upd, refs, openRef, acts))));
+}
+const isMine = x => x.signals.includes('user') || x.signals.includes('seed');       // added by the user, or a further seed
+/* the search decision is the full state: the page sends all of it with the one thing that changed, then the pipeline scores again */
+async function saveSearch(c, sdec, change) {
+  const edits = change.edits !== undefined ? change.edits : sdec.edits;
+  const pl = { part_query: sdec.part_query == null ? null : sdec.part_query, extra_ids: sdec.extra_ids || [], seeds: sdec.seeds || [], ...(edits && Object.keys(edits).length ? { edits } : {}), ...change };
+  if (!(pl.edits && Object.keys(pl.edits).length)) delete pl.edits;
+  await post(`/project/${c.pid}/decide/search`, { payload: pl }); reloadAt(c.pid, route().step || 'selection');      // stay on the step the change was made in
+}
+/* search the corpora (words, an id, a /h/i/ link) and add a hadith by hand: kind 'extra_ids' (added to step 2) or 'seeds' (a further seed) */
+function hadithAdder(c, sdec, kind, S) {
+  const q = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث، نشانی /h/i/… یا چند کلمه از متن', 'aria-label': 'جستجوی حدیث برای افزودن', style: 'min-width:260px;flex:1' });
+  const out = el('div'), mine = new Set([...(sdec.extra_ids || []), ...(sdec.seeds || [])]);
+  const add = async (w, btn) => { btn.disabled = true; await saveSearch(c, sdec, { [kind]: [...(sdec[kind] || []), w] }); };
+  const go_ = async () => {
+    if (!q.value.trim()) return;
+    out.replaceChildren(el('p', { class: 'muted small' }, 'در حال جستجو…'));
+    let rs;
+    try { rs = await api('/search?limit=40&q=' + encodeURIComponent(q.value)); } catch (e) { out.replaceChildren(el('p', { class: 'small', style: 'color:var(--warn)' }, 'خطا: ' + e.message)); return; }
+    out.replaceChildren(rs.length ? el('div', { class: 'grid-wrap', style: 'max-height:50vh' }, el('table', {}, rs.map(h => {
+      const why = h.wid === S.seed.wid ? 'حدیث مبدأ' : mine.has(h.wid) ? 'افزوده شده' : null;
+      const btn = el('button', { class: 'small primary', disabled: !!why, onclick: ev => add(h.wid, ev.currentTarget) }, why || 'افزودن');
+      return el('tr', {}, el('td', {}, el('b', {}, h.title || ''), el('div', { class: 'small muted' }, [h.author, h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', h.page ? 'ص ' + fa(h.page) : ''].filter(Boolean).join(' · ')),
+        el('div', { class: 'small muted', dir: 'ltr' }, h.wid)), el('td', { class: 'ar', dir: 'rtl' }, h.matn), el('td', {}, btn));
+    }))) : el('p', { class: 'muted small' }, 'چیزی پیدا نشد.'));
+  };
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') go_(); });
+  return el('div', {}, el('div', { class: 'toolbar' }, q, el('button', { onclick: go_ }, 'جستجوی حدیث')), out);
+}
+/* edit the text of a hadith (a candidate or an added one): the full text, saved in the search decision; the candidates are scored on it again */
+async function editTextModal(c, sdec, x) {
+  const full = await api('/hadith/' + encodeURIComponent(x.wid));
+  const edits = { ...(sdec.edits || {}) }, was = edits[x.wid];
+  const ta = el('textarea', { class: 'ar', dir: 'rtl', rows: 12, style: 'min-height:200px' });
+  ta.value = was != null ? was : full.matn || '';
+  const save = async ev => {
+    const t = ta.value.trim();
+    if (!t) { alert('متن نمی‌تواند خالی باشد.'); return; }
+    if (t === (full.matn || '').trim()) delete edits[x.wid]; else edits[x.wid] = t;
+    ev.currentTarget.disabled = true; closeModal(); await saveSearch(c, sdec, { edits });
+  };
+  modal(el('div', {}, el('h2', {}, 'ویرایش متن: ', x.title || x.book || x.wid), el('div', { class: 'small muted', dir: 'ltr' }, x.wid),
+    full.sanad ? el('details', {}, el('summary', { class: 'small' }, 'سند (فقط خواندنی)'), el('div', { class: 'ar small' }, full.sanad)) : null,
+    el('p', { class: 'small muted' }, 'متنی که در مقایسه با حدیث مبدأ و در هم‌ترازی به کار می‌رود. پس از «ذخیره»، نامزد با متن تازه دوباره سنجیده می‌شود و ردیفش با بخش‌های رنگی تازه نشان داده می‌شود. سند و نام کتاب عوض نمی‌شود.'),
+    ta, el('div', { class: 'toolbar' }, el('button', { class: 'primary', onclick: save }, 'ذخیره و سنجش دوباره'),
+      was != null ? el('button', { onclick: async ev => { ev.currentTarget.disabled = true; delete edits[x.wid]; closeModal(); await saveSearch(c, sdec, { edits }); } }, 'بازگرداندن متن اصلی') : null,
+      el('button', { onclick: closeModal }, 'انصراف'))));
+}
+/* row buttons of a hadith the user may change: edit its text; remove it (an added hadith or a further seed) */
+function rowActs(c, sdec, x, kind) {
+  const can = c.can && !STATIC;
+  if (!can) return x.edited ? el('span', { class: 'chip user' }, 'متن ویرایش‌شده') : null;
+  const rm = kind && el('button', { class: 'small', title: 'برداشتن از این فهرست', onclick: async ev => {
+    ev.currentTarget.disabled = true; const edits = { ...(sdec.edits || {}) }; delete edits[x.wid];
+    await saveSearch(c, sdec, { [kind]: (sdec[kind] || []).filter(w => w !== x.wid), edits }); } }, '× برداشتن');
+  return el('div', { class: 'toolbar', style: 'margin:4px 0 0;gap:4px' }, x.edited ? el('span', { class: 'chip user' }, 'متن ویرایش‌شده') : null,
+    x.ref || x.wid.includes('~') ? null : el('button', { class: 'small', onclick: () => editTextModal(c, sdec, x) }, '✎ ویرایش متن'), rm);
+}
+
+function candRow(x, S, sel, can, upd, refs, openRef, acts) {
+  const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', user: 'افزوده‌ی کاربر', seed: 'مبدأ دیگر' };
   return el('tr', { class: sel.has(x.wid) ? 'on' : '' },
-    el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این شاهد: ' + (x.title || x.book || x.wid), checked: sel.has(x.wid), disabled: !can, onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); ev.target.closest('tr').classList.toggle('on', ev.target.checked); upd(); } })),
+    el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این شاهد: ' + (x.title || x.book || x.wid), checked: sel.has(x.wid), disabled: !can || x.signals.includes('seed'), title: x.signals.includes('seed') ? 'مبدأ دیگر همیشه جزو شاهدهاست' : '', onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); ev.target.closest('tr').classList.toggle('on', ev.target.checked); upd(); } })),
     el('td', {}, el('span', { class: 'chip ' + x.suggested }, CLS[x.suggested]), x.score.reordered ? el('div', { class: 'small muted' }, 'ترتیب بخش‌ها فرق دارد') : null,
       x.reference ? el('div', { class: 'small', style: 'color:var(--warn)', title: 'مدخلی از الدرر السنیة بی‌سند: نقل یا داوری عالمی متأخر درباره‌ی حدیثی از کتابی دیگر، نه روایتی مستقل. از پیش تیک نمی‌خورد؛ اگر لازم است خودتان تیک بزنید.' }, 'ارجاع بی‌سند (الدرر)') : null,
       x.ref ? refLabel(x, refs[x.wid], () => openRef(x)) : null),
     el('td', {}, el('b', {}, x.title || x.book), el('div', { class: 'small muted' }, [x.author, x.tradition === 'sunni' ? 'سنی' : 'شیعه', x.vol ? 'ج ' + fa(x.vol) : '', x.page ? 'ص ' + fa(x.page) : ''].filter(Boolean).join(' · ')),
       x.copies && x.copies.length ? el('div', { class: 'small muted', title: x.copies.join(' ') }, `+${fa(x.copies.length)} نسخه‌ی یکسان`) : null, el('div', { class: 'small muted', dir: 'ltr' }, x.wid),
+      acts ? acts(x) : null,
       el('div', { class: 'small muted', title: x.signals.join(' ') }, 'یافته با: ', x.signals.map(g => SIG[g] || g).join('، '), x.round > 1 ? ` (دور ${fa(x.round)}، از متن ${x.via})` : '')),
     el('td', {}, el('div', { class: 'small' }, 'از حدیث مبدأ ', pct(x.score.cov_seed)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_seed}%` })),
       el('div', { class: 'small' }, 'از این متن ', pct(x.score.cov_cand)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_cand}%` }))),

@@ -104,7 +104,7 @@ def hadith_label(seed: str, words: int = 7) -> str:
 def create(seed: str, owner: str, title: Optional[str] = None) -> dict:
     pid = h(seed, owner, time.time())[:10]
     p = dict(pid=pid, title=title or hadith_label(seed), seed=seed, owner=owner, created=now(), updated=now(),
-             status="running", step="search", current_run=None)
+             status="running", step="search", current_run=None, manual_search=True)
     with lock(pid):
         atomic_write(os.path.join(pdir(pid), "project.json"), p)
     refresh_indexes()

@@ -417,7 +417,16 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         if step not in project.STEPS:
             raise HTTPException(404)
         body = await request.json()
+        prev_search = project.decision(pid, "search") or {} if step == "search" else {}
         payload = _validate(step, body.get("payload") or {}, pid, p)
+        if step == "search":
+            # hadiths added now join a selection already made (they would otherwise be listed unticked), and a rebuilt search clears it
+            sel = project.decision(pid, "selection") or {}
+            new = (set(payload["extra_ids"]) | set(payload["seeds"])) - (set(prev_search.get("extra_ids") or []) | set(prev_search.get("seeds") or []))
+            if payload.pop("_reset", False) and sel.get("selected"):
+                project.add_decision(pid, "selection", dict(selected=[], reset=True), u["username"], "search rebuilt")
+            elif new and sel.get("selected"):
+                project.add_decision(pid, "selection", dict(selected=sorted(set(sel["selected"]) | new)), u["username"], "hadiths added")
         if step == "parts":
             prev = project.decision(pid, "parts") or {}
             if payload["seed"] != prev.get("seed"):
@@ -427,8 +436,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 payload["keep_ids"] = sorted(set(sel.get("selected", [])) - {p["seed"]})
                 sdec = project.decision(pid, "search") or {}
                 if sdec.get("part_query") is not None:
-                    project.add_decision(pid, "search", dict(part_query=None, extra_ids=sdec.get("extra_ids", [])),
-                                         u["username"], "the seed's parts changed")
+                    project.add_decision(pid, "search", dict(sdec, part_query=None), u["username"], "the seed's parts changed")
             else:
                 payload["keep_ids"] = prev.get("keep_ids", [])
         n = project.add_decision(pid, step, payload, u["username"], str(body.get("note", ""))[:500])
@@ -559,14 +567,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
 
     def _validate(step: str, pl: dict, pid: str, p: dict) -> dict:
         if step == "search":
-            pq = pl.get("part_query")
-            extra = pl.get("extra_ids", [])
-            if pq is not None and not (isinstance(pq, list) and all(isinstance(i, int) for i in pq)):
-                raise HTTPException(400, "part_query must be a list of clause numbers")
-            if not (isinstance(extra, list) and all(isinstance(w, str) and WID_RE.match(w) for w in extra)):
-                raise HTTPException(400, "extra_ids must be witness ids")
-            return dict(part_query=pq, extra_ids=extra[:50])
+            return _validate_search(pl, pid, p)
         if step == "selection":
+            if pl.get("reset"):                          # a rebuilt search: the ticks belong to candidates that are gone
+                return dict(selected=[], reset=True)
             sel = pl.get("selected", [])
             S = project.run_stage(pid, "current", "search")
             known = {c["wid"] for c in (S or {}).get("candidates", [])} | {p["seed"]}
@@ -649,6 +653,59 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 out["confirmed"] = pl["confirmed"]
             return out
         raise HTTPException(400)
+
+    def _validate_search(pl: dict, pid: str, p: dict) -> dict:
+        """The search decision is the full state: ``part_query`` (parts asked in the corpora), ``extra_ids`` (hadiths the user added),
+        ``seeds`` (further seed hadiths), ``edits`` (wid -> the user's text) and ``ret``, the parameters of the last press of
+        «جستجو» (the server writes it: ``go`` is the press, ``mode`` what to do with the earlier candidates)."""
+        prev = project.decision(pid, "search") or {}
+        pq = pl.get("part_query")
+        if pq is not None and not (isinstance(pq, list) and all(isinstance(i, int) and not isinstance(i, bool) for i in pq)):
+            raise HTTPException(400, "part_query must be a list of clause numbers")
+        wl = lambda x, n: isinstance(x, list) and len(x) <= n and all(isinstance(w, str) and WID_RE.match(w) and "~" not in w for w in x)
+        extra, seeds = pl.get("extra_ids", []), pl.get("seeds", [])
+        if not (wl(extra, 200) and wl(seeds, 20)):
+            raise HTTPException(400, "extra_ids and seeds must be hadith ids")
+        extra = sorted(set(extra) - set(seeds) - {p["seed"]})
+        seeds = sorted(set(seeds) - {p["seed"]})
+        for w in set(extra) | set(seeds):
+            if w not in (prev.get("extra_ids") or []) and w not in (prev.get("seeds") or []) and corpus.get(w) is None:
+                raise HTTPException(400, f"unknown hadith {w}")
+        edits = pl.get("edits", {}) or {}
+        if not (isinstance(edits, dict) and len(edits) <= 200 and all(
+                isinstance(w, str) and WID_RE.match(w) and "~" not in w and w != p["seed"] and isinstance(t, str) and 0 < len(t.strip()) <= 20000
+                for w, t in edits.items())):
+            raise HTTPException(400, "edits must map hadith ids to their text (not the seed's)")
+        out = dict(part_query=pq, extra_ids=extra, seeds=seeds)
+        if edits:
+            out["edits"] = {w: t.strip() for w, t in edits.items()}
+        S = project.run_stage(pid, "current", "search")
+        pdec = project.decision(pid, "parts") or {}
+        ret = prev.get("ret")
+        if ret is None and not p.get("manual_search"):
+            # a project made before the button: from now on the corpora are asked again only when «جستجو» is pressed; what the
+            # search on screen was made from is what the page showed (the same key, so nothing is computed again)
+            cl = pdec.get("seed") or None
+            ret = dict(legacy=True, n=0, clauses=cl, part_query=prev.get("part_query"), extra=sorted(set(prev.get("extra_ids") or [])),
+                       keep=sorted(set(pdec.get("keep_ids") or [])) if cl else [], seeds=[])
+        if pl.get("go"):
+            mode = pl.get("mode") or "rebuild"
+            if mode not in ("rebuild", "selected", "all"):
+                raise HTTPException(400, "mode must be rebuild, selected or all")
+            keep: list = []
+            if S is not None and S.get("searched") is not False:
+                if mode == "all":
+                    keep = [w for c in S["candidates"] for w in [c["wid"], *c.get("copies", [])]]
+                elif mode == "selected":
+                    keep = list((project.decision(pid, "selection") or {}).get("selected") or [])
+            cl = pdec.get("seed") or None
+            ret = dict(legacy=False, n=(ret or {}).get("n", 0) + 1, clauses=cl, part_query=pq, extra=[],
+                       keep=sorted(set(keep) - {p["seed"]})[:5000], seeds=seeds)
+            if mode == "rebuild":
+                out["_reset"] = True
+        if ret is not None:
+            out["ret"] = ret
+        return out
 
     def _validate_parts(pl: dict, pid: str) -> dict:
         S = project.run_stage(pid, "current", "search")
