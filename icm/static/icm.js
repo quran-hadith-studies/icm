@@ -142,7 +142,21 @@ const FLAG_FA = {
   unknown_witness: 'شاهد انتخاب‌شده در نتایج جستجو نیست.', part_unused: 'یکی از اصلاح‌های فرازبندی به بخش یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.', no_chain: 'برای این شاهد سندی خوانده نشد.',
   unit_unused: 'یکی از اصلاح‌های واحدها به واحد، واژه یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.',
   unit_constant: 'واحدی که نگه داشته یا ساخته‌اید در همه‌ی شاهدها یک حالت دارد؛ به مدل نمی‌رود.' };
-const flagText = f => FLAG_FA[f.kind] ? (f.kind === 'chronology' ? FLAG_FA[f.kind] + ' — ' + f.message : FLAG_FA[f.kind]) : f.message;
+/* a flag's text; the two about the size of the search carry their numbers (older stage files only in the English message) and, on step 2, what the candidates are */
+const flagText = (f, S) => {
+  const m = /^(\d+) candidates(?:; the (\d+) with)?/.exec(f.message || '');
+  if (f.kind === 'pool_capped' && m) {
+    const n = f.n ?? +m[1], kept = f.kept ?? +m[2];
+    return `${f.round ? `دور ${fa(f.round)}: ` : ''}تعداد نامزدها بسیار زیاد بود (${fa(n)} نامزد)؛ فقط ${fa(kept)} نامزدی که نشانه‌ی بیشتری داشتند سنجیده شدند و ${fa(n - kept)} نامزد با نشانه‌ی کمتر سنجیده نشدند. برای کمتر کردن، تیک بخش‌های بسیار رایج را در «در جستجو» بردارید و «جستجوی دوباره» را بزنید.`;
+  }
+  if (f.kind === 'family_large' && m) {
+    const n = f.n ?? +m[1], by = {};
+    (S ? S.candidates : []).forEach(x => { by[x.suggested] = (by[x.suggested] || 0) + 1; });
+    const parts = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${CLS[k] || k} ${fa(v)}`);
+    return `خانواده بسیار بزرگ است: ${fa(n)} نامزد` + (parts.length ? ` (${parts.join('، ')})` : '') + '.';
+  }
+  return FLAG_FA[f.kind] ? (f.kind === 'chronology' ? FLAG_FA[f.kind] + ' — ' + f.message : FLAG_FA[f.kind]) : f.message;
+};
 let ME = { user: null, admin: false }, timer = null;
 const canMake = () => !!ME.user && ME.role !== 'viewer';      // a viewer account (users.js) only reads
 let pageDirty = null;      // a step with unsaved work sets it (() => true while unsaved): the page is then not redrawn under it
@@ -578,7 +592,7 @@ const panels = {
         S.stale ? el('div', { class: 'help warnbox' }, 'بخش‌های حدیث‌ها یا بخش‌های «در جستجو» از آخرین جستجو عوض شده‌اند. نامزدها با بخش‌های تازه دوباره سنجیده شده‌اند، اما نامزدهای تازه‌ای که این بخش‌ها می‌یابند فقط با «جستجوی دوباره» پیدا می‌شوند.') : null,
         edit ? el('div', { class: 'toolbar' }, el('button', { class: searched ? '' : 'primary', onclick: () => searched && nominees.length ? researchModal() : pressSearch('rebuild') },
           searched ? 'جستجوی دوباره با بخش‌های تیک‌خورده…' : 'جستجو با بخش‌های تیک‌خورده')) : null,
-        S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f)))),
+        S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f, S)))),
       narratorsBox(c, VERS),
       card(['نامزدها: حدیث‌هایی که بخشی از بخش‌های حدیث‌ها را دارند', searchHelp], help('step2.candidates'),
         el('p', { class: 'muted small' }, 'هر نامزد بخش‌به‌بخش با بخش‌های حدیث‌ها سنجیده شد (بی‌توجه به ترتیب بخش‌ها) و سامانه دسته‌ای پیشنهاد کرد. شاهدهایی که تیک می‌زنید ورودی مرحله‌های بعدند: هم‌ترازی متن‌ها، خواندن سندها و ساخت شجره. چهار دسته‌ی نخست از پیش تیک خورده‌اند؛ تصمیم با شماست. '

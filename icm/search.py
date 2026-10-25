@@ -131,7 +131,7 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
             if w == seed or w in scored:
                 del new_pool[w]
         n_cand = len(new_pool)
-        batch = _score_pool(seed, s_tok, s_spans, n_seed, new_pool, p, scored, flags, texts)
+        batch = _score_pool(seed, s_tok, s_spans, n_seed, new_pool, p, scored, flags, texts, rnd)
         rounds_info.append(dict(round=rnd, n_candidates=n_cand, n_scored=batch["n_scored"],
                                 n_dropped=batch["n_dropped"], n_witness_like=batch["n_witness_like"]))
         if not retrieve or rnd == int(p["rounds"]):
@@ -153,7 +153,7 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
                     copies=[c["wid"] for c in cands if c.get("copy_of") == seed])
     cands = [c for c in cands if c.get("copy_of") != seed]
     if len(cands) > 300:
-        flags.append(dict(kind="family_large", ref=None, message=f"{len(cands)} candidates"))
+        flags.append(dict(kind="family_large", ref=None, n=len(cands), message=f"{len(cands)} candidates"))
     return dict(
         seed=seed_out, tokens=s_tok, seed_tokens=s_tok_seed,
         clauses=[dict(i=q["i"], span=list(s_spans[q["i"]]), text=q["text"], members=q["members"]) for q in parts],
@@ -230,11 +230,11 @@ def _generate(wid: str, tok: List[str], parts: Iterable[Tuple[int, int, int]], p
 
 
 def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[str, dict], p: dict,
-                scored: Dict[str, dict], flags: List[dict], texts: Optional[dict] = None) -> dict:
+                scored: Dict[str, dict], flags: List[dict], texts: Optional[dict] = None, rnd: Optional[int] = None) -> dict:
     order = sorted(pool, key=lambda w: (-len(pool[w]["signals"]), -pool[w]["nq"]))
     capped = len(order) > p["pool_max"]
     if capped:
-        flags.append(dict(kind="pool_capped", ref=None,
+        flags.append(dict(kind="pool_capped", ref=None, n=len(order), kept=p["pool_max"], round=rnd,
                           message=f"{len(order)} candidates; the {p['pool_max']} with most signals were scored"))
         order = order[:p["pool_max"]]
     seed_grams = grams(" ".join(s_tok), p["gram_n"])
