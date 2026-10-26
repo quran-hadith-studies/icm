@@ -357,7 +357,15 @@ function headSteps(tabs, extra) {
 }
 /* remove a project with everything in it (decisions, versions, results); asks first */
 async function deleteProject(pid, title, after) {
-  if (!confirm(`پروژه‌ی «${title}» با همه‌ی داده‌هایش (تصمیم‌ها، نسخه‌ها و نتیجه‌ها) برای همیشه حذف شود؟ این کار برگشت‌پذیر نیست.`)) return;
+  const q = await api('/project/' + pid).catch(() => null);                     // what goes with it, when it can be told
+  const nv = q && q.branches && q.branches.versions ? q.branches.versions.length : null, nr = q && q.runs ? q.runs.length : null;
+  const yes = await ask({
+    title: `حذف پروژه‌ی «${title}»؟`, danger: true, yes: 'بله، برای همیشه حذف شود', no: 'نه، نگه‌اش دار',
+    body: [el('p', {}, `همه‌ی داده‌های این پروژه پاک می‌شود: تصمیم‌ها${nv ? `، ${fa(nv)} نسخه` : '، نسخه‌ها'}${nr ? `، ${fa(nr)} اجرا` : '، اجراها'} و نتیجه‌ها.`),
+      el('p', { style: 'color:var(--bad)' }, 'این کار برگشت‌پذیر نیست.'),
+      el('p', { class: 'small muted' }, 'اگر فقط می‌خواهید نتیجه‌ها را بردارید، از ☰ نسخه‌ای را حذف کنید؛ برای نگه‌داشتن یک کپی، نخست از پروژه «دانلود» بگیرید.')],
+    check: 'می‌دانم که این پروژه با همه‌ی داده‌هایش برای همیشه از بین می‌رود.' });
+  if (!yes) return;
   try { await post(`/project/${pid}/delete`, {}); } catch (e) { alert(e.message); return; }
   cache.clear(); await after();
 }
@@ -413,7 +421,7 @@ function versionsModal(pid, step) {
           !isA && b.current_run ? el('button', { class: 'small', title: 'بی‌آنکه فعال شود، فقط‌خواندنی', onclick: () => { closeModal(); go(stepUrl(pid, b.current_run, step)); } }, 'دیدن') : null,
           can ? el('button', { class: 'small', title: 'نسخه‌ی تازه‌ای با همه‌ی تصمیم‌های این نسخه', onclick: () => { base.value = b.id; name.value = `رونوشت ${b.name}`.slice(0, 60); name.focus(); name.select(); } }, 'رونوشت') : null,
           can ? el('button', { class: 'small', onclick: rename }, 'تغییر نام') : null,
-          can && !isA ? el('button', { class: 'small danger', onclick: () => confirm(`نسخه‌ی «${b.name}» حذف شود؟`) && act(`/${b.id}/delete`) }, 'حذف') : null)));
+          can && !isA ? el('button', { class: 'small danger', onclick: async () => { if (await ask({ title: `حذف نسخه‌ی «${b.name}»؟`, danger: true, yes: 'بله، این نسخه حذف شود', no: 'نه', body: [el('p', {}, 'تصمیم‌ها و اجراهای این نسخه پاک می‌شود؛ نسخه‌های دیگر دست نمی‌خورند. برگشت‌پذیر نیست.')] })) { try { await post(`/project/${pid}/versions/${b.id}/delete`, {}); } catch (e) { alert(e.message); } } versionsModal(pid, step); } }, 'حذف') : null)));
     };
     box.replaceChildren(el('h3', {}, 'نسخه‌ها ', help('versions', false, true)),
       el('div', { class: 'tscroll' }, el('table', {}, el('thead', {}, el('tr', {}, ['نام', 'بر پایه‌ی', 'ساخته‌شده', 'آخرین تغییر', 'مرحله', ''].map(t => el('th', {}, t)))),
