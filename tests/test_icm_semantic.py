@@ -89,6 +89,20 @@ def test_the_search_takes_hadiths_found_only_by_meaning(index, monkeypatch):
     assert "v02:2" in pool and "q:sem" in pool["v02:2"]["signals"] and 0.3 <= pool["v02:2"]["sem"] <= 1.0
     assert "v02:1" not in pool                                             # a source hadith is not its own candidate
     assert queries and all(q["kind"] == "sem" for q in queries) and not flags
+    hits = pool["v02:2"]["sem_hits"]                                      # which part of the sources matched, how well, where
+    assert set(hits) <= {0, 1, -1} and all(0.3 <= cos <= 1.0 and first == 0 for cos, first in hits.values())
+
+
+def test_the_matching_passage_of_a_long_text_is_found_and_coloured():
+    raw = "<b>" + " ".join(f"كلمة{i}" for i in range(100)) + "</b>"
+    a, b = semantic.chunk_range(raw, 48)                                   # the chunk that starts at word 48 has 64 words
+    text = search.strip_tags(raw)
+    assert text[a:b].split()[0] == "كلمة48" and len(text[a:b].split()) == 52 and text[a:b].split()[-1] == "كلمة99"
+    assert semantic.chunk_range(raw, 500) is None
+    S = dict(seed=dict(wid="v02:9", matn="x"), clauses=[dict(i=0, span=[0, 1], members={"v02:9": [0, 1]})], tokens=["x"], cuts={},
+             candidates=[dict(wid="v02:7", signals=["q:sem"], matn=raw, n_tokens=100, parts=[], sem_hits=[dict(clause=0, cos=0.8, first=48)])])
+    m = search.with_marks(S)["candidates"][0]["marks"]
+    assert m and m[0][2] == 0 and m[0][0] == a and m[-1][1] == b
 
 
 def test_a_broken_index_does_not_fail_the_search(index, monkeypatch):

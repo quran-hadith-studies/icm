@@ -556,6 +556,9 @@ def test_search_is_a_button_hadiths_can_be_added_edited_and_seeded_and_a_second_
         P = c.get(f"/icm/api/project/{pid}").json()["project"]
         assert P["status"] == "draft" and P["step"] == "selection"                              # the ticks are gone: step 2 waits again
         assert c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"go": True, "mode": "nope"}}, headers=H("alice")).status_code == 400
+        for bad in ({"sem_min": 0.2}, {"sem_min": "x"}, {"sem_k": 0}, {"sem_k": 500}, {"sem_k": True}):          # the meaning search's knobs have limits
+            assert c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"go": True, **bad}}, headers=H("alice")).status_code == 400
+        assert c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"go": True, "mode": "rebuild", "sem_min": 0.6, "sem_k": 10}}, headers=H("alice")).status_code == 200
     finally:
         shutil.rmtree(d)
 

@@ -756,6 +756,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             mode = pl.get("mode") or "rebuild"
             if mode not in ("rebuild", "selected", "all"):
                 raise HTTPException(400, "mode must be rebuild, selected or all")
+            sm, sk = pl.get("sem_min"), pl.get("sem_k")
+            num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)
+            if not ((sm is None or (num(sm) and 0.5 <= sm <= 0.95)) and (sk is None or (isinstance(sk, int) and not isinstance(sk, bool) and 1 <= sk <= 100))):
+                raise HTTPException(400, "sem_min must be between 0.5 and 0.95 and sem_k between 1 and 100")
             keep: list = []
             if S is not None and S.get("searched") is not False:
                 if mode == "all":
@@ -765,7 +769,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             cl = pdec.get("seed") or None
             ret = dict(legacy=False, n=(ret or {}).get("n", 0) + 1, clauses=cl, join=pdec.get("join"), part_query=pq, extra=[],
                        keep=sorted(set(keep) - {first})[:5000], seeds=seeds, **({"anchor": first} if first != p["seed"] else {}),
-                       **({"lex": config.LEX_VERSION, **({"sem": semantic.meta().get("model") or True} if semantic.available() else {})}
+                       **({"lex": config.LEX_VERSION, **({"sem": semantic.meta().get("model") or True, **({"sem_min": round(sm, 2)} if sm is not None and round(sm, 2) != 0.75 else {}),
+                                                           **({"sem_k": sk} if sk is not None and sk != 40 else {})} if semantic.available() else {})}
                           if lex.available() else {}))       # the press asks the root index too, and the semantic one, when there are
             if mode == "rebuild":
                 out["_reset"] = True

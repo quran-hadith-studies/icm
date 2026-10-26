@@ -128,7 +128,8 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
                 _generate(src_wid, src_tok, src_parts, p, rnd, new_pool, queries)
         elif rnd == 1:
             for w, d in (prior or {}).items():
-                new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"), sem=d.get("sem"))
+                new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"), sem=d.get("sem"),
+                                sem_hits={h["clause"]: (h["cos"], h["first"]) for h in d.get("sem_hits") or ()})
         if retrieve and rnd == 1 and p.get("sem") and semantic.available():
             _semantic(src, own_parts, [seed, *seeds], p, new_pool, queries, flags)
         for w in extra_ids:
@@ -320,13 +321,13 @@ def _semantic(src: dict, own_parts, order: Sequence[str], p: dict, pool: Dict[st
         return
     t0 = time.time()
     try:
-        res = semantic.neighbours(texts, k=max(ks), min_cos=p["sem_min"])
+        res = semantic.neighbours(texts, k=max(ks), min_cos=p["sem_min"], chunks=True)
     except Exception as e:                                   # a missing or broken index must not fail the search
         flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {e}"))
         return
     for (w, c), k, hits in zip(tags, ks, res):
         n_new = 0
-        for wid, cos in hits[:k]:
+        for wid, cos, first in hits[:k]:
             if wid in src:
                 continue
             d = pool.setdefault(wid, dict(signals=set(), nq=0, round=1, via=None))
@@ -334,8 +335,19 @@ def _semantic(src: dict, own_parts, order: Sequence[str], p: dict, pool: Dict[st
             d["signals"].add("q:sem")
             d["nq"] += 1
             d["sem"] = max(d.get("sem") or 0.0, cos)
+            if cos > d.setdefault("sem_hits", {}).get(c, (0.0, 0))[0]:      # per part of the sources (-1: all parts together): the best
+                d["sem_hits"][c] = (cos, first)
         queries.append(dict(round=1, source=w, clause=c, kind="sem", corpus="v02+kg", expr=texts[tags.index((w, c))][:90], hits=min(len(hits), k),
                             capped=len(hits) >= k, new=n_new))
+
+
+def _shown(matn: str, sem_hits: List[dict]) -> int:
+    """How many characters of a candidate's text are kept: 1500, or more when a part matched in it by meaning lies further on."""
+    end = 0
+    for h in sem_hits:
+        r = semantic.chunk_range(matn, h["first"]) if h["clause"] >= 0 else None
+        end = max(end, r[1] + 20 if r else 0)
+    return min(max(1500, end + len(matn) - len(strip_tags(matn))), 6000)
 
 
 def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[str, dict], p: dict,
@@ -421,6 +433,7 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
         cls, score = classify(res, n_seed, len(c_tok))
         score["share_grams"] = round(share, 3)
         sem = pool[w].get("sem")
+        sem_hits = [dict(clause=c, cos=round(v[0], 3), first=v[1]) for c, v in sorted((pool[w].get("sem_hits") or {}).items(), key=lambda kv: -kv[1][0])]
         if sem is not None:
             score["sem"] = round(sem, 3)
             if cls in ("different", "partial") and not any(g.startswith(("q:", "rel:", "ref")) and g != "q:sem" for g in pool[w]["signals"]):
@@ -440,10 +453,12 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
             no=rec.get("no"), suggested=cls, score=score, parts=res["parts"],
             signals=sorted(pool[w]["signals"]), round=pool[w]["round"], via=pool[w]["via"],
             window=window, window_text=" ".join(c_tok[window[0]:window[1]]), reference=is_reference(rec),
-            n_tokens=len(c_tok), matn=rec["matn"] if "seed" in pool[w]["signals"] else rec["matn"][:1500], matn_len=len(rec["matn"]),
+            n_tokens=len(c_tok), matn=rec["matn"] if "seed" in pool[w]["signals"] else rec["matn"][:_shown(rec["matn"], sem_hits)], matn_len=len(rec["matn"]),
             sanad=(rec["sanad"] or "")[:800],
             norm_hash=hashlib.sha1((" ".join(c_tok) + "|" + norm(rec["sanad"] or "")).encode()).hexdigest()[:16],
             text_hash=hashlib.sha1((" ".join(c_tok) + ("|ref:" + w if pt is not None else "")).encode()).hexdigest()[:16])
+        if sem_hits:
+            scored[w]["sem_hits"] = sem_hits
         if pt is not None:
             scored[w]["ref"] = pt
         if texts and w in texts:
@@ -602,5 +617,12 @@ def with_marks(S: dict) -> dict:
                 for j in range(x, min(y, len(lab))):
                     if lab[j] < 0:
                         lab[j] = part["clause"]
+            known = {c["i"] for c in S["clauses"]}
+            offs = token_offsets(cand["matn"])
+            for h in sorted(cand.get("sem_hits") or (), key=lambda h: -h["cos"]):         # where a part matched by its meaning
+                r = semantic.chunk_range(cand["matn"], h["first"]) if h["clause"] in known else None
+                for j, (a, b) in enumerate(offs[:len(lab)]):
+                    if r and lab[j] < 0 and a >= r[0] and b <= r[1]:
+                        lab[j] = h["clause"]
         cand["marks"] = marks(cand["matn"], lab)
     return S

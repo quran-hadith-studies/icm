@@ -584,8 +584,13 @@ const panels = {
           el('p', {}, el('b', {}, 'متن: '), 'جای هر بخش در متن نامزد به رنگ همان بخش است؛ متن بی‌رنگ در هیچ بخشی نیست (افزوده‌ی این روایت).'));
     const pressSearch = async mode => {
       const all = clausesSel.size === S.clauses.length;
-      await saveSearch(c, sdec, { part_query: all ? null : [...clausesSel], go: true, mode });
+      await saveSearch(c, sdec, { part_query: all ? null : [...clausesSel], go: true, mode, ...(semCtl.hidden ? {} : { sem_min: Number(semMin.value), sem_k: Number(semK.value) }) });
     };
+    /* the meaning search's two knobs: how close (cosine) and how many hadiths per part; they are part of the press */
+    const semMin = el('input', { type: 'number', min: '0.5', max: '0.95', step: '0.01', value: String((S.params && S.params.sem_min) || 0.75), style: 'width:5em', 'aria-label': 'کمترین هم‌معنایی' });
+    const semK = el('input', { type: 'number', min: '1', max: '100', step: '1', value: String((S.params && S.params.sem_k_part) || 40), style: 'width:5em', 'aria-label': 'شمار حدیث برای هر بخش' });
+    const semCtl = el('div', { hidden: true }, el('div', { class: 'small', style: 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0' },
+      help('step2.semantic'), 'جستجوی معنایی: هم‌معنایی دست‌کم', semMin, '(۰٫۵ تا ۰٫۹۵؛ کمتر = حدیث‌های بیشتر و نامرتبط‌تر) · تا', semK, 'حدیث برای هر بخش'));
     /* a second search: what becomes of the candidates already there (the hadiths the user added always stay) */
     const researchModal = () => {
       const nSel = nominees.filter(x => sel.has(x.wid)).length;
@@ -603,6 +608,7 @@ const panels = {
     };
     const VERS = await narratorVersions();
     const SI = STATIC ? {} : await api('/search-info').catch(() => ({}));            // what the search can do on this server (root index, meaning)
+    semCtl.hidden = !(SI.semantic && SI.lex);
     const srcsList = sourcesOf(S, sdec);
     main.replaceChildren(
       card(['حدیث‌ها و بخش‌هایشان', partsHelp()], help('step2.search'), el('details', { class: 'fullt' }, el('summary', { class: 'small' }, 'متن حدیث‌ها'), sourcesOf(S, sdec).map(h => hadithBlock(h, true))),
@@ -619,6 +625,7 @@ const panels = {
         seedPartsBox(S, c, pd, 'selection', sdec),
         S.stale ? el('div', { class: 'help warnbox' }, 'بخش‌های حدیث‌ها یا بخش‌های «در جستجو» از آخرین جستجو عوض شده‌اند. نامزدها با بخش‌های تازه دوباره سنجیده شده‌اند، اما نامزدهای تازه‌ای که این بخش‌ها می‌یابند فقط با «جستجوی دوباره» پیدا می‌شوند.') : null,
         edit && searched && SI.lex && !(S.params && S.params.lex) ? el('div', { class: 'small', style: 'color:var(--warn)' }, 'این جستجو پیش از جستجوی ریشه‌ای' + (SI.semantic ? ' و معنایی' : '') + ' انجام شده است؛ «جستجوی دوباره» از ' + (SI.semantic ? 'آن‌ها' : 'آن') + ' هم بهره می‌برد و واژه‌های هم‌ریشه را هم می‌یابد.') : null,
+        edit ? semCtl : null,
         edit ? el('div', { class: 'toolbar' }, el('button', { class: searched ? '' : 'primary', onclick: () => searched && nominees.length ? researchModal() : pressSearch('rebuild') },
           searched ? 'جستجوی دوباره با بخش‌های تیک‌خورده…' : 'جستجو با بخش‌های تیک‌خورده')) : null,
         S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f, S)))),
@@ -2646,6 +2653,13 @@ function rowActs(c, sdec, x, kind) {
     x.ref || x.wid.includes('~') ? null : el('button', { class: 'small', onclick: () => editTextModal(c, sdec, x) }, '✎ ویرایش متن'), rm);
 }
 
+/* a hadith found by meaning: for each part of the sources the cosine of its closest passage here (the passage is coloured in the text) */
+function semParts(x, S) {
+  const known = new Set(S.clauses.map(cl => cl.i));
+  return el('div', {}, x.sem_hits.filter(h => h.clause < 0 || known.has(h.clause)).map(h => el('div', { class: 'small', title: h.clause < 0 ? 'همه‌ی بخش‌های تیک‌خورده با هم' : 'نزدیک‌ترین قطعه‌ی این حدیث به این بخش' },
+    h.clause < 0 ? 'همه‌ی بخش‌ها' : swatch(h.clause), ' ', fa(h.cos.toFixed(2)))));
+}
+
 function candRow(x, S, sel, can, upd, refs, openRef, acts) {
   const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', 'q:near': 'واژه‌های کمیابِ نزدیک هم', 'q:root': 'دو ریشه‌ی کمیاب', 'q:rnear': 'ریشه‌های نزدیک هم', 'q:rphrase': 'عبارت ریشه‌ای', 'q:sem': 'هم‌معنایی', user: 'افزوده‌ی کاربر', seed: 'مبدأ دیگر' };
   return el('tr', { class: sel.has(x.wid) ? 'on' : '' },
@@ -2661,7 +2675,7 @@ function candRow(x, S, sel, can, upd, refs, openRef, acts) {
       el('div', { class: 'small' }, 'از این متن ', pct(x.score.cov_cand)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_cand}%` })),
       x.score.r ? el('div', { class: 'small muted', title: 'واژه‌هایی که در این متن به شکل دیگری (هم‌ریشه) آمده‌اند' }, `${fa(x.score.r)} واژه هم‌ریشه`) : null,
       x.score.sem != null ? el('div', { class: 'small', title: 'شباهت معنایی (کسینوس) با نزدیک‌ترین بخش یا کل بخش‌های حدیث‌ها' }, 'هم‌معنایی ', fa(x.score.sem.toFixed(2))) : null),
-    el('td', {}, strip(x.parts, S)),
+    el('td', {}, x.suggested === 'semantic' && x.sem_hits && x.sem_hits.length ? semParts(x, S) : strip(x.parts, S)),
     el('td', { class: 'txt' }, x.marks ? marked(x.matn, x.marks, 'ar matn', S) : el('div', { class: 'ar matn' }, x.matn),
       x.matn_len > x.matn.length ? el('div', { class: 'small muted' }, `… (${fa(x.matn_len)} نویسه، ${fa(x.matn.length)} نخست نمایش داده شد)`) : null,
       fullDetails(x.wid, null, 'سند و متن کامل')));

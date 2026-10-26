@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -123,19 +124,36 @@ def wid(key: int) -> str:
     return f"v02:{key}" if key > 0 else f"kg:{-key}"
 
 
-def neighbours(texts: Sequence[str], k: int = 60, nprobe: Optional[int] = None, min_cos: float = 0.0) -> List[List[Tuple[str, float]]]:
-    """For each text, the hadiths nearest to it by meaning: [(wid, cosine)] best first (with the hadiths of identical text)."""
+def neighbours(texts: Sequence[str], k: int = 60, nprobe: Optional[int] = None, min_cos: float = 0.0, chunks: bool = False) -> list:
+    """For each text, the hadiths nearest to it by meaning: [(wid, cosine)] best first (with the hadiths of identical text);
+    ``chunks``: [(wid, cosine, first word of the chunk that matched)], the word counted as ``word_spans`` does."""
     ix = index()
     out = []
     for q in embed(texts):
         hits = []
-        for key, cos, _ in ix.search(q, k, nprobe or config.SEM_NPROBE):
+        for key, cos, first in ix.search(q, k, nprobe or config.SEM_NPROBE):
             if cos < min_cos:
                 continue
-            hits.append((wid(key), cos))
-            hits += [(wid(d), cos) for d in ix.dups.get(key, ())]
+            for d in (key, *ix.dups.get(key, ())):
+                hits.append((wid(d), cos, first) if chunks else (wid(d), cos))
         out.append(hits)
     return out
+
+
+def word_spans(raw: str) -> List[Tuple[int, int]]:
+    """Character range of every word of ``emb_text(raw)`` in ``strip_tags(raw)`` (the words a chunk is counted in)."""
+    from .build.vec import _HAR
+    from .text import strip_tags
+    return [(m.start(), m.end()) for m in re.finditer(r"[^\s\u200c]+", strip_tags(raw or "")) if _HAR.sub("", m.group(0))]
+
+
+def chunk_range(raw: str, first: int) -> Optional[Tuple[int, int]]:
+    """Character range (in ``strip_tags(raw)``) of the chunk that starts at word ``first``."""
+    from .build.vec import CHUNK_WORDS
+    sp = word_spans(raw)
+    if first >= len(sp):
+        return None
+    return sp[first][0], sp[min(first + CHUNK_WORDS, len(sp)) - 1][1]
 
 
 def find(q: str, scope: str, names: Sequence[str], limit: int, offset: int) -> dict:

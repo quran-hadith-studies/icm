@@ -49,7 +49,7 @@ def _ret_key(seed: str, ret: dict) -> str:
     if ret.get("legacy"):                                     # the key every search had before «جستجو» became a button
         return h("search", seed, sp, sorted(ret.get("extra") or []), *([keep] if keep else []), STAGE_VERSIONS["search"], config.DATA_VERSION)
     return h("search", seed, sp, [], *([keep] if keep else []), dict(n=ret["n"], seeds=sorted(ret.get("seeds") or [])), STAGE_VERSIONS["search"], config.DATA_VERSION,
-             *([dict(lex=ret["lex"], **({"sem": ret["sem"]} if ret.get("sem") else {}))] if ret.get("lex") else []))     # (only a search pressed with the root index has it: the keys of the others stay)
+             *([dict(lex=ret["lex"], **({"sem": ret["sem"]} if ret.get("sem") else {}), **{k: ret[k] for k in ("sem_min", "sem_k") if ret.get(k) is not None})] if ret.get("lex") else []))     # (only a search pressed with the root index has it: the keys of the others stay)
 
 
 def _search(pid: str, p: dict, sdec: dict, pdec: dict, seldec: Optional[dict], hashes: Dict[str, str]) -> dict:
@@ -78,6 +78,10 @@ def _search(pid: str, p: dict, sdec: dict, pdec: dict, seldec: Optional[dict], h
         rsp["lex"] = True                                      # roots in the queries and in the scoring (icm/lex.py)
     if ret.get("sem"):
         rsp["sem"] = ret["sem"]                                # hadiths of the same meaning (icm/semantic.py); its cut-off is part of the key
+        if ret.get("sem_min") is not None:
+            rsp["sem_min"] = ret["sem_min"]                    # (the user's own cut-off and number per part, when not the usual ones)
+        if ret.get("sem_k") is not None:
+            rsp["sem_k_part"], rsp["sem_k_all"] = ret["sem_k"], 2 * ret["sem_k"]
     R = _get_or_run(pid, "search", k_ret, lambda: dict(search_mod.run(rseed, rsp, ret.get("extra") or [], ret.get("keep") or [],
                                                                       seeds=ret.get("seeds") or []), searched=True, stale=False), hashes)
     if (seed, cur["clauses"], cur["join"], cur["part_query"], cur["extra"], cur["keep"], cur["seeds"]) == (rseed, ret.get("clauses"), ret.get("join"), ret.get("part_query"), sorted(ret.get("extra") or []),
@@ -88,11 +92,11 @@ def _search(pid: str, p: dict, sdec: dict, pdec: dict, seldec: Optional[dict], h
     for c in R["candidates"]:
         sig = [g for g in c["signals"] if g not in ("user", "seed")]       # what the user added or named is read from the decision now
         for w in [c["wid"], *c.get("copies", [])]:
-            prior[w] = dict(signals=sig, round=c.get("round"), via=c.get("via"), sem=(c.get("score") or {}).get("sem"))
+            prior[w] = dict(signals=sig, round=c.get("round"), via=c.get("via"), sem=(c.get("score") or {}).get("sem"), sem_hits=c.get("sem_hits"))
     stale = (seed, cur["clauses"], cur["join"], cur["part_query"]) != (rseed, ret.get("clauses"), ret.get("join"), ret.get("part_query"))
     k_fin = h("rescore", k_ret, sp, cur["extra"], cur["keep"], cur["seeds"], cur["edits"], STAGE_VERSIONS["search"])
     if ret.get("lex"):
-        sp = dict(sp, lex=True, **({"sem": ret["sem"]} if ret.get("sem") else {}))        # (the press's rules score the re-cut too; k_ret has it already)
+        sp = dict(sp, lex=True, **({"sem": ret["sem"]} if ret.get("sem") else {}), **({"sem_min": ret["sem_min"]} if ret.get("sem_min") is not None else {}))        # (the press's rules score the re-cut too; k_ret has it already)
     def rescore():
         out = search_mod.run(seed, sp, cur["extra"], cur["keep"], seeds=cur["seeds"], prior=prior, retrieve=False, texts=cur["edits"])
         # what the corpora were asked and found stays that of the press (its part numbers are the old parts' while ``stale``)
