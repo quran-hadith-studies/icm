@@ -44,6 +44,8 @@ MEANING = N("معناه")
 ABRIDGED = [tuple(N(x).split()) for x in ("فذکر الحدیث", "وذکر الحدیث", "ثم ذکر الحدیث", "وساق الحدیث", "فساق الحدیث", "ثم ساق الحدیث",
                                           "الحدیث بطوله", "فذکر القصه", "وذکر القصه", "الی آخر الحدیث")]      # «إلى آخره» is as often «to its end»
 # words that may stand before a formula at the start of a matn: the speaker formula and «he mentioned»
+# the token a formula can start with: a record without any has no reference (``split`` returns early)
+TRIGGERS = SAME | SIMILAR | {MEANING} | {a for a, _ in PAIRS} | {p[0] for p in ABRIDGED}
 LEAD = {N(x) for x in ("قال فقال وقال قالا عن عنه عنها عنهما النبی رسول الله صلی علیه علیهم علیهما وآله آله وسلم سلم السلام "
                         "ع ص و ف ذکر فذکر وذکر ثم باسناده باسناد بهذا هذا الاسناد بالاسناد الحدیث مرفوعا یرفعه").split()}
 # words that open a second isnad inside a record
@@ -131,7 +133,10 @@ def split(rec: dict) -> dict:
     order; k = 0 is the record itself when it is a lone reference, inner references are numbered from 1."""
     sanad, matn = strip_tags(rec.get("sanad") or ""), strip_tags(rec.get("matn") or "")
     full = (sanad + " ¶ " + matn) if sanad.strip() else matn
-    toks, offs = tokens(full), token_offsets(full)
+    toks = tokens(full)
+    if not any(t in TRIGGERS and _marker(toks, i) for i, t in enumerate(toks)):      # no formula anywhere: nothing to find (the common case)
+        return dict(main=matn, refs=[])
+    offs = token_offsets(full)
     ns = len(tokens(sanad)) if sanad.strip() else 0
     m0 = len(full) - len(matn)                       # where the matn starts in ``full``
     raw = lambda a, b: full[offs[a][0]:offs[b - 1][1]].strip(" :،,.؛«»\"'") if a < b <= len(offs) else ""

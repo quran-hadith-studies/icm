@@ -42,6 +42,7 @@ import os
 from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from . import lex
 from .msa import char_ratio, star_align
 from .similarity import FUZZ, align_clause, align_pair, conj_groups, match_key
 from .text import norm, tokens
@@ -55,14 +56,23 @@ SLACK = 2           # extra witness tokens a slot may take beyond the clause's u
 END_GAP = -0.15     # cost per column of a leading/trailing gap in the grid: no opening cost (segments are cut)
 
 
+def _keyf():
+    """The key two words are compared by when a clause is placed: words of one root are one word (``lex.loose_key``)."""
+    return lex.loose_key if lex.available() else match_key
+
+
 def word_sim(a: str, b: str) -> float:
     """Similarity of two words for the grids: clitic/article variants are equal, number words
-    (ستة / سبعة / خمسة) line up with each other."""
+    (ستة / سبعة / خمسة) line up with each other, and so do two forms of one root («يصلي» / «صلاة»): they stand in
+    one column as two readings of it instead of an omission and an addition."""
     if match_key(a) == match_key(b):
         return 1.0
     if parse_arabic_number(a) is not None and parse_arabic_number(b) is not None:
         return 0.85
-    return char_ratio(a, b)
+    r = char_ratio(a, b)
+    if r < 0.85 and lex.available() and lex.same_root_loose(a, b):
+        return 0.85
+    return r
 
 
 def _core(pairs: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
@@ -225,7 +235,7 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
         for c in clause_defs:
             if c["kind"] == "seed" and (c["i"], w["wid"]) in member:        # a source hadith has its own cut of the part
                 continue
-            r = align_clause(c["tokens"], w["tokens"])
+            r = align_clause(c["tokens"], w["tokens"], keyf=_keyf())
             core = _core([(i, j) for i, j in r["pairs"] if r["match_a"][i]]) if r["m"] else []
             found[c["i"]] = (r, core)
         cores = sorted((core[0][1], core[-1][1] + 1) for _, core in found.values() if core)
@@ -237,7 +247,7 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
                     segs[(c["i"], w["wid"])] = dict(state="present", cov=1.0, tokens=list(c["tokens"]),
                                                     aligned=list(c["tokens"]), span=None if w["wid"] == seed else [x - w["w0"], y - w["w0"]])
                 else:                                                   # its words are this hadith's own (the part's words are another's)
-                    r = align_pair(c["tokens"], mine)
+                    r = align_pair(c["tokens"], mine, _keyf())
                     segs[(c["i"], w["wid"])] = dict(state="present", cov=round(sum(r["match_a"]) / max(len(c["tokens"]), 1), 3),
                                                     tokens=list(mine), aligned=r["aligned_b"], span=[x - w["w0"], y - w["w0"]])
                 continue
@@ -292,7 +302,7 @@ def run(search: dict, selected: Sequence[str], parts: Optional[dict] = None) -> 
             if not toks:
                 flags.append(dict(kind="part_unused", ref=f"{k}|{wid}", message="a slot outside the witness's text"))
                 continue
-            r = align_pair(c["tokens"], toks)
+            r = align_pair(c["tokens"], toks, _keyf())
             segs[(c["i"], w["wid"])] = dict(state="present", cov=round(sum(r["match_a"]) / max(len(c["tokens"]), 1), 3),
                                             span=[v[0] - w["w0"], v[1] - w["w0"]], tokens=list(toks),
                                             aligned=r["aligned_b"], user=True)
@@ -584,7 +594,7 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
         n = len(w["tokens"])
         covered = [False] * n
         for c in ([] if w.get("src") else clause_defs):          # the words a source hadith left out of its parts are left out on purpose
-            r = align_clause(c["tokens"], w["tokens"])
+            r = align_clause(c["tokens"], w["tokens"], keyf=_keyf())
             if r["m"]:
                 mi = [i for i, f in enumerate(r["match_a"]) if f]
                 lo = max(0, r["span_b"][0] - mi[0])
@@ -614,7 +624,7 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
     clusters: List[dict] = []
     for wid, seg in runs:
         for cl in clusters:
-            r = align_pair(cl["rep"], seg)
+            r = align_pair(cl["rep"], seg, _keyf())
             if min(r["m"] / len(cl["rep"]), r["m"] / len(seg)) >= 0.6:
                 cl["members"][wid] = seg
                 if len(seg) > len(cl["rep"]):
@@ -624,7 +634,7 @@ def _discover_extras(clause_defs: List[dict], wits: List[dict]) -> dict:
             clusters.append(dict(rep=seg, members={wid: seg}))
     def resembles_clause(rep):
         for c in clause_defs:
-            r = align_pair(c["tokens"], rep)
+            r = align_pair(c["tokens"], rep, _keyf())
             if r["m"] / max(min(len(c["tokens"]), len(rep)), 1) >= 0.5:
                 return True
         return False

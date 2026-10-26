@@ -21,9 +21,9 @@ FIXTURE = os.path.join(config.HERE, "tests", "fixtures", "sitta_witnesses.json")
 NEAR_MISSES = ["kg:272683", "kg:268518"]      # «لا يدخل الجنة مكذب بقدر», a one-clause fragment
 
 
-def sitta() -> Dict:
+def sitta(params: Dict = None) -> Dict:
     fx = json.load(open(FIXTURE, encoding="utf-8"))
-    r = search.run(fx["seed"])
+    r = search.run(fx["seed"], params)
     by = {c["wid"]: c for c in r["candidates"]}
     for c in r["candidates"]:
         for w in c.get("copies", []):
@@ -38,7 +38,7 @@ def sitta() -> Dict:
                 candidates=len(r["candidates"]), seconds=r["seconds"])
 
 
-def consensus_oracle(n: int = 30, seed: int = 0) -> Dict:
+def consensus_oracle(n: int = 30, seed: int = 0, params: Dict = None) -> Dict:
     c = corpus.conn("consensus")
     sets = [r[0] for r in c.execute("select cid from cset where size between 3 and 30")]
     random.Random(seed).shuffle(sets)
@@ -48,7 +48,7 @@ def consensus_oracle(n: int = 30, seed: int = 0) -> Dict:
         wid = f"v02:{members[0]}"
         if corpus.get(wid) is None:
             continue
-        r = search.run(wid, dict(rounds=1))
+        r = search.run(wid, dict(rounds=1, **(params or {})))
         got = {c_["wid"] for c_ in r["candidates"]}
         for c_ in r["candidates"]:
             got.update(c_.get("copies", []))
@@ -151,3 +151,45 @@ def mentions(folds: int = 5) -> Dict:
     ok = sum(a[0] for a in acc.values())
     out["all"] = dict(n=n - none, precision=round(ok / max(n - none, 1), 4))
     return out
+
+
+def hard_pairs(n: int = 60, seed: int = 0, params: dict = None, lo: float = 0.05, hi: float = 0.45) -> Dict:
+    """The hard half of the oracle: pairs of one consensus set whose wording differs (a share of ``lo``..``hi`` of the
+    first's 8-grams is in the second), the second searched from the first. ``params`` go to ``search.run`` (``lex``, ``sem``...).
+    Reports the share of pairs found, the share found and pre-selected, and the pairs missed (for reading)."""
+    from .text import grams, norm
+    c = corpus.conn("consensus")
+    sets = [r[0] for r in c.execute("select cid from cset where size between 2 and 12")]
+    random.Random(seed).shuffle(sets)
+    pairs = []
+    for cid in sets:
+        if len(pairs) >= n:
+            break
+        ms = [f"v02:{r[0]}" for r in c.execute("select hid from membership where cid=?", (cid,))]
+        recs = corpus.get_many(ms)
+        g = {w: grams(" ".join(norm(r["matn"]).split()), 8) for w, r in recs.items() if len(norm(r["matn"]).split()) >= 8}
+        best = None
+        for a in g:
+            for b in g:
+                if a != b and g[a]:
+                    sh = len(g[a] & g[b]) / len(g[a])
+                    if lo <= sh <= hi and (best is None or sh < best[0]):
+                        best = (sh, a, b)
+        if best:
+            pairs.append(best)
+    found = pre = sem_only = 0
+    missed = []
+    for sh, a, b in pairs:
+        r = search.run(a, dict(rounds=1, **(params or {})))
+        by = {x["wid"]: x for x in r["candidates"]}
+        for x in r["candidates"]:
+            for w in x.get("copies", []):
+                by.setdefault(w, x)
+        if b in by:
+            found += 1
+            pre += bool(search.preselected(by[b]))
+            sem_only += by[b]["signals"] == ["q:sem"]
+        else:
+            missed.append((a, b, round(sh, 2)))
+    return dict(pairs=len(pairs), found=found, preselected=pre, found_only_by_meaning=sem_only, recall=round(found / max(len(pairs), 1), 3),
+                recall_preselected=round(pre / max(len(pairs), 1), 3), missed=missed[:20])

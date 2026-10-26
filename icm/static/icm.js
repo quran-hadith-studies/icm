@@ -130,10 +130,11 @@ window.ICMCloseModal = tryCloseModal;     // base.js calls it on Escape
 document.getElementById('modal-x').onclick = tryCloseModal;
 document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') tryCloseModal(); });
 const STATUS = { draft: 'منتظر تصمیم شما', running: 'در حال اجرا', finalized: 'نهایی', failed: 'خطا', awaiting: 'منتظر محاسبه' };
-const CLS = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت' };
+const CLS = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت', semantic: 'هم‌معنا' };
 const TIER = { exact: 'قطعی', high: 'بالا', medium: 'متوسط', low: 'پایین', derived: 'استنباطی', none: 'بی‌نامزد' };
 const STEPS = [['seed', '۱ حدیث‌ها'], ['selection', '۲ جستجو و انتخاب'], ['alignment', '۳ هم‌ترازی'], ['identities', '۴ راویان'], ['phylogeny', '۵ شجره'], ['analysis', '۶ تحلیل']];
 const FLAG_FA = {
+  semantic_unavailable: 'جستجوی معنایی انجام نشد؛ فقط جستجوی لفظی به کار رفت.',
   pool_capped: 'تعداد نامزدها بسیار زیاد بود؛ فقط آن‌هایی که نشانه‌ی بیشتری داشتند سنجیده شدند.',
   seed_short: 'متن حدیث‌ها کوتاه است و جستجو کم‌اعتماد است.', family_large: 'خانواده بسیار بزرگ است.',
   heads_capped: 'تعداد سرزنجیره‌ها از حد گذشت؛ فقط پرشاهدترها نامزد منبع شدند.', units_capped: 'فقط آگاهی‌بخش‌ترین واحدهای تغییر نگه داشته شد.',
@@ -504,7 +505,8 @@ const panels = {
     const searched = S.searched !== false, edit = c.can && !STATIC;
     const sel = new Set(dec.selected && dec.selected.length ? dec.selected : S.candidates.filter(x => presel(x) || isMine(x)).map(x => x.wid));
     S.candidates.filter(x => x.signals.includes('seed')).forEach(x => sel.add(x.wid));        // a further seed is always a witness
-    const nominees = S.candidates.filter(x => !isMine(x)), added = S.candidates.filter(isMine);
+    const isSem = x => x.suggested === 'semantic';       // found only by its meaning: its own card, never pre-selected
+    const nominees = S.candidates.filter(x => !isMine(x) && !isSem(x)), semNom = S.candidates.filter(x => !isMine(x) && isSem(x)), added = S.candidates.filter(isMine);
     const show = new Set(['witness', 'variant', 'extended', 'abridged', 'partial']);
     let filter = '', onlyRefs = false;
     /* references («مثله / نحوه وزاد فيه …»): the texts their templates build, confirmed or edited here (parts.refs) */
@@ -513,7 +515,7 @@ const panels = {
       if (e) refs[x.wid] = e; else delete refs[x.wid];
       cache.clear(); closeModal(); draw(); }));
     const clausesSel = new Set(sdec.part_query || S.clauses.map(x => x.i));
-    const list = el('div'), addedList = el('div'), count = el('span', { class: 'muted' });
+    const list = el('div'), addedList = el('div'), semList = el('div'), count = el('span', { class: 'muted' }), semCount = el('span', { class: 'muted' });
     const byClass = {}; nominees.forEach(x => byClass[x.suggested] = (byClass[x.suggested] || 0) + 1);
     /* a ticked candidate is always listed, whatever its class: hidden it could not be unticked (a search re-run may move it to «متفاوت») */
     const shown = () => nominees.filter(x => (show.has(x.suggested) || sel.has(x.wid)) && (!onlyRefs || x.ref) && (!filter || (x.title || '').includes(filter) || x.matn.includes(filter)))
@@ -544,7 +546,8 @@ const panels = {
           const add = Object.fromEntries(auto.map(x => [x.wid, refEntry(x.ref, x.ref.text, x.ref.approx)]));
           await saveParts(c.pid, d => ({ refs: { ...d.refs, ...add } }), 'step 2: references confirmed as built');
           Object.assign(refs, add); cache.clear(); draw(); } }, 'تأیید متن خودکار همه') : null] : [])); };
-    const upd = () => { count.textContent = `${fa(nominees.filter(x => sel.has(x.wid)).length)} انتخاب‌شده از ${fa(nominees.length)} نامزد` + (added.length ? `؛ ${fa(added.filter(x => sel.has(x.wid)).length)} از ${fa(added.length)} حدیث افزوده` : ''); coverage(); refsUpd();
+    const upd = () => { semCount.textContent = `${fa(semNom.filter(x => sel.has(x.wid)).length)} انتخاب‌شده از ${fa(semNom.length)} حدیث هم‌معنا`;
+      count.textContent = `${fa(nominees.filter(x => sel.has(x.wid)).length)} انتخاب‌شده از ${fa(nominees.length)} نامزد` + (added.length ? `؛ ${fa(added.filter(x => sel.has(x.wid)).length)} از ${fa(added.length)} حدیث افزوده` : ''); coverage(); refsUpd();
       const h = hiddenSel();
       hidNote.replaceChildren(...(h.length ? [`${fa(h.length)} نامزدِ تیک‌خورده در دسته‌ای است که پیشنهاد نشده (${[...new Set(h.map(x => CLS[x.suggested]))].join('، ')}); بالای فهرست آمده‌اند تا اگر نمی‌خواهید، تیکشان را بردارید.`,
         ...(c.can ? [' ', el('button', { class: 'small', onclick: () => { h.forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک همه‌ی این‌ها')] : [])] : [])); };
@@ -554,14 +557,18 @@ const panels = {
       const acts = x => rowActs(c, sdec, x, null);
       list.replaceChildren(searched || nominees.length ? candTable(shown(), S, sel, c.can, upd, refs, openRef, acts)
         : el('p', { class: 'empty-state' }, edit ? 'هنوز جستجویی نشده است. بخش‌هایی را که می‌خواهید در پیکره پرسیده شوند تیک بزنید و «جستجو» را بزنید؛ یا خودتان حدیث بیفزایید.' : 'جستجویی نشده است.'));
+      semList.replaceChildren(semNom.length ? candTable(semNom, S, sel, c.can, upd, refs, openRef, acts)
+        : el('p', { class: 'muted small' }, 'حدیثی که فقط از راه معنا یافت شود و در فهرست بالا نباشد، نیست.'));
       addedList.replaceChildren(added.length ? candTable(added, S, sel, c.can, upd, refs, openRef, x => rowActs(c, sdec, x, x.signals.includes('seed') ? null : 'extra_ids')) : el('p', { class: 'muted small' }, 'هنوز حدیثی نیفزوده‌اید.'));
     };
-    const chips = Object.keys(CLS).map(k => el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => { ev.target.checked ? show.add(k) : show.delete(k); draw(); } }), ' ', el('span', { class: 'chip ' + k }, `${CLS[k]} ${fa(byClass[k] || 0)}`), ' '));
+    const chips = Object.keys(CLS).filter(k => k !== 'semantic').map(k => el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: show.has(k), onchange: ev => { ev.target.checked ? show.add(k) : show.delete(k); draw(); } }), ' ', el('span', { class: 'chip ' + k }, `${CLS[k]} ${fa(byClass[k] || 0)}`), ' '));
     const r1 = S.rounds[0] || {}, r2 = S.rounds[1];
     const nSig = sig => S.candidates.filter(x => x.signals.includes(sig)).length;
     const searchHelp = helpOf('جستجو چگونه انجام شد و دسته‌ها و ستون‌ها چه معنایی دارند؟',
 
           el('ol', {},
+            S.params && S.params.lex ? el('li', {}, `واژه‌های هم‌ریشه: ${fa(nSig('q:root') + nSig('q:rnear') + nSig('q:rphrase'))} نامزد را پرسش‌های ریشه‌ای یافتند (دو ریشه‌ی کمیاب با هم، سه ریشه‌ی نزدیک هم، عبارتی از ریشه‌ها) و واژه‌های پرسش‌ها با حرف‌های عطف و جر و «ال» هم جستجو شد؛ در سنجش نیز دو واژه‌ی هم‌ریشه («یقیم» و «اقیموا») یکی شمرده می‌شوند (${fa(S.candidates.filter(x => x.score && x.score.r).length)} نامزد دست‌کم یک واژه‌ی هم‌ریشه دارند).`) : null,
+            S.params && S.params.sem ? el('li', {}, `جستجوی معنایی: برای هر بخش و برای همه‌ی بخش‌ها با هم، نزدیک‌ترین حدیث‌ها از نظر معنا پرسیده شد؛ هر کدام که هم‌معنایی‌اش دست‌کم ${fa(S.params.sem_min)} بود نامزد شد، و آنچه جستجوی لفظی نیاورده بود در فهرست «هم‌معنا با واژگان دیگر» آمد (${fa(S.candidates.filter(x => x.suggested === 'semantic').length)} حدیث).`) : null,
             el('li', {}, `دور نخست: برای هر بخش، دو واژه‌ی کمیاب آن با هم و یکی دو عبارت سه‌واژه‌ای کمیاب در دو پیکره (v02 و گراف دانش اهل سنت) پرسیده شد (${fa(S.queries.filter(q => q.round === 1).length)} پرسش)، به‌علاوه‌ی گروه‌بندی‌های موجود: گروه/خوشه/مرتبط‌های نور (${fa(nSig('rel:noor_group') + nSig('rel:noor_cluster') + nSig('rel:noor_related'))} نامزد)، مجموعه‌های هم‌خوانی v02 (${fa(nSig('rel:consensus'))}) و گروه‌های گراف دانش (${fa(nSig('rel:kg_group'))}). ${fa(r1.n_candidates || 0)} نامزد پیدا شد.`),
             r2 ? el('li', {}, `دور دوم: از متن ${fa(Math.min(S.params.expand_max, S.candidates.filter(presel).length))} شاهدِ با عبارت‌بندی متفاوت دوباره جستجو شد تا روایت‌هایی که با بخش‌های حدیث‌ها واژه‌ی مشترک کمتری دارند هم پیدا شوند (${fa(r2.n_candidates)} نامزد خام، ${fa(r2.n_scored)} ماند).`) : null,
             el('li', {}, `پالایش: نامزدی که کمتر از ${fa(Math.round(S.params.prefilter * 100))}٪ از رشته‌حرف‌های بخش‌های حدیث‌ها را داشت و هیچ بخشی را هم کامل نداشت، کنار رفت (${fa(S.rounds.reduce((t, r) => t + r.n_dropped, 0))} نامزد). متن‌های کاملاً یکسان یک ردیف شدند.`)),
@@ -595,6 +602,7 @@ const panels = {
         el('div', { class: 'toolbar' }, el('button', { onclick: closeModal }, 'انصراف'))));
     };
     const VERS = await narratorVersions();
+    const SI = STATIC ? {} : await api('/search-info').catch(() => ({}));            // what the search can do on this server (root index, meaning)
     const srcsList = sourcesOf(S, sdec);
     main.replaceChildren(
       card(['حدیث‌ها و بخش‌هایشان', partsHelp()], help('step2.search'), el('details', { class: 'fullt' }, el('summary', { class: 'small' }, 'متن حدیث‌ها'), sourcesOf(S, sdec).map(h => hadithBlock(h, true))),
@@ -610,6 +618,7 @@ const panels = {
           })),
         seedPartsBox(S, c, pd, 'selection', sdec),
         S.stale ? el('div', { class: 'help warnbox' }, 'بخش‌های حدیث‌ها یا بخش‌های «در جستجو» از آخرین جستجو عوض شده‌اند. نامزدها با بخش‌های تازه دوباره سنجیده شده‌اند، اما نامزدهای تازه‌ای که این بخش‌ها می‌یابند فقط با «جستجوی دوباره» پیدا می‌شوند.') : null,
+        edit && searched && SI.lex && !(S.params && S.params.lex) ? el('div', { class: 'small', style: 'color:var(--warn)' }, 'این جستجو پیش از جستجوی ریشه‌ای' + (SI.semantic ? ' و معنایی' : '') + ' انجام شده است؛ «جستجوی دوباره» از ' + (SI.semantic ? 'آن‌ها' : 'آن') + ' هم بهره می‌برد و واژه‌های هم‌ریشه را هم می‌یابد.') : null,
         edit ? el('div', { class: 'toolbar' }, el('button', { class: searched ? '' : 'primary', onclick: () => searched && nominees.length ? researchModal() : pressSearch('rebuild') },
           searched ? 'جستجوی دوباره با بخش‌های تیک‌خورده…' : 'جستجو با بخش‌های تیک‌خورده')) : null,
         S.flags.map(f => el('div', { class: 'small', style: 'color:var(--warn)' }, flagText(f, S)))),
@@ -621,6 +630,9 @@ const panels = {
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.add(x.wid)); draw(); } }, 'تیک همه‌ی نمایش‌داده‌ها') : null,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک نمایش‌داده‌ها') : null),
         hidNote, refNote, list),
+      ...((S.params && S.params.sem) || semNom.length ? [card(['هم‌معنا با واژگان دیگر'], help('step2.semantic'),
+        el('p', { class: 'muted small' }, 'حدیث‌هایی که با واژه‌های دیگر همان معنای بخش‌های حدیث‌ها را دارند و جستجوی لفظی (واژه و ریشه) آن‌ها را نیاورد. جدا از نامزدهای بالا آمده‌اند و از پیش تیک نخورده‌اند؛ هرچه را شاهد می‌دانید تیک بزنید، مثل نامزدهای دیگر در هم‌ترازی و مرحله‌های بعد می‌آید. ترتیب: هرچه معنایش به بخش‌ها نزدیک‌تر، بالاتر.'),
+        el('div', { class: 'toolbar' }, semCount), semList)] : []),
       card(['حدیث‌های افزوده‌ی شما'], help('step2.added'),
         el('p', { class: 'muted small' }, 'حدیثی را که جستجو پیدا نکرد، بیابید و بیفزایید. هر حدیث افزوده مثل نامزدها با بخش‌های حدیث‌ها بخش‌به‌بخش سنجیده می‌شود و ردیفش (نوار بخش‌ها و متن رنگی) همین‌جا می‌آید. با «ویرایش متن» می‌توانید متن آن را (یا هر نامزد دیگر را) درست کنید؛ پس از ذخیره دوباره سنجیده می‌شود. حدیث‌های افزوده با جستجوی دوباره از میان نمی‌روند. مبدأهای دیگر را در مرحله‌ی ۱ می‌افزایید.'),
         edit ? hadithAdder(c, sdec, 'extra_ids', S) : null, addedList),
@@ -692,7 +704,7 @@ const panels = {
       await post(`/project/${c.pid}/decide/selection`, { payload: { selected: (sel.selected || W.map(x => x.wid)).filter(x => !gone.has(x)) } }); reload(c.pid);
     };
     const nameCell = (w, i) => el('td', { class: 'nm', title: [w.title, w.author, w.death ? 'ف ' + fa(w.death) : '', w.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', w.wid,
-      w.cls === 'different' ? 'در مرحله‌ی ۲ «متفاوت» دسته‌بندی شده بود' : '', w.ref ? `«${w.ref.marker}»: ارجاع به ${w.ref.ref}` + (w.ref.approx ? ' (متن نزدیک؛ خوانش‌هایش نامعلوم تا در مرحله‌ی ۲ تأیید شود)' : '') : ''].filter(Boolean).join(' · '),
+      w.cls === 'different' ? 'در مرحله‌ی ۲ «متفاوت» دسته‌بندی شده بود' : w.cls === 'semantic' ? 'در مرحله‌ی ۲ «هم‌معنا» بود: فقط از راه معنا یافت شده بود' : '', w.ref ? `«${w.ref.marker}»: ارجاع به ${w.ref.ref}` + (w.ref.approx ? ' (متن نزدیک؛ خوانش‌هایش نامعلوم تا در مرحله‌ی ۲ تأیید شود)' : '') : ''].filter(Boolean).join(' · '),
       onclick: () => hadithModal(w.wid) },
       canEdit && !srcs.includes(w.wid) ? el('button', { class: 'xw', title: 'کنار گذاشتن این شاهد', 'aria-label': 'کنار گذاشتن ' + (w.title || w.wid), onclick: ev => dropWit(ev, w) }, '×') : null,
       el('span', { class: 'dot ' + w.cls }), `${fa(i)}. ${w.title || w.wid}`, w.ref ? el('span', { class: 'refb' }, ` «${w.ref.marker}»`) : null,
@@ -2532,23 +2544,77 @@ async function saveSearch(c, sdec, change) {
 }
 /* search the corpora (words, an id, a /h/i/ link) and add a hadith by hand: kind 'extra_ids' (added to step 2) or 'seeds' (a further seed) */
 function hadithAdder(c, sdec, kind, S) {
-  const q = el('input', { type: 'text', placeholder: 'شناسه‌ی حدیث، نشانی /h/i/… یا چند کلمه از متن', 'aria-label': 'جستجوی حدیث برای افزودن', style: 'min-width:260px;flex:1' });
+  const q = el('input', { type: 'text', dir: 'auto', placeholder: 'شناسه‌ی حدیث، نشانی /h/i/…، چند کلمه، یا جستجوی پیشرفته؛ مثلاً: "اقیموا الصلاه" -کذب ریشه:زکو', 'aria-label': 'جستجوی حدیث برای افزودن', style: 'min-width:260px;flex:1' });
   const out = el('div'), mine = new Set([...(sdec.extra_ids || []), ...(sdec.seeds || [])]);
   const add = async (w, btn) => { btn.disabled = true; await saveSearch(c, sdec, { [kind]: [...(sdec[kind] || []), w] }); };
+  const sel = (opts, label) => el('select', { 'aria-label': label }, opts.map(([v, t]) => el('option', { value: v }, t)));
+  const scope = sel([['any', 'در متن و سند'], ['matn', 'فقط در متن'], ['sanad', 'فقط در سند']], 'محدوده'), corp = sel([['all', 'هر دو پیکره'], ['v02', 'v02'], ['kg', 'گراف دانش اهل سنت']], 'پیکره');
+  const useSem = el('input', { type: 'checkbox', checked: true }), semBox = el('label', { class: 'small', hidden: true }, useSem, ' جستجوی معنایی هم');
+  let info_ = null;
+  api('/search-info').then(i => { info_ = i; semBox.hidden = !i.semantic; }).catch(() => {});
+  /* the form: its fields are written into the box as the language of the search (the box is what is searched, and can be edited) */
+  const f = {};
+  const field = (key, label, ph, hint) => { f[key] = el('input', { type: key === 'n' ? 'number' : 'text', dir: 'auto', placeholder: ph || '', min: 1, max: 50, style: (key === 'n' ? 'width:70px' : 'width:170px') + ';height:34px;flex:0 0 auto', title: hint || '' }); return el('label', { class: 'small', style: 'display:flex;flex-direction:column;gap:2px;flex:0 0 auto' }, label, f[key]); };
+  const compile = () => {
+    const w = s => s.trim().split(/\s+/).filter(Boolean), parts = [];
+    const all = w(f.all.value), n = parseInt(f.n.value, 10);
+    if (all.length) parts.push(n > 0 && all.length > 1 ? `"${all.join(' ')}"~${n}` : all.join(' '));
+    if (f.phrase.value.trim()) parts.push(`"${w(f.phrase.value).join(' ')}"`);
+    if (f.any.value.trim()) parts.push(w(f.any.value).join('|'));
+    w(f.roots.value).forEach(r => parts.push('ریشه:' + r));
+    w(f.none.value).forEach(x => parts.push('-' + x));
+    if (f.book.value.trim()) parts.push(`کتاب:"${w(f.book.value).join(' ')}"`);
+    q.value = parts.join(' '); go_();
+  };
+  const form = el('details', { class: 'advsearch' }, el('summary', { class: 'small' }, 'جستجوی پیشرفته (فرم)'),
+    el('div', { class: 'toolbar', style: 'align-items:flex-start;flex-wrap:wrap' },
+      field('all', 'همه‌ی این واژه‌ها', 'صلاه زکاه', 'واژه‌ها با هر حرف عطف، جر و «ال» هم یافت می‌شوند'), field('n', 'در فاصله‌ی', 'واژه', 'اگر نوشته شود، واژه‌های بالا باید در این فاصله از هم باشند'),
+      field('phrase', 'عبارت دقیق', 'اقیموا الصلاه'), field('any', 'یکی از این‌ها', 'صلاه زکاه', 'هرکدام که باشد'),
+      field('roots', 'ریشه‌ها', 'زکو یزکی', 'ریشه یا یک واژه از آن؛ همه‌ی ریخت‌های آن یافت می‌شود'),
+      field('none', 'هیچ‌کدام از این‌ها', 'کذب'), field('book', 'کتاب', 'الکافی', 'نام کتاب یا مؤلف'),
+      el('button', { class: 'small primary', type: 'button', onclick: compile }, 'ساخت جستجو و اجرا')));
+  const draw = (box, rs, o) => {
+    const mk = h => el('tr', {},
+      el('td', {}, el('b', {}, h.title || ''), el('div', { class: 'small muted' }, [h.author, h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', h.page ? 'ص ' + fa(h.page) : ''].filter(Boolean).join(' · ')),
+        el('div', { class: 'small muted', dir: 'ltr' }, h.wid), h.copies && h.copies.length ? el('div', { class: 'small muted', title: h.copies.join(' ') }, `+${fa(h.copies.length)} نسخه‌ی یکسان`) : null,
+        h.score != null && o.sem ? el('div', { class: 'small' }, 'هم‌معنایی ', fa(h.score.toFixed(2))) : null),
+      el('td', { class: 'ar', dir: 'rtl' }, (() => { const m = h.marks && h.marks.length ? marked(h.matn, h.marks, 'ar matn') : el('div', { class: 'ar matn' }, h.matn);
+        if (h.cut_before) m.prepend('… '); if (h.cut_after) m.append(' …'); return m; })(), fullDetails(h.wid, null, 'سند و متن کامل')),
+      el('td', {}, (() => { const why = listOf(sdec).includes(h.wid) ? 'در فهرست' : mine.has(h.wid) ? 'افزوده شده' : null;
+        return el('button', { class: 'small primary', disabled: !!why, onclick: ev => add(h.wid, ev.currentTarget) }, why || 'افزودن'); })()));
+    box.replaceChildren(...[
+      o.head,
+      ...(rs.warnings || []).map(w => el('div', { class: 'small', style: 'color:var(--warn)' }, w)),
+      rs.hits.length ? el('div', { class: 'grid-wrap', style: 'max-height:50vh' }, el('table', {}, rs.hits.map(mk))) : el('p', { class: 'muted small' }, 'چیزی پیدا نشد.'),
+      rs.more ? el('button', { class: 'small', onclick: ev => { ev.currentTarget.disabled = true; o.more(); } }, 'بیشتر') : null].filter(Boolean));
+  };
+  const plain = t => t.replace(/(^|\s)-\S+/g, ' ').replace(/(^|\s)[^\s:"]+:/g, ' ').replace(/[“”"~*|=]|\d+(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
+  const run = async (mode, text, box, o) => {
+    const rs = { hits: [], warnings: [] };
+    const page = async () => {
+      const r = await api(`/find?mode=${mode}&scope=${scope.value}&corpus=${corp.value}&limit=20&offset=${rs.hits.length}&q=${encodeURIComponent(text)}`);
+      rs.hits.push(...r.hits); rs.warnings = r.warnings || []; rs.total = r.total; rs.exact = r.exact; rs.capped = r.capped; rs.timedOut = r.timed_out; rs.unavailable = r.unavailable;
+      rs.more = r.hits.length >= 20 && rs.hits.length < Math.min(r.total || 0, 400);
+      const head = el('div', { class: 'small muted' }, mode === 'semantic' ? `نزدیک‌ترین‌ها از نظر معنا (${fa(rs.hits.length)} نمایش داده شد)` :
+        `${r.exact ? '' : 'بیش از '}${fa(rs.total)} حدیث یافت شد${rs.timedOut ? ' (مرتب‌سازی کامل ممکن نشد؛ جستجو را محدودتر کنید)' : ''}${r.parsed ? '' : ''}`);
+      draw(box, rs, { ...o, head, more: () => page().catch(e => box.append(el('p', { class: 'small', style: 'color:var(--warn)' }, 'خطا: ' + e.message))) });
+    };
+    await page();
+  };
   const go_ = async () => {
-    if (!q.value.trim()) return;
+    const text = q.value.trim(); if (!text) return;
     out.replaceChildren(el('p', { class: 'muted small' }, 'در حال جستجو…'));
-    let rs;
-    try { rs = await api('/search?limit=40&q=' + encodeURIComponent(q.value)); } catch (e) { out.replaceChildren(el('p', { class: 'small', style: 'color:var(--warn)' }, 'خطا: ' + e.message)); return; }
-    out.replaceChildren(rs.length ? el('div', { class: 'grid-wrap', style: 'max-height:50vh' }, el('table', {}, rs.map(h => {
-      const why = listOf(sdec).includes(h.wid) ? 'در فهرست' : mine.has(h.wid) ? 'افزوده شده' : null;
-      const btn = el('button', { class: 'small primary', disabled: !!why, onclick: ev => add(h.wid, ev.currentTarget) }, why || 'افزودن');
-      return el('tr', {}, el('td', {}, el('b', {}, h.title || ''), el('div', { class: 'small muted' }, [h.author, h.tradition === 'sunni' ? 'اهل سنت' : 'شیعه', h.page ? 'ص ' + fa(h.page) : ''].filter(Boolean).join(' · ')),
-        el('div', { class: 'small muted', dir: 'ltr' }, h.wid)), el('td', { class: 'ar', dir: 'rtl' }, h.matn), el('td', {}, btn));
-    }))) : el('p', { class: 'muted small' }, 'چیزی پیدا نشد.'));
+    const lexBox = el('div'), semBox_ = el('div');
+    try { await run('lexical', text, lexBox, {}); } catch (e) { lexBox.replaceChildren(el('p', { class: 'small', style: 'color:var(--warn)' }, 'خطا: ' + e.message)); }
+    out.replaceChildren(lexBox);
+    if (info_ && info_.semantic && useSem.checked && plain(text).split(' ').length >= 2 && !/^(v02:|kg:)?\d+$|\/h\/i\//.test(text)) {
+      out.append(el('h3', { style: 'margin-top:14px' }, 'هم‌معنا با واژگان دیگر'), semBox_, el('p', { class: 'small muted' }, 'جستجوی معنایی جدا از جستجوی لفظی است: حدیث‌هایی را می‌آورد که معنایشان نزدیک است، هرچند واژه‌هایشان فرق کند.'));
+      semBox_.replaceChildren(el('p', { class: 'muted small' }, 'در حال جستجوی معنایی…'));
+      try { await run('semantic', plain(text), semBox_, { sem: true }); } catch (e) { semBox_.replaceChildren(el('p', { class: 'small', style: 'color:var(--warn)' }, 'جستجوی معنایی: ' + e.message)); }
+    }
   };
   q.addEventListener('keydown', e => { if (e.key === 'Enter') go_(); });
-  return el('div', {}, el('div', { class: 'toolbar' }, q, el('button', { onclick: go_ }, 'جستجوی حدیث')), out);
+  return el('div', {}, el('div', { class: 'toolbar' }, q, scope, corp, semBox, el('button', { onclick: go_ }, 'جستجوی حدیث'), help('step2.query')), form, out);
 }
 /* edit the text of a hadith (a candidate or an added one): the full text, saved in the search decision; the candidates are scored on it again */
 async function editTextModal(c, sdec, x) {
@@ -2581,7 +2647,7 @@ function rowActs(c, sdec, x, kind) {
 }
 
 function candRow(x, S, sel, can, upd, refs, openRef, acts) {
-  const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', user: 'افزوده‌ی کاربر', seed: 'مبدأ دیگر' };
+  const SIG = { 'rel:noor_group': 'گروه نور', 'rel:noor_cluster': 'خوشه‌ی نور', 'rel:noor_related': 'مرتبط در نور', 'rel:consensus': 'هم‌خوانی v02', 'rel:kg_group': 'گروه گراف دانش', 'q:pair': 'دو واژه‌ی کمیاب', 'q:phrase': 'عبارت کمیاب', 'q:near': 'واژه‌های کمیابِ نزدیک هم', 'q:root': 'دو ریشه‌ی کمیاب', 'q:rnear': 'ریشه‌های نزدیک هم', 'q:rphrase': 'عبارت ریشه‌ای', 'q:sem': 'هم‌معنایی', user: 'افزوده‌ی کاربر', seed: 'مبدأ دیگر' };
   return el('tr', { class: sel.has(x.wid) ? 'on' : '' },
     el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این شاهد: ' + (x.title || x.book || x.wid), checked: sel.has(x.wid), disabled: !can || x.signals.includes('seed'), title: x.signals.includes('seed') ? 'مبدأ دیگر همیشه جزو شاهدهاست' : '', onchange: ev => { ev.target.checked ? sel.add(x.wid) : sel.delete(x.wid); ev.target.closest('tr').classList.toggle('on', ev.target.checked); upd(); } })),
     el('td', {}, el('span', { class: 'chip ' + x.suggested }, CLS[x.suggested]), x.score.reordered ? el('div', { class: 'small muted' }, 'ترتیب بخش‌ها فرق دارد') : null,
@@ -2592,7 +2658,9 @@ function candRow(x, S, sel, can, upd, refs, openRef, acts) {
       acts ? acts(x) : null,
       el('div', { class: 'small muted', title: x.signals.join(' ') }, 'یافته با: ', x.signals.map(g => SIG[g] || g).join('، '), x.round > 1 ? ` (دور ${fa(x.round)}، از متن ${x.via})` : '')),
     el('td', {}, el('div', { class: 'small' }, 'از بخش‌ها ', pct(x.score.cov_seed)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_seed}%` })),
-      el('div', { class: 'small' }, 'از این متن ', pct(x.score.cov_cand)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_cand}%` }))),
+      el('div', { class: 'small' }, 'از این متن ', pct(x.score.cov_cand)), el('div', { class: 'bar' }, el('i', { style: `width:${100 * x.score.cov_cand}%` })),
+      x.score.r ? el('div', { class: 'small muted', title: 'واژه‌هایی که در این متن به شکل دیگری (هم‌ریشه) آمده‌اند' }, `${fa(x.score.r)} واژه هم‌ریشه`) : null,
+      x.score.sem != null ? el('div', { class: 'small', title: 'شباهت معنایی (کسینوس) با نزدیک‌ترین بخش یا کل بخش‌های حدیث‌ها' }, 'هم‌معنایی ', fa(x.score.sem.toFixed(2))) : null),
     el('td', {}, strip(x.parts, S)),
     el('td', { class: 'txt' }, x.marks ? marked(x.matn, x.marks, 'ar matn', S) : el('div', { class: 'ar matn' }, x.matn),
       x.matn_len > x.matn.length ? el('div', { class: 'small muted' }, `… (${fa(x.matn_len)} نویسه، ${fa(x.matn.length)} نخست نمایش داده شد)`) : null,

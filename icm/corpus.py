@@ -27,14 +27,14 @@ def _connect(path: str, mmap: int = 256 * 1024 * 1024) -> sqlite3.Connection:
 
 
 def conn(name: str) -> sqlite3.Connection:
-    """name in {v02, consensus, kg, termdf, noor_rel}"""
+    """name in {v02, consensus, kg, termdf, noor_rel, lex}"""
     cs = getattr(_local, "cs", None)
     if cs is None:
         cs = _local.cs = {}
     if name not in cs:
         path = {"v02": config.V02_DB, "consensus": config.CONSENSUS_DB, "kg": config.KG_DB,
-                "termdf": config.TERMDF_DB, "noor_rel": config.NOOR_REL_DB}[name]
-        cs[name] = _connect(path, 64 * 1024 * 1024 if name != "v02" else 256 * 1024 * 1024)
+                "termdf": config.TERMDF_DB, "noor_rel": config.NOOR_REL_DB, "lex": config.LEX_DB}[name]
+        cs[name] = _connect(path, 256 * 1024 * 1024 if name in ("v02", "lex") else 64 * 1024 * 1024)
     return cs[name]
 
 

@@ -45,3 +45,31 @@ def test_the_hadiths_of_the_list_are_equal_their_cuts_make_the_same_parts_whatev
     n = r["cut_tokens"][B]
     cut = search.run(A, {"clauses": {B: [[0, n]]}}, seeds=[B, C], retrieve=False)
     assert cut["cuts"][B] == [[0, n]] and cut["cuts_by"][B] == "user" and cut["cuts_by"][A] == "auto" and cut["cuts"][A] == r["cuts"][A]
+
+
+def _real_lex(monkeypatch):
+    """The real root index, when this machine has been built one (tests otherwise run without it, see conftest.py)."""
+    import pytest
+    from icm import corpus, lex
+    real = os.path.join(config.DATA_DIR, "lex.sqlite")
+    if not os.path.exists(real):
+        pytest.skip("lex.sqlite not built")
+    monkeypatch.setattr(config, "LEX_DB", real)
+    corpus._local.cs = {}
+    lex._root_cache.clear(); lex._root_df_one.cache_clear(); lex.same_root.cache_clear()
+    return lex
+
+
+def test_the_search_with_roots_keeps_the_recall_and_the_near_misses(monkeypatch):
+    _real_lex(monkeypatch)
+    r = evaluate.sitta(dict(lex=True))
+    assert r["recall_preselected"] >= 0.95 and r["near_miss_ok"], r
+
+
+def test_roots_find_hadiths_of_the_same_set_that_the_words_do_not(monkeypatch):
+    """Pairs of one consensus set with other wording, searched without the ready-made groups: roots find at least as many
+    as words do (measured on 60 pairs: words 52, roots 58)."""
+    lex = _real_lex(monkeypatch)
+    words = evaluate.hard_pairs(n=12, seed=1, params=dict(rel=False))
+    roots = evaluate.hard_pairs(n=12, seed=1, params=dict(rel=False, lex=True))
+    assert roots["found"] >= words["found"] and roots["recall"] >= 0.85, (words, roots)

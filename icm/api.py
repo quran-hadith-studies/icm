@@ -26,8 +26,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, export, family, identity, jobs, narrator_info, narrator_versions, pipeline, project, serve, users, viewer
+from . import config, corpus, export, family, finder, identity, jobs, lex, narrator_info, narrator_versions, pipeline, project, semantic, serve, users, viewer
 from . import graph as graph_mod
+from . import query as query_mod
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -242,32 +243,31 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
 
     @r.get("/api/search")
     def find(q: str, limit: int = 20):
-        q = (q or "").strip()
-        m = re.search(r"(?:v02:|/h/i/(?:angel/)?|^)(\d{3,12})$", q)
-        wids = []
-        if m and re.fullmatch(r"(v02:|kg:)?\d+|.*/h/i/.*", q):
-            n = int(m.group(1))
-            wids = [f"v02:{n}", f"v02:{config.NOOR_OFFSET + n}"] if n < config.NOOR_OFFSET else [f"v02:{n}"]
-            if q.startswith("kg:"):
-                wids = [f"kg:{n}"]
-        else:
-            expr = corpus.fts_query([q])
-            if expr:
-                wids = [f"v02:{i}" for i in corpus.fts_v02(expr, 300)] + [f"kg:{i}" for i in corpus.fts_kg(expr, 100)]
-        recs = corpus.get_many(wids[:400])
-        qn = len(norm(q).split())
-        out = []
-        for w in wids:
-            rec = recs.get(w)
-            if rec:
-                n = max(len(norm(rec["matn"]).split()), 1)
-                out.append(dict(wid=w, title=rec["title"], author=rec["author"], tradition=rec["tradition"], vol=rec["vol"],
-                                page=rec["page"], matn=rec["matn"][:400], projects=project.projects_of(w),
-                                _r=min(qn / n, 1.0) if not m else 1.0))
-        out.sort(key=lambda d: -d["_r"])            # the matns the query covers most come first
-        for d in out:
-            d.pop("_r")
-        return out[:limit]
+        """The first search box (a new project) and the older clients: a list of hits, best first. A query the language cannot
+        read is searched as plain words."""
+        try:
+            out = finder.find(q, limit=limit, fold=False)
+        except query_mod.QueryError:
+            out = finder._legacy((q or "").strip(), limit)
+        return [{k: v for k, v in h.items() if k not in ("marks", "cut_before", "cut_after", "score", "copies")} for h in out["hits"]]
+
+    @r.get("/api/search-info")
+    def search_info():
+        """What the hadith search can do here: the root index (``lex``) and the semantic index (``semantic``)."""
+        return dict(lex=lex.available(), semantic=semantic.available(), lex_built=lex.meta().get("built") if lex.available() else None,
+                    model=semantic.meta().get("model") if semantic.available() else None)
+
+    @r.get("/api/find")
+    def find2(q: str, mode: str = "lexical", scope: str = "any", corpus: str = "all", limit: int = 20, offset: int = 0):
+        """The hadith search of steps 1 and 2: ``q`` in the language of icm/query.py (or words); ``mode`` lexical | semantic;
+        ``scope`` any | matn | sanad; ``corpus`` all | v02 | kg. Returns hits (with ``marks``: [start, end, 0] ranges of ``matn`` to
+        mark), the number found, how the query was read and what was assumed."""
+        if mode not in ("lexical", "semantic"):
+            raise HTTPException(400, "mode must be lexical or semantic")
+        try:
+            return finder.find(q, mode, scope, corpus, limit, offset)
+        except query_mod.QueryError as e:
+            raise HTTPException(400, str(e))
 
     @r.get("/api/narrator-versions")
     def narrator_version_list():
@@ -764,7 +764,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                     keep = list((project.decision(pid, "selection") or {}).get("selected") or [])
             cl = pdec.get("seed") or None
             ret = dict(legacy=False, n=(ret or {}).get("n", 0) + 1, clauses=cl, join=pdec.get("join"), part_query=pq, extra=[],
-                       keep=sorted(set(keep) - {first})[:5000], seeds=seeds, **({"anchor": first} if first != p["seed"] else {}))
+                       keep=sorted(set(keep) - {first})[:5000], seeds=seeds, **({"anchor": first} if first != p["seed"] else {}),
+                       **({"lex": config.LEX_VERSION, **({"sem": semantic.meta().get("model") or True} if semantic.available() else {})}
+                          if lex.available() else {}))       # the press asks the root index too, and the semantic one, when there are
             if mode == "rebuild":
                 out["_reset"] = True
         if ret is not None:

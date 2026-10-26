@@ -50,3 +50,10 @@ def preset_for(n_nodes: int) -> str:
 
 # bump when the corpus files change in a way that should invalidate cached searches
 DATA_VERSION = "2026-10-14"      # v02 with the hadith.ai v2 corpus (Noor replaced, Dorar and sunnah.com added); hadithai.sqlite with narrator mentions
+
+# the lexical index (``python -m icm build lex``): words, roots and books of every matn, the root of every word form
+LEX_DB = os.environ.get("ICM_LEX_DB", os.path.join(DATA_DIR, "lex.sqlite"))
+LEX_VERSION = 1                 # bump when lex.sqlite changes in a way that should change what a search finds
+# the semantic index (``python -m icm build vec``): vectors of the hadiths' parts, see icm/semantic.py
+VEC_DIR = os.environ.get("ICM_VEC_DIR", os.path.join(DATA_DIR, "vec"))
+SEM_NPROBE = int(os.environ.get("ICM_SEM_NPROBE", "128"))      # lists of the semantic index a query reads: 48 finds 80% of what an exact scan does, 128 90%, 256 94%

@@ -21,9 +21,9 @@ import time
 from difflib import SequenceMatcher
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from . import corpus, family, pointers, relations
+from . import corpus, family, lex, pointers, relations, semantic
 from .similarity import align_clauses, classify, match_key
-from .text import clauses, grams, marks, norm, squeeze, strip_tags, tokens, union_cuts
+from .text import clauses, grams, marks, norm, squeeze, strip_tags, token_offsets, tokens, union_cuts
 
 PRESELECTED = ("witness", "extended", "abridged", "variant")
 
@@ -53,6 +53,14 @@ DEFAULTS = dict(
     pair_df_max=60000,         # terms more frequent than this are not used in queries
     phrase_df_max=20000,
     gram_n=8,
+    lex=False,                 # root-aware search (``lex.sqlite``): roots in the queries and in the scoring (see ``_generate``)
+    root_df_max=150000,        # a root in more documents than this is not used to ask for candidates
+    rnear_width=8,             # words within which the roots of a NEAR query must stand
+    root_min_cov=0.6,          # share of a clause's roots a candidate must have for it to be scored when the 8-grams say no
+    sem=False,                 # semantic search (``semantic.py``): hadiths of the meaning of a part in other words
+    sem_k_part=40,             # nearest hadiths asked for per ticked part ...
+    sem_k_all=80,              # ... and for all the ticked parts of a hadith together
+    sem_min=0.75,              # least cosine (bge-m3) for a hadith found only by meaning to be a candidate: keeps 91% of the hadiths of one consensus set with other wording, see ``evaluate.hard_pairs``
 )
 
 
@@ -120,7 +128,9 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
                 _generate(src_wid, src_tok, src_parts, p, rnd, new_pool, queries)
         elif rnd == 1:
             for w, d in (prior or {}).items():
-                new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"))
+                new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"), sem=d.get("sem"))
+        if retrieve and rnd == 1 and p.get("sem") and semantic.available():
+            _semantic(src, own_parts, [seed, *seeds], p, new_pool, queries, flags)
         for w in extra_ids:
             new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("user")
         for w in seeds:
@@ -168,9 +178,9 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
 
 # ---------------------------------------------------------------------------
 def _rank(c: dict) -> float:
-    order = {"witness": 5, "extended": 4.5, "abridged": 4, "variant": 3.5, "partial": 2, "different": 0}
+    order = {"witness": 5, "extended": 4.5, "abridged": 4, "variant": 3.5, "partial": 2, "semantic": 1, "different": 0}
     sc = c["score"]
-    return order.get(c["suggested"], 0) * 10 + sc["cov_seed"] + 0.2 * sc["cov_cand"]
+    return order.get(c["suggested"], 0) * 10 + sc["cov_seed"] + 0.2 * sc["cov_cand"] + 3 * (sc.get("sem") or 0)
 
 
 def _best_terms(tok: Sequence[str], dfs: Dict[str, Tuple[int, int]], idx: int, df_max: int, k: int = 2) -> List[str]:
@@ -194,9 +204,12 @@ def _generate(wid: str, tok: List[str], parts: Iterable[Tuple[int, int, int]], p
         d["signals"].add(sig)
         d["nq"] += 1
 
-    for sig, ids in relations.signals(wid).items():
+    for sig, ids in (relations.signals(wid).items() if p.get("rel", True) else ()):       # (``rel=False``: evaluation without the ready-made groups)
         for w in ids:
             add(w, "rel:" + sig)
+    if p.get("lex") and lex.available():
+        _generate_lex(wid, tok, parts, p, rnd, add, queries)
+        return
     all_terms = sorted({t for t in tok if len(t) >= 3})
     dfs = corpus.term_df(all_terms)
     for c, x, y in parts:
@@ -229,6 +242,102 @@ def _generate(wid: str, tok: List[str], parts: Iterable[Tuple[int, int, int]], p
                     add(f"{name}:{i}", "q:" + kind)
 
 
+def _generate_lex(wid: str, tok: List[str], parts: Iterable[Tuple[int, int, int]], p: dict, rnd: int, add, queries: List[dict]) -> None:
+    """``_generate`` over ``lex.sqlite``: per part and corpus, queries on words (a distinctive pair, widened to the forms
+    with another conjunction / preposition / article; an exact phrase; the three rarest words near each other) and on roots
+    (a distinctive pair; the three rarest roots near each other; a phrase of roots), each ranked best first when more
+    hits exist than ``fts_limit``. Only the matn is searched (the served index also holds the translation)."""
+    names = [n for n in ("v02", "kg") if n in p["corpora"]]
+    wdf = lex.term_df(sorted({t for t in tok if len(t) >= 3}))
+    rts = lex.roots(tok)
+    rdf = lex.root_df(set(rts.values()))
+    for c, x, y in parts:
+        ct = tok[x:y]
+        for name in names:
+            idx = 0 if name == "v02" else 1
+            exprs: List[Tuple[str, str]] = []
+            best = _best_terms(ct, wdf, idx, p["pair_df_max"], 3)
+            if len(best) >= 2 or (len(best) == 1 and len(ct) <= 4):
+                grp = ["matn:(%s)" % " OR ".join('"%s"' % f for f in lex.clitic_forms(t, name)) for t in best[:2]]
+                exprs.append(("pair", " AND ".join(grp)))
+            wins = []
+            for i in range(len(ct) - 2):
+                d = [wdf.get(t, (0, 0))[idx] for t in ct[i:i + 3]]
+                if min(d) > 0 and min(d) <= p["phrase_df_max"]:
+                    wins.append((min(d), i))
+            for _, i in sorted(wins)[:2]:
+                exprs.append(("phrase", 'matn:"%s"' % " ".join(ct[i:i + 3])))
+            if len(best) >= 3:
+                exprs.append(("near", 'matn: NEAR(%s, %d)' % (" ".join('"%s"' % t for t in best[:3]), p["rnear_width"])))
+            # roots: the distinctive ones of the part, rarest first
+            rk = sorted({rts[t] for t in ct if t in rts and len(t) >= lex.MIN_ROOT_WORD and 0 < rdf[rts[t]][idx] <= p["root_df_max"]},
+                        key=lambda k: (rdf[k][idx], k))
+            if len(rk) >= 2:
+                exprs.append(("root", " AND ".join('root:"%s"' % lex.root_tok(k) for k in rk[:2])))
+            if len(rk) >= 3:
+                exprs.append(("rnear", 'root: NEAR(%s, %d)' % (" ".join('"%s"' % lex.root_tok(k) for k in rk[:3]), p["rnear_width"])))
+            rwin = []
+            for i in range(len(ct) - 2):
+                ks = [rts.get(t) for t in ct[i:i + 3]]
+                if all(ks) and min(rdf[k][idx] for k in ks) > 0:
+                    rwin.append((min(rdf[k][idx] for k in ks), i, ks))
+            for _, i, ks in sorted(rwin)[:1]:
+                exprs.append(("rphrase", 'root:"%s"' % " ".join(lex.root_tok(k) for k in ks)))
+            seen = set()
+            if rnd > 1:                                       # expansion from a found witness: only the tight questions (a broad one
+                exprs = [(k, e) for k, e in exprs if k in ("phrase", "near", "rnear", "rphrase")]     # would add thousands of candidates for a few)
+            for kind, expr in exprs:
+                if not expr or expr in seen:
+                    continue
+                seen.add(expr)
+                r = lex.search(name, expr, p["fts_limit"] if rnd == 1 else min(p["fts_limit"], 800), rank="auto")
+                queries.append(dict(round=rnd, source=wid, clause=c, kind=kind, corpus=name, expr=expr, hits=len(r["ids"]),
+                                    capped=r["capped"], ranked=r["ranked"], timed_out=r["timed_out"]))
+                for i in r["ids"]:
+                    add(f"{name}:{i}", "q:" + kind)
+
+
+def _semantic(src: dict, own_parts, order: Sequence[str], p: dict, pool: Dict[str, dict], queries: List[dict], flags: List[dict]) -> None:
+    """Hadiths of the meaning of the ticked parts: for every source hadith each ticked part (in the words of the hadith, not
+    the normalised ones) and all its ticked parts together are looked up in the semantic index; a hadith with a cosine of
+    ``sem_min`` or more joins the pool with the signal ``q:sem`` and its cosine (the best of its finds)."""
+    texts: List[str] = []
+    tags: List[Tuple[str, int]] = []
+    ks: List[int] = []
+    for w in order:
+        raw = src[w]["rec"]["matn"]
+        offs, st = token_offsets(raw), strip_tags(raw)
+        got = [(c, st[offs[x][0]:offs[y - 1][1]]) for c, x, y in own_parts(w) if 0 <= x < y <= len(offs)]
+        for c, t in got:
+            texts.append(t)
+            tags.append((w, c))
+            ks.append(p["sem_k_part"])
+        if len(got) > 1:
+            texts.append(" ".join(t for _, t in got))
+            tags.append((w, -1))
+            ks.append(p["sem_k_all"])
+    if not texts:
+        return
+    t0 = time.time()
+    try:
+        res = semantic.neighbours(texts, k=max(ks), min_cos=p["sem_min"])
+    except Exception as e:                                   # a missing or broken index must not fail the search
+        flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {e}"))
+        return
+    for (w, c), k, hits in zip(tags, ks, res):
+        n_new = 0
+        for wid, cos in hits[:k]:
+            if wid in src:
+                continue
+            d = pool.setdefault(wid, dict(signals=set(), nq=0, round=1, via=None))
+            n_new += "q:sem" not in d["signals"]
+            d["signals"].add("q:sem")
+            d["nq"] += 1
+            d["sem"] = max(d.get("sem") or 0.0, cos)
+        queries.append(dict(round=1, source=w, clause=c, kind="sem", corpus="v02+kg", expr=texts[tags.index((w, c))][:90], hits=min(len(hits), k),
+                            capped=len(hits) >= k, new=n_new))
+
+
 def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[str, dict], p: dict,
                 scored: Dict[str, dict], flags: List[dict], texts: Optional[dict] = None, rnd: Optional[int] = None) -> dict:
     order = sorted(pool, key=lambda w: (-len(pool[w]["signals"]), -pool[w]["nq"]))
@@ -239,6 +348,12 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
         order = order[:p["pool_max"]]
     seed_grams = grams(" ".join(s_tok), p["gram_n"])
     clause_grams = [grams(" ".join(s_tok[x:y]), p["gram_n"]) for x, y in s_spans]
+    lex_on = bool(p.get("lex")) and lex.available()
+    keyf = lex.search_key if lex_on else match_key
+    clause_roots: List[set] = []
+    if lex_on:                                                  # words of one root are one word when texts are compared
+        lex.prime(s_tok)
+        clause_roots = [lex.root_set(s_tok[x:y]) for x, y in s_spans]
     n_scored = n_dropped = n_wl = 0
     recs = corpus.get_many(order)
     for w, t in (texts or {}).items():                                  # the user's own text of a hadith (step 2 «ویرایش»)
@@ -291,15 +406,27 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
         g = grams(" ".join(c_tok), p["gram_n"])
         share = len(seed_grams & g) / max(len(seed_grams), 1)
         cl_hit = any(cg and len(cg & g) / len(cg) >= 0.5 for cg in clause_grams)
-        user = bool({"user", "kept", "ref", "seed"} & pool[w]["signals"])
+        via_root = False
+        if lex_on and not cl_hit and share < p["prefilter"]:     # the same roots in other forms (another inflection, clitic …)
+            lex.prime(c_tok)
+            croots = lex.root_set(c_tok)
+            cl_hit = via_root = any(len(cr) >= 2 and len(cr & croots) / len(cr) >= p["root_min_cov"] for cr in clause_roots)
+        user = bool({"user", "kept", "ref", "seed", "q:sem"} & pool[w]["signals"])       # (found by meaning: scored whatever the words)
         if share < p["prefilter"] and not cl_hit and not user:
             n_dropped += 1
             continue
-        res = align_clauses(s_tok, s_spans, c_tok)
+        if lex_on:
+            lex.prime(c_tok)
+        res = align_clauses(s_tok, s_spans, c_tok, keyf)
         cls, score = classify(res, n_seed, len(c_tok))
         score["share_grams"] = round(share, 3)
-        if cls == "different" and score["cov_seed"] < p["keep_min_cov"] and not user:
-            n_dropped += 1
+        sem = pool[w].get("sem")
+        if sem is not None:
+            score["sem"] = round(sem, 3)
+            if cls in ("different", "partial") and not any(g.startswith(("q:", "rel:", "ref")) and g != "q:sem" for g in pool[w]["signals"]):
+                cls = "semantic"                               # found only by its meaning, not by words: its own class
+        if cls == "different" and (score["cov_seed"] < p["keep_min_cov"] or via_root) and not user:
+            n_dropped += 1                                         # (one asked for only by its roots must resemble the seed)
             continue
         n_scored += 1
         if cls in PRESELECTED:

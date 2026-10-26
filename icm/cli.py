@@ -11,6 +11,9 @@
   helper [--server URL] [--token-file F]   compute waiting projects on this machine (see icm/helper.py)
   eval                           recall of the search against the diagram witnesses and the consensus sets
   build kg|noor|termdf|books|hadithai   (re)build the laptop-side data files
+  build roots                    the root of every Arabic word form (needs camel-tools: conda env dev3)  -> external/icm/term_root.tsv
+  build lex                      lex.sqlite: word / root / sanad / book index of both corpora (needs the roots file)
+  build vec --model NAME         the semantic index (needs torch + transformers: conda env dev2; hours)
 """
 from __future__ import annotations
 
@@ -66,7 +69,10 @@ def main(argv=None) -> int:
     sub.add_parser("eval")
     sub.add_parser("app", add_help=False)           # own parser in icm.app
     hp = sub.add_parser("helper", add_help=False)   # own parser in icm.helper
-    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "model", "all"])
+    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "model", "roots", "lex", "vec", "all"])
+    b.add_argument("--model", default="BAAI/bge-m3", help="build vec: the embedding model (Hugging Face name)")
+    b.add_argument("--limit", type=int, help="build lex / vec: only the first N rows of each corpus (a trial)")
+    b.add_argument("--out", help="build lex / vec: another output path")
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "app":
         if argv[1:2] not in (["install"], ["uninstall"]) and os.environ.get("PYTHONHASHSEED") != "0":
@@ -108,6 +114,18 @@ def main(argv=None) -> int:
         from .build import books_meta, hadithai, kg_extract, model_zip, noor_relations, termdf
         if a.what == "model":
             print(model_zip.build())
+            return 0
+        if a.what == "roots":
+            from .build import roots
+            roots.run(a.out, a.limit)
+            return 0
+        if a.what == "lex":
+            from .build import lex as build_lex
+            build_lex.run(a.out, a.limit)
+            return 0
+        if a.what == "vec":
+            from .build import vec as build_vec
+            build_vec.run(a.model, a.out, a.limit)
             return 0
         for name, mod in (("books", books_meta), ("noor", noor_relations), ("kg", kg_extract), ("termdf", termdf), ("hadithai", hadithai)):
             if a.what in (name, "all"):

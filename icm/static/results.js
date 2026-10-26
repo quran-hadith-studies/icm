@@ -248,7 +248,7 @@
     /* ---------- گام‌به‌گام: what the analysis did, in order, and what to check at each step ---------- */
     function stepsPanel(el) {
       const M = D.variants.length, row = ai => ATT[ai].row || [], known = ai => row(ai).filter(x => x >= 0).length;
-      const W = ctx.wits || {}, CLSFA = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت' };
+      const W = ctx.wits || {}, CLSFA = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت', semantic: 'هم‌معنا' };
       const book = ai => `<button type="button" class="lnk ar" data-hadith="${esc(wid(ATT[ai]))}">${esc(ATT[ai].collection || wid(ATT[ai]))}</button>`;
       const lst = (xs, n = 12) => xs.slice(0, n).join('، ') + (xs.length > n ? ` و ${fa(xs.length - n)} مورد دیگر` : '');
       const out = [];
@@ -263,13 +263,13 @@
       ATT.forEach((a, ai) => {
         const w = W[wid(a)] || {};
         if (M && !known(ai)) c1.push(`${book(ai)} در هیچ واحدی خوانش معلوم ندارد: متنش در محاسبه اثری ندارد و فقط سندش شمرده می‌شود. اگر متنش از این خانواده نیست، در مرحله‌ی ۳ با «×» کنارش بگذارید.`);
-        else if (w.cls === 'different' || w.cls === 'partial') c1.push(`${book(ai)} در مرحله‌ی ۲ «${CLSFA[w.cls]}» دسته‌بندی شده بود (سامانه از پیش تیکش نزده بود)؛ متنش را با حدیث‌های فهرست بسنجید. خوانش‌های معلومش: ${fa(known(ai))} از ${fa(M)}.`);
+        else if (w.cls === 'different' || w.cls === 'partial' || w.cls === 'semantic') c1.push(`${book(ai)} در مرحله‌ی ۲ «${CLSFA[w.cls]}» دسته‌بندی شده بود (سامانه از پیش تیکش نزده بود)؛ متنش را با حدیث‌های فهرست بسنجید. خوانش‌های معلومش: ${fa(known(ai))} از ${fa(M)}.`);
         if (a.sanad.length < 2) c1.push(`سند ${book(ai)} تنها یک راوی دارد (${nodeBtn(a.sanad[0])})؛ در مرحله‌ی ۴ ببینید آیا نام‌ها درست خوانده شده‌اند.`);
       });
       out.push(card('متن‌ها و سندهایی که به مدل رسید',
         `تحلیل‌گر از هر شاهدِ برگزیده دو چیز برداشت: سندش (زنجیره‌ی راویان، از نخستین راوی تا گردآورنده؛ مرحله‌ی ۴) و خوانش متنش در هر یک از ${fa(M)} واحد اختلاف (مرحله‌ی ۳). «؟» یعنی آن واحد در این متن نامعلوم است (نیامده یا خلاصه شده) و شمرده نمی‌شود. ${fa(ATT.length)} سند از ${fa(new Set(ATT.map(wid)).size)} متن.`,
         `<div class="scroll"><table class="rvt stpt"><thead><tr><th>#</th><th>کتاب</th><th>سند (نخستین راوی … گردآورنده)</th>${D.variants.map((v, k) => `<th class="n" title="${esc(unitName(k))}">و${fa(k + 1)}</th>`).join('')}<th class="n">معلوم</th></tr></thead><tbody>
-          ${ATT.map((a, ai) => { const w = W[wid(a)] || {}; return `<tr><td class="n">${fa(ai + 1)}</td><td>${book(ai)}${w.ref ? ` <span class="tag src" title="ارجاع به ${esc(w.ref.ref)}">«${esc(w.ref.marker)}»</span>` : ''}${w.cls && w.cls !== 'seed' ? ` <span class="tag${w.cls === 'different' || w.cls === 'partial' ? ' me' : ''}">${CLSFA[w.cls] || w.cls}</span>` : ''}</td>
+          ${ATT.map((a, ai) => { const w = W[wid(a)] || {}; return `<tr><td class="n">${fa(ai + 1)}</td><td>${book(ai)}${w.ref ? ` <span class="tag src" title="ارجاع به ${esc(w.ref.ref)}">«${esc(w.ref.marker)}»</span>` : ''}${w.cls && w.cls !== 'seed' ? ` <span class="tag${w.cls === 'different' || w.cls === 'partial' || w.cls === 'semantic' ? ' me' : ''}">${CLSFA[w.cls] || w.cls}</span>` : ''}</td>
             <td class="ar small">${nodeBtn(a.sanad[0])}${a.sanad.length > 2 ? ` … <span class="muted">(${fa(a.sanad.length - 2)} راوی)</span> … ` : a.sanad.length === 2 ? ' ← ' : ''}${a.sanad.length > 1 ? nodeBtn(a.sanad[a.sanad.length - 1]) : ''}</td>
             ${D.variants.map((v, k) => { const x = row(ai)[k]; return x == null || x < 0 ? '<td class="n muted">؟</td>' : `<td class="n ar" style="--h:${hue(clauseOf(k))}"><span class="tag cl">${esc(stateName(k, x))}</span></td>`; }).join('')}
             <td class="n">${fa(known(ai))}</td></tr>`; }).join('')}</tbody></table></div>`, c1,

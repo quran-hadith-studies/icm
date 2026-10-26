@@ -13,7 +13,7 @@ The star alignment of ``icm.msa`` is the production aligner for the selected wit
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-from typing import Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .msa import char_ratio
 
@@ -50,12 +50,13 @@ def conj_groups(toks: Sequence[str]) -> List[Tuple[int, int]]:
     return out
 
 
-def group_keys(toks: Sequence[str], groups: Sequence[Tuple[int, int]], tag: str) -> List[str]:
-    """The match key of each group (its last token's); a conjunction left at the end gets a key nothing else has."""
-    return [f"<{tag}{k}>" if toks[g[1] - 1] in CONJ else match_key(toks[g[1] - 1]) for k, g in enumerate(groups)]
+def group_keys(toks: Sequence[str], groups: Sequence[Tuple[int, int]], tag: str, keyf: Callable[[str], str] = match_key) -> List[str]:
+    """The match key of each group (its last token's); a conjunction left at the end gets a key nothing else has.
+    ``keyf``: another key function, e.g. ``lex.search_key``, which gives words of one root one key."""
+    return [f"<{tag}{k}>" if toks[g[1] - 1] in CONJ else keyf(toks[g[1] - 1]) for k, g in enumerate(groups)]
 
 
-def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
+def align_pair(a: Sequence[str], b: Sequence[str], keyf: Callable[[str], str] = match_key) -> Dict:
     """Align token lists ``a`` (reference) and ``b`` (candidate), a bare conjunction counting with the word after it.
 
     Returns counts and per-reference-token flags:
@@ -67,19 +68,24 @@ def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
       span_b      (j0, j1) half-open token range of b from the first matched word to the last
       pairs       [(i, j)] matched words, as the token index of the word itself (not of its conjunction)
       aligned_b   per token of a: for a word's own token, the b word aligned to it (match or substitution) or None
+      r           matched tokens of a whose word is not the candidate's (not even spelt alike) but of its root (``keyf``)
     """
     ga, gb = conj_groups(a), conj_groups(b)
-    ka, kb = group_keys(a, ga, "a"), group_keys(b, gb, "b")
+    ka, kb = group_keys(a, ga, "a", keyf), group_keys(b, gb, "b", keyf)
     sm = SequenceMatcher(None, ka, kb, autojunk=False)
     match_g = [False] * len(ga)
     sub_g = [False] * len(ga)
     pairs: List[Tuple[int, int]] = []          # group pairs
     sub_pairs: List[Tuple[int, int]] = []
+    root_g = set()                             # matched through the root, not the word
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
             for k in range(i2 - i1):
                 match_g[i1 + k] = True
                 pairs.append((i1 + k, j1 + k))
+                if keyf is not match_key and ka[i1 + k][:1] == "~" and match_key(a[ga[i1 + k][1] - 1]) != match_key(b[gb[j1 + k][1] - 1]) \
+                        and char_ratio(a[ga[i1 + k][1] - 1], b[gb[j1 + k][1] - 1]) < FUZZ:
+                    root_g.add(i1 + k)
         elif tag == "replace":
             for k in range(min(i2 - i1, j2 - j1)):
                 i, j = i1 + k, j1 + k
@@ -97,7 +103,7 @@ def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
         for t in range(x, y):
             match_a[t], sub_a[t] = match_g[gi], sub_g[gi]
     if not pairs:
-        return dict(m=0, s=0, gap_a=0, gap_b=0, match_a=match_a, sub_a=sub_a, span_b=(0, 0), pairs=[],
+        return dict(m=0, s=0, r=0, gap_a=0, gap_b=0, match_a=match_a, sub_a=sub_a, span_b=(0, 0), pairs=[],
                     aligned_b=[None] * len(a))
     i0, i1_ = pairs[0][0], pairs[-1][0]
     j0, j1_ = pairs[0][1], pairs[-1][1]
@@ -114,11 +120,11 @@ def align_pair(a: Sequence[str], b: Sequence[str]) -> Dict:
         aligned_b[ga[i][1] - 1] = b[gb[j][1] - 1]
     gap_a = (ga[i1_][1] - ga[i0][0]) - m - s
     gap_b = (gb[j1_][1] - gb[j0][0]) - n_b(pairs) - n_b(subs)
-    return dict(m=m, s=s, gap_a=max(gap_a, 0), gap_b=max(gap_b, 0), match_a=match_a, sub_a=sub_a,
+    return dict(m=m, s=s, r=sum(ga[i][1] - ga[i][0] for i in root_g), gap_a=max(gap_a, 0), gap_b=max(gap_b, 0), match_a=match_a, sub_a=sub_a,
                 span_b=(gb[j0][0], gb[j1_][1]), pairs=[(ga[i][1] - 1, gb[j][1] - 1) for i, j in pairs], aligned_b=aligned_b)
 
 
-def align_clause(a: Sequence[str], b: Sequence[str], b_groups=None) -> Dict:
+def align_clause(a: Sequence[str], b: Sequence[str], b_groups=None, keyf: Callable[[str], str] = match_key) -> Dict:
     """Best local alignment of one reference clause ``a`` inside candidate tokens ``b``.
 
     Pass 1 finds the window of ``b`` holding the most key matches (width: the clause's words + 4), so
@@ -128,12 +134,12 @@ def align_clause(a: Sequence[str], b: Sequence[str], b_groups=None) -> Dict:
     ``(conj_groups(b), group_keys(b, ...))`` when the caller compares many clauses with one ``b``.
     """
     ga = conj_groups(a)
-    ka = group_keys(a, ga, "a")
-    gb, kb = b_groups if b_groups is not None else (lambda g: (g, group_keys(b, g, "b")))(conj_groups(b))
+    ka = group_keys(a, ga, "a", keyf)
+    gb, kb = b_groups if b_groups is not None else (lambda g: (g, group_keys(b, g, "b", keyf)))(conj_groups(b))
     sm = SequenceMatcher(None, ka, kb, autojunk=False)
     js = sorted(blk_j + k for blk_i, blk_j, size in sm.get_matching_blocks() for k in range(size))
     if not js:
-        return dict(m=0, s=0, gap_a=len(a), gap_b=0, match_a=[False] * len(a), sub_a=[False] * len(a),
+        return dict(m=0, s=0, r=0, gap_a=len(a), gap_b=0, match_a=[False] * len(a), sub_a=[False] * len(a),
                     span_b=(0, 0), pairs=[], aligned_b=[None] * len(a))
     width = len(ga) + 4
     best, best_j, lo = 0, js[0], 0
@@ -145,13 +151,13 @@ def align_clause(a: Sequence[str], b: Sequence[str], b_groups=None) -> Dict:
     g0 = max(0, best_j - 2)
     g1 = min(len(gb), best_j + width + 2)
     w0, w1 = gb[g0][0], gb[g1 - 1][1]
-    res = align_pair(a, b[w0:w1])
+    res = align_pair(a, b[w0:w1], keyf)
     res["pairs"] = [(i, j + w0) for i, j in res["pairs"]]
     res["span_b"] = (res["span_b"][0] + w0, res["span_b"][1] + w0)
     return res
 
 
-def align_clauses(a: Sequence[str], spans: Sequence[Tuple[int, int]], b: Sequence[str]) -> Dict:
+def align_clauses(a: Sequence[str], spans: Sequence[Tuple[int, int]], b: Sequence[str], keyf: Callable[[str], str] = match_key) -> Dict:
     """Order-free comparison of candidate ``b`` against the clauses of reference ``a``.
 
     Witnesses of one hadith often list the same clauses in a different order; each clause is
@@ -159,15 +165,15 @@ def align_clauses(a: Sequence[str], spans: Sequence[Tuple[int, int]], b: Sequenc
     whether the clauses appear in a different order than in the reference.
     """
     gb = conj_groups(b)
-    kb = (gb, group_keys(b, gb, "b"))
+    kb = (gb, group_keys(b, gb, "b", keyf))
     parts, windows = [], []
-    m = s = 0
+    m = s = r = 0
     matched_b = set()
     for c, (x, y) in enumerate(spans):
-        r = align_clause(a[x:y], b, kb)
+        rc = align_clause(a[x:y], b, kb, keyf)
         n = max(y - x, 1)
-        got = sum(r["match_a"])
-        sub = sum(r["sub_a"])
+        got = sum(rc["match_a"])
+        sub = sum(rc["sub_a"])
         cov = got / n
         if cov >= 0.8:
             state = "present"
@@ -178,15 +184,16 @@ def align_clauses(a: Sequence[str], spans: Sequence[Tuple[int, int]], b: Sequenc
         else:
             state = "absent"
         parts.append(dict(clause=c, cov=round(cov, 3), state=state,
-                          window=list(r["span_b"]) if r["m"] else None))
-        if r["m"]:
-            m += r["m"]
-            s += r["s"]
-            matched_b.update(j for _, j in r["pairs"])
+                          window=list(rc["span_b"]) if rc["m"] else None))
+        if rc["m"]:
+            m += rc["m"]
+            s += rc["s"]
+            r += rc["r"]
+            matched_b.update(j for _, j in rc["pairs"])
             if state in ("present", "partial"):
-                windows.append(r["span_b"][0])
+                windows.append(rc["span_b"][0])
     reordered = any(windows[i] > windows[i + 1] for i in range(len(windows) - 1))
-    return dict(m=m, s=s, n_matched_b=len(matched_b), parts=parts, reordered=reordered,
+    return dict(m=m, s=s, r=r, n_matched_b=len(matched_b), parts=parts, reordered=reordered,
                 matched_b=sorted(matched_b))
 
 
@@ -206,6 +213,8 @@ def classify(res: Dict, n_a: int, n_b: int) -> Tuple[str, Dict]:
     score = dict(m=m, s=s, cov_seed=round(cov_a, 3), cov_cand=round(cov_b, 3),
                  mismatch=round(mismatch, 3), n_seed=n_a, n_cand=n_b,
                  clauses_present=present, reordered=res["reordered"])
+    if res.get("r"):
+        score["r"] = res["r"]               # matched words that are of the candidate's roots, not its words
     if m < m_min and present == 0:
         return "different", score
     if mismatch > 0.35:
