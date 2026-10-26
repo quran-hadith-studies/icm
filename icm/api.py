@@ -429,12 +429,14 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         prev_search = project.decision(pid, "search") or {} if step == "search" else {}
         payload = _validate(step, body.get("payload") or {}, pid, p)
         if step == "go":
-            if jobs.active(pid):
-                raise HTTPException(409, "the project is being computed; try again when it is done")
+            j = jobs.active(pid)
+            if j:
+                raise HTTPException(409, "این پروژه هم‌اکنون در حال محاسبه است" + (" (در صف)" if j["status"] == "queued" else "")
+                                    + "؛ پس از پایان دوباره بزنید، یا اگر کاری پیش نمی‌رود «لغو محاسبه» را بزنید.")
             n = pipeline.request(pid, payload["stage"], u["username"])
             if n is None:
                 raise HTTPException(409, "choose the witnesses (step 2)" if payload["stage"] == "align" else "build the alignment (step 3) first")
-            jobs.enqueue(pid)
+            jobs.enqueue(pid, "go:" + payload["stage"])
             return dict(ok=True)
         if step == "search":
             # hadiths added now join a selection already made (they would otherwise be listed unticked), and a rebuilt search clears it
@@ -535,6 +537,15 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 return _compute_input(p["pid"], q)
         return JSONResponse(None)
 
+    @r.post("/api/project/{pid}/cancel")
+    async def cancel(request: Request, pid: str):
+        """The owner (or an admin) stops the project's queued or running computation. A running one stops at its next progress
+        report; a job whose worker is gone stays cancelled and no longer blocks the project."""
+        u, _ = own_project(request, pid)
+        kinds = jobs.cancel(pid)
+        pipeline.cancel(pid, kinds, u["username"])
+        return dict(ok=True, cancelled=len(kinds))
+
     @r.post("/api/project/{pid}/rerun")
     async def rerun(request: Request, pid: str):
         own_project(request, pid)
@@ -589,7 +600,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         """The owner (or an admin) removes a project with all its data. Refused while the worker is computing it."""
         own_project(request, pid)
         if jobs.active(pid):
-            raise HTTPException(409, "the project is being computed; try again when it is done")
+            raise HTTPException(409, "این پروژه هم‌اکنون در حال محاسبه است؛ نخست «لغو محاسبه» را بزنید.")
         jobs.forget(pid)
         project.delete(pid)
         return dict(ok=True)

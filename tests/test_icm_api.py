@@ -690,3 +690,26 @@ def test_a_place_removed_on_the_main_page_leaves_the_chain():
         assert [x["i"] for x in next(x for x in I3["chains"] if x["aid"] == ch["aid"])["elems"]] == [x["i"] for x in ch["elems"]]
     finally:
         shutil.rmtree(d)
+
+
+def test_cancel_lets_the_owner_stop_a_computation_and_take_back_the_request():
+    from icm import pipeline
+    a, d = app()
+    try:
+        c = TestClient(a)
+        pid = c.post("/icm/api/project", json={"seed": "v02:800316143"}, headers=H("alice")).json()["pid"]
+        cancel = lambda who: c.post(f"/icm/api/project/{pid}/cancel", json={}, headers=H(who))
+        go = lambda: c.post(f"/icm/api/project/{pid}/decide/go", json={"payload": {"stage": "align"}}, headers=H("alice"))
+        assert jobs.active(pid)["status"] == "queued" and "idle" in c.get(f"/icm/api/project/{pid}").json()["job"]
+        r = go()
+        assert r.status_code == 409 and "لغو" in r.json()["detail"]                  # busy: Persian message, points at the cancel
+        assert cancel("bob").status_code == 403 and jobs.active(pid)
+        assert cancel("alice").json()["cancelled"] == 1 and jobs.active(pid) is None
+        project.add_decision(pid, "go", dict(align="k1"), "alice")                  # an alignment was asked for ...
+        jobs.enqueue(pid, "go:align")
+        project.add_decision(pid, "go", dict(align="k2"), "alice")
+        assert cancel("alice").status_code == 200
+        assert not (project.decision(pid, "go") or {}).get("align")                   # ... and the cancel takes the request back
+        assert project.load(pid)["status"] != "running"
+    finally:
+        shutil.rmtree(d)

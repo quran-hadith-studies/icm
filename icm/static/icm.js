@@ -331,11 +331,20 @@ async function runPanel(main, step, c) {
   if (al && c.p.step === 'selection') body = el('p', { class: 'muted' }, 'هنوز شاهدی انتخاب نشده است: در ', toStep('selection', 'مرحله‌ی ۲'), ' جستجو کنید و شاهدها را تیک بزنید.');
   else if (!al && c.p.step === 'alignment') body = el('p', { class: 'muted' }, 'راویان از روی هم‌ترازی ساخته می‌شوند: نخست در ', toStep('alignment', 'مرحله‌ی ۳'), ' هم‌ترازی را بسازید.');
   else {
-    const go_ = async ev => { ev.currentTarget.disabled = true; try { await post(`/project/${c.pid}/decide/go`, { payload: { stage: al ? 'align' : 'identify' } }); } catch (e) { alert(e.message); ev.currentTarget.disabled = false; return; } reloadAt(c.pid, step); };
+    const go_ = async ev => {
+      const b = ev.currentTarget;
+      const yes = await ask(al ? { title: 'ساخت هم‌ترازی', yes: 'بله، هم‌ترازی ساخته شود', check: 'شاهدهای برگزیده‌ی مرحله‌ی ۲ را بررسی کرده‌ام و همین‌ها را می‌خواهم.',
+          body: [el('p', {}, `متن ${fa(n)} شاهد برگزیده، همراه حدیث‌های فهرست مرحله‌ی ۱، بخش‌به‌بخش و واژه‌به‌واژه هم‌تراز می‌شود.`),
+            el('p', { class: 'small muted' }, 'تا پایان محاسبه نمی‌توانید نسخه را عوض کنید یا پروژه را حذف کنید؛ اگر لازم شد «لغو محاسبه» هست. با تغییر شاهدها یا جستجو، هم‌ترازی را باید دوباره بسازید.')] }
+        : { title: 'یافتن راویان', yes: 'بله، راویان یافته شوند', check: 'هم‌ترازی (مرحله‌ی ۳) را دیده‌ام و همین را می‌خواهم.',
+          body: [el('p', {}, 'راویان هر سند از متن شاهدها استخراج و با پایگاه راویان سنجیده می‌شوند.'),
+            el('p', { class: 'small muted' }, 'تا پایان محاسبه نمی‌توانید نسخه را عوض کنید یا پروژه را حذف کنید؛ اگر لازم شد «لغو محاسبه» هست.')] });
+      if (!yes) return;
+      b.disabled = true; try { await post(`/project/${c.pid}/decide/go`, { payload: { stage: al ? 'align' : 'identify' } }); } catch (e) { alert(e.message); b.disabled = false; return; } reloadAt(c.pid, step); };
     body = [el('p', {}, al ? `${fa(n)} شاهد برگزیده‌اید (و حدیث‌های فهرست مرحله‌ی ۱). هم‌ترازی تا نخواهید ساخته نمی‌شود؛ با دکمه‌ی زیر متن شاهدها بخش‌به‌بخش و واژه‌به‌واژه هم‌تراز می‌شود.`
         : 'راویان هر سند از متن شاهدها استخراج و با پایگاه راویان سنجیده می‌شوند. این کار تا نخواهید انجام نمی‌شود.'),
       c.p.status === 'failed' ? el('p', { class: 'small', style: 'color:var(--warn)' }, 'اجرای پیشین به خطا خورد: ' + (c.p.error || '')) : null,
-      c.can ? el('div', { class: 'toolbar' }, el('button', { class: 'primary', disabled: busy, onclick: go_ }, al ? 'ساخت هم‌ترازی' : 'یافتن راویان'), busy ? el('span', { class: 'small muted' }, 'در حال محاسبه…') : null)
+      c.can ? el('div', { class: 'toolbar' }, el('button', { class: 'primary', disabled: busy, onclick: go_ }, al ? 'ساخت هم‌ترازی' : 'یافتن راویان'), busy ? el('span', { class: 'small muted' }, 'در حال محاسبه…') : null, busy ? el('button', { class: 'small danger', onclick: () => cancelJob(c.pid) }, 'لغو محاسبه') : null)
         : el('p', { class: 'small muted' }, 'فقط سازنده‌ی پروژه می‌تواند این مرحله را اجرا کند.')];
   }
   main.replaceChildren(card(al ? '۳ هم‌ترازی' : '۴ راویان', body));
@@ -422,7 +431,10 @@ function statusBox(box, p, pid) {
   const err = (P.last_job && P.last_job.error) || p.error;
   box.replaceChildren(...[
     j ? el('div', { class: 'toolbar' }, el('span', { class: 'small' }, (j.status === 'queued' ? 'در صف… ' : '') + (pr ? `${pr.stage}: ${pr.msg || ''}` : '')),
-      el('div', { class: 'bar grow' }, el('i', { style: `width:${Math.round(100 * (pr ? pr.frac : 0))}%` }))) : null,
+      el('div', { class: 'bar grow' }, el('i', { style: `width:${Math.round(100 * (pr ? pr.frac : 0))}%` })),
+      ME.user && (ME.user === p.owner || ME.admin) && !STATIC ? el('button', { class: 'small danger', onclick: () => cancelJob(pid) }, 'لغو محاسبه') : null) : null,
+    j && j.status === 'running' && j.idle > 300 ? el('div', { class: 'small', style: 'color:var(--warn)' }, `از ${fa(Math.round(j.idle / 60))} دقیقه پیش پیشرفتی گزارش نشده؛ شاید کار متوقف شده است («لغو محاسبه»).`) : null,
+    j && j.status === 'queued' && j.idle > 120 ? el('div', { class: 'small', style: 'color:var(--warn)' }, `${fa(Math.round(j.idle / 60))} دقیقه است در صف مانده و کسی آن را برنداشته؛ شاید کارگر محاسبه خاموش است («لغو محاسبه»).`) : null,
     err ? el('div', { class: 'small', style: 'color:var(--bad)' }, err) : null,
     p.status === 'failed' && ME.user && (ME.user === p.owner || ME.admin) ? el('button', { onclick: async () => { await post(`/project/${pid}/rerun`, {}); reload(pid); } }, 'اجرای دوباره') : null].filter(Boolean));
 }
@@ -2027,7 +2039,36 @@ async function saveParts(pid, patch, note) {
 }
 /* after a segmentation decision: stay on the step (the project's own step may be another one) */
 function reloadAt(pid, step) { cache.clear(); closeModal(); setUrl(BASE + stepUrl(pid, null, step), true); render(); }
-function closeModal() { modalGuard = null; document.getElementById('modal').hidden = true; }      // closes for good (after a save, or «discard»)
+function closeModal() { modalGuard = null; document.getElementById('modal').hidden = true; }
+/* a question in the modal with its own answers («بله، …» / «نه، …»), not OK/Cancel; `check`: a sentence the user must tick before the yes can be pressed.
+   Closing it any other way (×, Esc, outside) is a no. Resolves true or false. */
+function ask({ title, body, yes, no = 'نه، برمی‌گردم', check, danger }) {
+  return new Promise(resolve => {
+    const done = v => { closeModal(); resolve(v); };
+    const ok = el('button', { class: danger ? 'danger' : 'primary', disabled: !!check, onclick: () => done(true) }, yes);
+    const box = check ? el('input', { type: 'checkbox', onchange: ev => { ok.disabled = !ev.currentTarget.checked; } }) : null;
+    modal(el('div', { class: 'helpbox' }, el('h3', {}, title), ...[body].flat(),
+      check ? el('label', { class: 'small', style: 'display:flex;gap:8px;align-items:flex-start;margin:10px 0' }, box, check) : null,
+      el('div', { class: 'toolbar' }, ok, el('button', { onclick: () => done(false) }, no))));
+    modalGuard = () => { resolve(false); return true; };
+    (check ? box : ok).focus();
+  });
+}
+/* stop the project's computation (queued, running, or stuck because its worker is gone) */
+async function cancelJob(pid) {
+  const j = P && P.job, idle = j && j.idle != null ? j.idle : null, stuck = j && j.status === 'running' && idle != null && idle > 300;
+  const mins = idle != null ? fa(Math.max(1, Math.round(idle / 60))) : null;
+  const yes = await ask({
+    title: 'لغو محاسبه',
+    body: [el('p', {}, j && j.status === 'queued' ? 'محاسبه هنوز در صف است و شروع نشده؛ لغو آن چیزی را از دست نمی‌دهد.'
+        : stuck ? `از ${mins} دقیقه پیش هیچ پیشرفتی گزارش نشده؛ به احتمال زیاد کار متوقف شده است. لغو آن امن است.`
+        : `محاسبه در جریان است${mins ? ` (آخرین گزارش پیشرفت ${mins} دقیقه پیش)` : ''}. اگر لغو کنید کارِ تا اینجا دور ریخته می‌شود؛ مرحله‌های پیشین و تصمیم‌های شما می‌مانند.`),
+      el('p', { class: 'small muted' }, 'درخواستِ «ساخت هم‌ترازی» / «یافتن راویان» هم پس گرفته می‌شود؛ هر وقت خواستید دوباره بزنید.')],
+    yes: 'بله، محاسبه لغو شود', no: 'نه، ادامه بدهد', danger: true });
+  if (!yes) return;
+  try { await post(`/project/${pid}/cancel`, {}); } catch (e) { alert(e.message); return; }
+  reload(pid);
+}      // closes for good (after a save, or «discard»)
 const WORDS = new Map();
 function wordsOf(pid, run, wid) {
   const k = `${pid}|${run}|${wid}`;

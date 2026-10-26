@@ -102,6 +102,26 @@ def test_job_queue():
         shutil.rmtree(d)
 
 
+def test_cancel_stops_queued_and_running_jobs():
+    d = _tmp()
+    try:
+        a = jobs.enqueue("p1", "go:align")
+        assert jobs.active("p1")["idle"] is not None
+        j = jobs.claim()
+        assert jobs.cancel("p1") == ["go:align"] and jobs.active("p1") is None
+        try:
+            jobs.progress(j["id"], "align", 0.2)             # the worker notices at its next report
+            raise AssertionError("not cancelled")
+        except jobs.Cancelled:
+            pass
+        jobs.finish(j["id"])                                  # and what it reports afterwards does not undo it
+        assert jobs.for_project("p1", 1)[0]["status"] == "cancelled"
+        b = jobs.enqueue("p1")
+        assert jobs.cancel("p1") == ["advance"] and jobs.claim() is None and b
+    finally:
+        shutil.rmtree(d)
+
+
 def test_stale_jobs_requeued():
     d = _tmp()
     try:

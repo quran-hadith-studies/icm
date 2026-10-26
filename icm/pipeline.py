@@ -14,7 +14,7 @@ import time
 import traceback
 from typing import Callable, Dict, Optional
 
-from . import STAGE_VERSIONS, align as align_mod, config, corpus, graph as graph_mod, identity, infer, narrator_versions, project, search as search_mod
+from . import STAGE_VERSIONS, align as align_mod, config, corpus, graph as graph_mod, identity, infer, jobs, narrator_versions, project, search as search_mod
 from . import suggest as suggest_mod
 from .project import h
 
@@ -128,6 +128,18 @@ def request(pid: str, stage: str, user: str) -> Optional[str]:
     return key
 
 
+def cancel(pid: str, kinds: list, user: str) -> None:
+    """The owner cancelled the project's jobs: what a cancelled «build the alignment» / «find the narrators» asked for is
+    asked for no more (else the next job would start it again), and the project is no longer «running»."""
+    stages = [k[3:] for k in kinds if k.startswith("go:")]
+    go = project.decision(pid, "go") or {}
+    if any(go.get(st) for st in stages):
+        drop = set(stages) | ({"identify"} if "align" in stages else set())
+        project.add_decision(pid, "go", {k: go[k] for k in ("align", "identify") if go.get(k) and k not in drop}, user, "cancelled")
+    if (project.load(pid) or {}).get("status") == "running":
+        _set(pid, status="draft", error=None)
+
+
 def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = None) -> dict:
     def say(stage, frac, msg=""):
         if progress:
@@ -212,6 +224,8 @@ def advance(pid: str, progress: Optional[Callable[[str, float, str], None]] = No
 
         R = _get_or_run(pid, "infer", k_infer, run_infer, hashes)
         return _finish(pid, vers, hashes, "finalized", "done", graph_hash=k_graph)
+    except jobs.Cancelled:                                        # the owner stopped it: not a failure; cancel() has set the project right
+        raise
     except Exception as e:                                        # keep the project readable, report the failure
         project.log(pid, "error", "".join(traceback.format_exception_only(type(e), e)).strip(), "error")
         _set(pid, status="failed", error=str(e))

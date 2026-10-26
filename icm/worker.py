@@ -24,6 +24,8 @@ def run_job(job) -> None:
     try:
         pipeline.advance(pid, progress=cb)
         jobs.finish(job["id"])
+    except jobs.Cancelled:
+        print("job", job["id"], "cancelled", flush=True)
     except Exception as e:
         traceback.print_exc()
         jobs.finish(job["id"], error=f"{type(e).__name__}: {e}")
