@@ -1,6 +1,6 @@
 'use strict';
 /* the wizard's own accounts (the server's icm/users.py, on when ME.accounts): sign-in, sign-up confirmed through the
-   Bale bot, the account page, the admin's users menu, and the name in the header. Loaded before icm.js and uses its
+   Bale bot, the account page, the admin's users menu, and the account's part of the header menu. Loaded before icm.js and uses its
    helpers (el, api, post, go, fa, ME, popover…) only when called. */
 window.ICMUsers = (() => {
   const ROLE = { admin: 'مدیر', editor: 'ویرایشگر', viewer: 'خواننده' };
@@ -24,21 +24,17 @@ window.ICMUsers = (() => {
     return f;
   }
 
-  /* ---------- the header: name ▾ → account, users, sign out ---------- */
-  function who() {
-    if (!ME.user) return el('a', { href: `${BASE}/login?next=${encodeURIComponent(location.pathname)}`, onclick: ev => { ev.preventDefault(); go('/login?next=' + encodeURIComponent(location.pathname)); } }, 'ورود');
-    const badge = ME.pending ? el('span', { class: 'ubadge', title: 'کاربران منتظر تأیید' }, fa(ME.pending)) : null;
-    const b = el('button', { class: 'lnk uwho', 'aria-haspopup': 'menu', onclick: ev => { ev.stopPropagation(); popover(b, menu()); } },
-      ME.name || ME.user, badge, ' ▾');
-    return b;
+  /* ---------- the header: the sign-in link, and the account's entries for the top bar's menu ---------- */
+  function loginLink() {
+    return el('a', { href: `${BASE}/login?next=${encodeURIComponent(location.pathname)}`, onclick: ev => { ev.preventDefault(); go('/login?next=' + encodeURIComponent(location.pathname)); } }, 'ورود');
   }
-  function menu() {
+  const badge = () => (ME.pending ? el('span', { class: 'ubadge', title: 'کاربران منتظر تأیید' }, fa(ME.pending)) : null);
+  function items() {
     const item = (path, text, extra) => el('a', { class: 'uitem', role: 'menuitem', href: BASE + path, onclick: ev => { ev.preventDefault(); closePop(); go(path); } }, text, extra || null);
-    return el('nav', { class: 'umenu', role: 'menu' },
-      el('div', { class: 'small muted' }, ME.user, ' · ', ROLE[ME.role] || ME.role),
+    return [
       item('/account', 'حساب من'),
       ME.admin ? item('/users', 'مدیریت کاربران', ME.pending ? el('span', { class: 'ubadge' }, fa(ME.pending)) : null) : null,
-      el('button', { class: 'uitem lnk', role: 'menuitem', onclick: async () => { closePop(); await post('/auth/logout', {}); go('/'); } }, 'خروج'));
+      el('button', { class: 'uitem lnk', role: 'menuitem', onclick: async () => { closePop(); await post('/auth/logout', {}); go('/'); } }, 'خروج')].filter(Boolean);
   }
 
   async function page(kind) {
@@ -182,5 +178,5 @@ window.ICMUsers = (() => {
         : el('p', { class: 'empty-state' }, 'کاربری در این دسته نیست.')));
   }
 
-  return { who, page };
+  return { loginLink, badge, items, role: () => ROLE[ME.role] || ME.role, page };
 })();

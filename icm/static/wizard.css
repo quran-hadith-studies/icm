@@ -1,16 +1,16 @@
 /* The project page of the wizard (design-system/icm/MASTER.md: Swiss Modernism 2.0, dense, navy + amber; tokens come from base.css).
    The site's top bar becomes the project's while a project is open (header.top.proj): the logo mark, the project's name and state,
-   one step button (the step on screen; its list of all the steps opens on demand), results, settings and the version. The page below
-   it is the step: its title with the run button, the facts strip, the data and a bar with save / previous / next that stays at the
-   bottom. On a narrow screen the bar is not sticky and the name takes a line of its own. */
+   previous / the step button (the step on screen; its list of all the steps opens on demand) / next, results, settings, save, the version
+   and, at the end, the menu with the user's name (site links, the colour of the page, the account). The page below it is the step: its
+   title with the run button, the facts strip and the data. On a narrow screen the bar is not sticky, the name takes a line of its own,
+   and previous / save / next sit in a bar at the bottom instead. */
 main>div:empty{display:none}
 
 /* ---- the top bar of a project page ---- */
 header.top.proj .sub,header.top.proj .navs,header.top.proj .grow{display:none}
 header.top.proj .brand{font-size:0;gap:0}
 header.top.proj .brand .mark{font-size:17px}
-#sitemenu[hidden],.hproj[hidden]{display:none}
-header.top.proj #sitemenu{display:inline-grid}
+.hproj[hidden]{display:none}
 .hproj{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;flex:1 1 0;min-width:0}
 .pname{margin:0;font-size:14.5px;font-weight:700;max-width:min(30vw,380px);min-width:5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hmeta,.hnav{display:inline-flex;align-items:center;gap:6px}
@@ -20,9 +20,27 @@ header.top.proj #sitemenu{display:inline-grid}
 .hstep.on,.hl.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
 .hstep .ico{width:14px;height:14px}
 .hver{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;min-width:0}
-.hver select{min-width:0;max-width:11em}
-.hver>.toolbar{flex-wrap:nowrap}
-.hver>span:not(.toolbar){max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hver select{min-width:0;max-width:12em}
+.hver>span{max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hgo-host{display:contents}
+.hgo{display:inline-grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:none;color:var(--fg);cursor:pointer}
+.hgo:hover:not(:disabled){background:var(--accent-soft);color:var(--accent)}
+.hgo:disabled{color:var(--muted);opacity:.4;cursor:default}
+.hgo .ico{width:18px;height:18px}
+.hsave{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.hsave:empty{display:none}
+.hsave .primary{padding-block:4px}
+/* the menu of the bar: the name, and in it the site links, the colour of the page and the account */
+.acct{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:0;border-radius:var(--r-sm);background:none;color:var(--fg);font:inherit;font-size:13px;line-height:1.6;cursor:pointer;white-space:nowrap}
+.acct:hover{background:var(--accent-soft)}
+.acct .an{max-width:12em;overflow:hidden;text-overflow:ellipsis}
+.acct .ico{width:16px;height:16px;color:var(--muted)}
+.acctmenu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.acctmenu .arow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 8px}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:var(--r-sm);overflow:hidden}
+.seg button{border:0;border-radius:0;background:none;padding:3px 11px;font-size:12.5px;min-height:0;color:var(--muted)}
+.seg button+button{border-inline-start:1px solid var(--line-2)}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
 .busy{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-inline:6px;vertical-align:middle;animation:icm-pulse 1.2s ease-in-out infinite}
 @keyframes icm-pulse{50%{opacity:.3}}
 @media (prefers-reduced-motion:reduce){.busy,.st.running .n{animation:none}}
@@ -47,9 +65,6 @@ header.top.proj #sitemenu{display:inline-grid}
 .stlist .st.unreached{color:var(--muted);opacity:.6;cursor:default}
 .stlist .st .tt{flex:1;min-width:0}
 .stlist .st .mark{margin-inline-start:auto}
-.sitemenu{display:flex;flex-direction:column;min-width:170px}
-.sitemenu a{padding:7px 10px;border-radius:var(--r-sm);color:var(--fg);text-decoration:none}
-.sitemenu a:hover{background:var(--accent-soft)}
 
 /* ---- the step: title with its number and (i); the run button and its knobs on the other side ---- */
 .sthead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:0 0 8px}
@@ -67,7 +82,8 @@ header.top.proj #sitemenu{display:inline-grid}
 .ctx .ci{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:1px 11px;font-size:12.5px;line-height:1.7;color:var(--fg)}
 .ctx .ci b{color:var(--muted);font-weight:400}
 
-/* ---- the bar at the bottom: save / previous / next ---- */
+/* ---- the bar at the bottom of a phone: previous / save / next (on a wider screen they are in the top bar) ---- */
+@media (min-width:701px){.actionbar.wiz{display:none}}
 .actionbar.wiz{position:sticky;bottom:0;z-index:12;margin:var(--sp-4) 0 0;padding:var(--sp-2) var(--sp-3);padding-bottom:calc(var(--sp-2) + env(safe-area-inset-bottom,0px));
   background:color-mix(in srgb,var(--card) 96%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line-2);border-radius:var(--r);box-shadow:0 -6px 18px rgb(15 23 42 / .08)}
 .actionbar:not(.wiz){bottom:calc(var(--wizbar,0px) + 8px)}
@@ -91,9 +107,10 @@ html{scroll-padding-bottom:calc(var(--wizbar,0px) + 16px);scroll-padding-top:cal
   .pname{max-width:calc(100% - 130px)}
   .hnav{padding-inline-start:0;border-inline-start:0;margin-inline-start:-8px;flex-basis:100%}
   .hver{margin-inline-start:0;flex-basis:100%}
-  .hver>span:not(.toolbar){max-width:100%}
+  .hver>span{max-width:100%}
   .sthead h2{font-size:16.5px}
   .runrow{justify-content:flex-start}
+  .hgo-host,.hsave{display:none}
   .actionbar.wiz{margin-inline:-12px;border-radius:0;border-inline:0}
   .actionbar.wiz .toolbar{gap:6px}
   .actionbar.wiz .toolbar button{flex:1 1 auto;padding-inline:8px}

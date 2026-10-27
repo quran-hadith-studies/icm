@@ -4,7 +4,7 @@
    - a form control with no name takes its title, placeholder, or the heading of the card it sits in;
    - a scrolling region (a wide table, a long list, a tree) becomes reachable with the keyboard;
    - a modal gets focus when it opens and returns it when it closes; Escape closes it;
-   - the theme button of the header: automatic (the system's choice) → light → dark → automatic, remembered in localStorage. */
+   - the theme (window.ICMTheme; the narrator wiki has a header button, the wizard a choice in its account menu): automatic (the system's choice) → light → dark → automatic, remembered in localStorage. */
 (function () {
   const SCROLLERS = '.grid-wrap,.gwrap,.hlist,.matn,.tscroll,.insp,.pick .res,.log,.mlist,pre.json';
   const named = e => e.getAttribute('aria-label') || e.getAttribute('aria-labelledby') || (e.labels && e.labels.length) || e.closest('label');
@@ -28,7 +28,6 @@
   /* theme: the choice is [data-theme] on <html> (the inline script in each page's head restores it before the first paint) */
   (function () {
     const btn = document.getElementById('theme');
-    if (!btn) return;
     const mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
     const get = () => { try { const t = localStorage.getItem('theme'); return t === 'light' || t === 'dark' ? t : 'auto'; } catch (_) { return 'auto'; } };
     const NS = 'http://www.w3.org/2000/svg';
@@ -41,14 +40,13 @@
     const paint = () => {
       const m = get();
       if (m === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = m;
+      if (!btn) return;
       btn.replaceChildren(icon(m === 'light' ? SUN : m === 'dark' ? MOON : AUTO));
       btn.title = LABEL[m]; btn.setAttribute('aria-label', LABEL[m] + ' — برای تغییر بزنید');
     };
-    btn.addEventListener('click', () => {
-      const next = { auto: 'light', light: 'dark', dark: 'auto' }[get()];
-      try { next === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', next); } catch (_) {}
-      paint();
-    });
+    const set = m => { try { m === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', m); } catch (_) {} paint(); };
+    if (btn) btn.addEventListener('click', () => set({ auto: 'light', light: 'dark', dark: 'auto' }[get()]));
+    window.ICMTheme = { get, set };      // the wizard's account menu sets it too
     paint();
   })();
   /* modal focus */

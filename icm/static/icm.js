@@ -188,12 +188,11 @@ async function render() {
     document.querySelector('header.top').classList.remove('proj');
     const hp = document.getElementById('hproj'); hp.hidden = true; hp.replaceChildren();
   }
-  siteMenu();
   ME = await api('/me').catch(() => ME);
   const who = document.getElementById('who');
-  who.replaceChildren(STATIC ? el('span', { class: 'small' }, `نسخه‌ی ذخیره‌شده (${fa(STATIC.generated)})، فقط خواندنی${STATIC.narrator_version ? ' · پایگاه راویان: ' + (STATIC.narrator_version.label_fa || (STATIC.narrator_version.name === 'raw' ? 'خام' : STATIC.narrator_version.name)) : ''}`)
-    : ME.accounts ? ICMUsers.who()
-    : ME.user ? `${ME.user}${ME.admin ? ' (مدیر)' : ''}` : el('a', { href: '/account/login?next=' + encodeURIComponent(location.pathname) }, 'ورود'));
+  who.replaceChildren(...[STATIC ? el('span', { class: 'small' }, `نسخه‌ی ذخیره‌شده (${fa(STATIC.generated)})، فقط خواندنی${STATIC.narrator_version ? ' · پایگاه راویان: ' + (STATIC.narrator_version.label_fa || (STATIC.narrator_version.name === 'raw' ? 'خام' : STATIC.narrator_version.name)) : ''}`)
+    : ME.user ? null : ME.accounts ? ICMUsers.loginLink() : el('a', { href: '/account/login?next=' + encodeURIComponent(location.pathname) }, 'ورود'),
+    acctButton()].filter(Boolean));
   const r = route();
   document.querySelectorAll('.navs a.nav').forEach(a => a.classList.toggle('on', !r.pid && !r.auth && a.getAttribute('href') === (r.new ? BASE + '/new' : BASE)));
   try { r.pid ? await ICMWizard.project(r) : r.auth ? await ICMUsers.page(r.auth) : r.new ? await newProject() : await home(); }
@@ -1844,19 +1843,31 @@ function popover(anchor, body) {
   POP.style.left = x + 'px'; POP.style.top = y + 'px';
 }
 function closePop() { if (POP) { POP.remove(); POP = null; } }
-/* the site's links (projects, new project, narrator wiki, hadith search) behind one button of the top bar; shown on a project page, where the bar is the project's */
-function siteMenu() {
-  const b = document.getElementById('sitemenu');
-  if (!b || b.dataset.on) return;
-  b.dataset.on = '1'; b.replaceChildren(icon('M4 6h16', 'M4 12h16', 'M4 18h16'));
-  b.onclick = ev => {
-    ev.stopPropagation();
-    popover(b, el('nav', { class: 'sitemenu', 'aria-label': 'پیوندهای سایت' }, [...document.querySelectorAll('header.top .navs a')].map(a => {
-      let href = a.getAttribute('href'); const mine = !STATIC && (href === BASE || href === BASE + '/new');
-      if (STATIC && href === '/new') href = SITE + '/icm/new';        // an exported file: the site's address
-      return el('a', { href, onclick: e2 => { closePop(); if (mine) { e2.preventDefault(); go(href.slice(BASE.length) || '/'); } } }, a.textContent);
-    })));
-  };
+/* the one menu of the top bar, behind the name (or, with no name, a menu icon): on a project page the site's links (the bar is then the project's),
+   the colour of the page (automatic / light / dark, remembered in this browser), and the account's entries */
+function acctButton() {
+  const name = !STATIC && ME.user ? (ME.name || ME.user) : null;
+  const b = el('button', { type: 'button', class: 'acct', 'aria-haspopup': 'true', 'aria-label': name ? name + ' — منو' : 'منو', title: 'منو: رنگ صفحه، حساب و پیوندهای سایت',
+    onclick: ev => { ev.stopPropagation(); popover(b, acctMenu()); } },
+    name ? [el('span', { class: 'an' }, name), ME.accounts ? ICMUsers.badge() : null, icon('M6 9l6 6 6-6')] : icon('M4 6h16', 'M4 12h16', 'M4 18h16'));
+  return b;
+}
+function acctMenu() {
+  const inProj = document.querySelector('header.top').classList.contains('proj');
+  const T = window.ICMTheme;
+  const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'رنگ صفحه' }, [['auto', 'خودکار'], ['light', 'روشن'], ['dark', 'تیره']].map(([m, t]) =>
+    el('button', { type: 'button', 'data-m': m, 'aria-pressed': String(T.get() === m), onclick: () => { T.set(m); seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.m === m))); } }, t)));
+  const links = !inProj ? [] : [...document.querySelectorAll('header.top .navs a')].map(a => {
+    let href = a.getAttribute('href'); const mine = !STATIC && (href === BASE || href === BASE + '/new');
+    if (STATIC && href === '/new') href = SITE + '/icm/new';        // an exported file: the site's address
+    return el('a', { class: 'uitem', href, onclick: e2 => { closePop(); if (mine) { e2.preventDefault(); go(href.slice(BASE.length) || '/'); } } }, a.textContent);
+  });
+  const mine = !STATIC && ME.user ? (ME.accounts ? ICMUsers.items() : []) : [];
+  return el('nav', { class: 'umenu acctmenu', 'aria-label': 'منو' },
+    !STATIC && ME.user ? el('div', { class: 'small muted' }, ME.user, ' · ', ME.accounts ? ICMUsers.role() : ME.admin ? 'مدیر' : '') : null,
+    ...links, links.length ? el('hr') : null,
+    el('div', { class: 'arow' }, el('span', { class: 'small muted' }, 'رنگ صفحه'), seg),
+    mine.length ? el('hr') : null, ...mine);
 }
 document.addEventListener('click', ev => { if (POP && !POP.contains(ev.target)) closePop(); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closePop(); });
