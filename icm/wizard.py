@@ -130,7 +130,8 @@ def staleness(pid: str, job: Optional[dict] = None) -> dict:
             state = "idle"
         if want is not False and state not in ("done", "idle", "unreached") and (want is None or s in want):
             state = "running"
-        steps.append(dict(n=n, slug=slug(n), title=TITLES[n - 1], stage=s, state=state, key=key, edited=bool(mine), in_run=bool(m) and mst.get(s) == key and key is not None, ready=bool(ready[n]),
+        ran = bool(sdec.get("ret") or not p.get("manual_search")) if n == 3 else bool(sdec.get("ret_sem") or (sdec.get("ret") or {}).get("sem")) if n == 4 else (bool(m) and mst.get(s) is not None)
+        steps.append(dict(n=n, slug=slug(n), title=TITLES[n - 1], stage=s, state=state, key=key, ran=ran, edited=bool(mine), in_run=bool(m) and mst.get(s) == key and key is not None, ready=bool(ready[n]),
                           changed_since=[dict(n=o, slug=slug(o), title=TITLES[o - 1]) for o in since] if state in ("stale", "needs_run") else [],
                           run=(dict(zip(("what", "label", "heavy"), RUN[n])) if n in RUN else None)))
     cur = next((x["n"] for x in steps if x["state"] not in ("done", "idle")), None)

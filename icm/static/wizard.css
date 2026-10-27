@@ -1,1 +1,57 @@
-/* wizard page styles */
+/* The project page of the wizard: header with a busy dot, tabs (steps · results · settings), the numbered stepper, the strip of facts
+   from earlier steps, the run bar, and the settings page with its sidebar. Tokens come from base.css. */
+.phead{padding-block:8px 0;overflow:hidden}
+.phead h1{margin:0;font-size:15.5px;font-weight:700}
+.phead label{display:inline-flex;align-items:center;gap:6px;min-width:0}.phead select{min-width:0}
+.busy{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-inline:6px;vertical-align:middle;animation:icm-pulse 1.2s ease-in-out infinite}
+@keyframes icm-pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.busy,.stepper .st.running .n{animation:none}}
+.ptabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:8px -18px 0;padding-inline:14px}
+.ptabs a{padding:7px 14px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:13.5px}
+.ptabs a:hover{color:var(--fg)}
+.ptabs a.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.phead #status:empty,.phead>div:empty{display:none}
+.phead>div:last-child:not(:empty){margin-block:8px}
+
+.stepper{display:flex;gap:5px;overflow-x:auto;scrollbar-width:thin;padding:2px 1px 8px;margin:0 0 6px}
+.stepper .st{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border:1px solid var(--line-2);border-radius:99px;font-size:12.5px;color:var(--muted);
+  text-decoration:none;white-space:nowrap;background:var(--card)}
+.stepper a.st:hover{border-color:var(--accent);color:var(--fg)}
+.stepper .st .n{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:50%;background:var(--line);font-size:11px;font-weight:700;color:var(--fg)}
+.stepper .st .mark{font-size:11px}
+.stepper .st.done .n{background:var(--good-bg);color:var(--chip-fg)}
+.stepper .st.done .mark{color:var(--good)}
+.stepper .st.needs .n,.stepper .st.stale .n,.stepper .st.awaiting .n{background:var(--warn-bg);color:var(--chip-fg)}
+.stepper .st.needs .mark,.stepper .st.stale .mark{color:var(--warn)}
+.stepper .st.running .n{background:var(--accent);color:var(--on-accent);animation:icm-pulse 1.2s ease-in-out infinite}
+.stepper .st.unreached{border-style:dashed;cursor:default;opacity:.7}
+.stepper .st.idle{color:var(--muted)}
+.stepper .st.cur{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:var(--accent-soft);color:var(--accent);font-weight:700}
+
+.sthead{margin:6px 0 4px}.sthead h2{margin:0;font-size:16px;display:flex;align-items:center;gap:6px}
+.sthead .stepinfo{display:inline-flex}
+.ctx{display:flex;flex-wrap:wrap;gap:2px 18px;font-size:12.5px;color:var(--muted);margin:0 0 10px;padding:0 2px}
+.ctx:empty{display:none}.ctx b{color:var(--fg);font-weight:600}
+.runbar{padding-block:10px}
+.runbar[hidden],.actionbar[hidden]{display:none}
+.runbar .runrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.runbar .what{color:var(--muted);font-size:12.5px}
+.runbar .warnbox{margin:0 0 10px}
+.runbar select,.runbar input[type=number]{max-width:100%}
+
+.settings{display:grid;grid-template-columns:210px minmax(0,1fr);gap:20px;align-items:start}
+.snav{position:sticky;top:70px;display:flex;flex-direction:column;gap:2px}
+.snav a{padding:7px 12px;border-radius:var(--r-sm);color:var(--fg);text-decoration:none;border-inline-start:3px solid transparent}
+.snav a:hover{background:var(--accent-soft)}
+.snav a.on{background:var(--accent-soft);color:var(--accent);font-weight:700;border-inline-start-color:var(--accent)}
+.snav a.danger{color:var(--bad)}
+.sbody{min-width:0}
+.sbody .dangerbox{border-color:var(--bad)}
+.kv{border-collapse:collapse}.kv th{text-align:start;font-weight:600;color:var(--muted);padding:3px 0;padding-inline-end:16px;white-space:nowrap}.kv td{padding:3px 0}
+@media (max-width:760px){
+  .settings{grid-template-columns:1fr}
+  .snav{position:static;flex-direction:row;overflow-x:auto}
+  .snav a{white-space:nowrap}
+  .ptabs{margin-inline:-13px}
+  .stepper .st{padding-inline:6px}
+}

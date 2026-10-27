@@ -5,11 +5,6 @@ input[type=text]{min-width:260px}
 th{position:sticky;top:0;background:var(--card)}
 h2{font-size:18px}h3{font-size:15px;margin-top:14px}
 .log{font-size:12px;max-height:180px;overflow:auto;color:var(--muted)}
-.steps{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 12px}
-.step{flex:1;min-width:130px;border:1px solid var(--line-2);background:var(--card);border-radius:var(--r-sm);padding:6px 10px;font-size:12.5px;text-align:center;cursor:pointer;color:var(--muted);text-decoration:none;transition:background var(--t),border-color var(--t),color var(--t)}
-.step:hover:not(.off){border-color:var(--accent);color:var(--fg)}
-.step.now::after{content:' ●';color:var(--warn)}
-.step.done{color:var(--good)}.step.cur{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:var(--accent-soft);color:var(--accent);font-weight:700}.step.off{border-style:dashed;cursor:default;color:var(--muted)}
 .bar{height:6px;background:var(--line);border-radius:99px;overflow:hidden;min-width:60px}.bar>i{transition:width 300ms ease-out}.bar>i{display:block;height:100%;background:var(--accent)}
 /* clause colours: elements set --h (a hue) per part of the seed */
 .hl{background:hsl(var(--h) var(--hl-s) var(--hl-l));border-radius:4px;padding:1px 0;box-decoration-break:clone;-webkit-box-decoration-break:clone}
@@ -185,7 +180,6 @@ table.prow td.nm{cursor:pointer;max-width:220px}table.prow tr.on{background:var(
 details.fullt>summary{display:inline-block}
 .sugd>p{margin:4px 0}
 @media (max-width:700px){
-  .steps .step{min-width:calc(50% - 4px)}
   .grid-wrap{max-height:70vh}
   table.cands td.txt{min-width:260px}
   .rv .rvtabs button{padding:9px 12px}
@@ -193,20 +187,6 @@ details.fullt>summary{display:inline-block}
 }
 .toolbar input[type=text]{flex:1 1 260px}
 @media (max-width:700px){main .card table td.ar{min-width:180px}}
-/* project pages: the step tabs sit in the site header (in place of its subtitle), the project itself is one short line */
-body.inproj header.top .sub{display:none}
-.hsteps{display:flex;align-items:center;gap:3px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;min-width:0;max-width:100%}
-.hsteps::before{content:'';flex:none;width:1px;height:22px;background:var(--line-2);margin-inline-end:8px}
-.hsteps[hidden]{display:none}
-.hsteps .step{flex:none;min-width:0;padding:3px 10px;border-radius:99px;white-space:nowrap}
-.hsteps .stepinfo{display:inline-flex;flex:none}.hsteps .stepinfo .info{margin-inline:0 4px}
-.card.pcard{padding-block:8px}
-.pcard label{display:inline-flex;align-items:center;gap:6px;min-width:0}.pcard select{min-width:0}
-.pcard h1{margin:0;font-size:15.5px;font-weight:700}
-.pstep{display:inline-flex;align-items:center;gap:2px;flex:none}.pstep .step{flex:none;min-width:0;padding:3px 10px;border-radius:99px;white-space:nowrap}
-.pstep .stepinfo{display:inline-flex}.pstep .stepinfo .info{margin-inline:2px 0}
-.hcur{font:inherit;font-size:12.5px}.hcur.now::after{content:none}.hcur.now .caret::before{content:'● ';color:var(--warn)}
-.steplist{display:flex;flex-direction:column;gap:4px;min-width:170px}.steplist .step{flex:none;text-align:start}
 @media (max-width:700px){button.info{min-height:0;min-width:0}}
 
 .seeditem { padding: 10px 0; border-top: 1px solid var(--line-2, var(--line)); }
