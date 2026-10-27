@@ -1,57 +1,112 @@
-/* The project page of the wizard: header with a busy dot, tabs (steps · results · settings), the numbered stepper, the strip of facts
-   from earlier steps, the run bar, and the settings page with its sidebar. Tokens come from base.css. */
+/* The project page of the wizard (design-system/icm/MASTER.md: Swiss Modernism 2.0, dense, navy + amber; tokens come from base.css).
+   Wide screen (≥1024px): an app shell, a sticky rail on the start side (right, in RTL) with the project's name, state and version, the
+   eleven steps in three groups, the results and the settings; beside it the step: its title with the run button, the facts strip, the
+   data and a bar with save / previous / next that stays at the bottom. Narrow screen: no rail; the same header card with tabs, a step
+   drop-down and the horizontal stepper (the rail's links are hidden, the header card is shown as it is). */
+.shell{display:block}
+.rail{display:contents}
+.railnav{display:none}
+.shellmain{min-width:0}
+.shellmain>div:empty{display:none}
+
+/* header card */
 .phead{padding-block:8px 0;overflow:hidden}
 .phead h1{margin:0;font-size:15.5px;font-weight:700}
 .phead label{display:inline-flex;align-items:center;gap:6px;min-width:0}.phead select{min-width:0}
 .busy{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-inline:6px;vertical-align:middle;animation:icm-pulse 1.2s ease-in-out infinite}
 @keyframes icm-pulse{50%{opacity:.3}}
-@media (prefers-reduced-motion:reduce){.busy,.stepper .st.running .n{animation:none}}
+@media (prefers-reduced-motion:reduce){.busy,.st.running .n{animation:none}}
 .ptabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:8px -18px 0;padding-inline:14px}
-.ptabs a{padding:7px 14px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:13.5px}
+.ptabs a{padding:8px 14px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:13.5px}
 .ptabs a:hover{color:var(--fg)}
 .ptabs a.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
-.phead #status:empty,.phead>div:empty{display:none}
-.phead>div:last-child:not(:empty){margin-block:8px}
+.phead>div:empty{display:none}
+.phead .pheadrow:last-child{margin-bottom:8px}
 
+/* the steps: the pill (narrow screen) and the row (rail) share the marks of their state */
 .stepper{display:flex;gap:5px;overflow-x:auto;scrollbar-width:thin;padding:2px 1px 8px;margin:0 0 6px}
-.stepper .st{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border:1px solid var(--line-2);border-radius:99px;font-size:12.5px;color:var(--muted);
-  text-decoration:none;white-space:nowrap;background:var(--card)}
+.st{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);text-decoration:none;white-space:nowrap}
+.stepper .st{padding:5px 10px 5px 8px;border:1px solid var(--line-2);border-radius:99px;background:var(--card)}
 .stepper a.st:hover{border-color:var(--accent);color:var(--fg)}
-.stepper .st .n{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:50%;background:var(--line);font-size:11px;font-weight:700;color:var(--fg)}
-.stepper .st .mark{font-size:11px}
-.stepper .st.done .n{background:var(--good-bg);color:var(--chip-fg)}
-.stepper .st.done .mark{color:var(--good)}
-.stepper .st.needs .n,.stepper .st.stale .n,.stepper .st.awaiting .n{background:var(--warn-bg);color:var(--chip-fg)}
-.stepper .st.needs .mark,.stepper .st.stale .mark{color:var(--warn)}
-.stepper .st.running .n{background:var(--accent);color:var(--on-accent);animation:icm-pulse 1.2s ease-in-out infinite}
+.st .n{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:50%;background:var(--line);font-size:11px;font-weight:700;color:var(--fg);flex:none}
+.st .mark{font-size:11px}
+.st.done .n{background:var(--good-bg);color:var(--chip-fg)}
+.st.done .mark{color:var(--good)}
+.st.needs .n,.st.stale .n,.st.awaiting .n{background:var(--warn-bg);color:var(--chip-fg)}
+.st.needs .mark,.st.stale .mark{color:var(--warn)}
+.st.running .n{background:var(--accent);color:var(--on-accent);animation:icm-pulse 1.2s ease-in-out infinite}
 .stepper .st.unreached{border-style:dashed;cursor:default;opacity:.7}
-.stepper .st.idle{color:var(--muted)}
+.st.idle{color:var(--muted)}
 .stepper .st.cur{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:var(--accent-soft);color:var(--accent);font-weight:700}
 
-.sthead{margin:6px 0 4px}.sthead h2{margin:0;font-size:16px;display:flex;align-items:center;gap:6px}
+/* step header: number, title, (i); the run button and its knobs on the other side */
+.sthead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:6px 0 8px}
+.sthead h2{margin:0;font-size:18px;display:flex;align-items:center;gap:8px;flex:0 1 auto}
+.sthead .stn{display:inline-grid;place-items:center;min-width:30px;height:30px;padding-inline:4px;border-radius:var(--r-sm);background:var(--accent-soft);color:var(--accent);font-size:15px;font-weight:700}
 .sthead .stepinfo{display:inline-flex}
-.ctx{display:flex;flex-wrap:wrap;gap:2px 18px;font-size:12.5px;color:var(--muted);margin:0 0 10px;padding:0 2px}
-.ctx:empty{display:none}.ctx b{color:var(--fg);font-weight:600}
-.runbar{padding-block:10px}
-.runbar[hidden],.actionbar[hidden]{display:none}
-.runbar .runrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.runbar .what{color:var(--muted);font-size:12.5px}
-.runbar .warnbox{margin:0 0 10px}
-.runbar select,.runbar input[type=number]{max-width:100%}
+.runrow{flex:1 1 340px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin:0}
+.runrow.knobs{flex-basis:100%;justify-content:flex-start}
+.runrow[hidden],.runwarn[hidden],.actionbar[hidden]{display:none}
+.runrow .what{color:var(--muted);font-size:12.5px}
+.runrow select,.runrow input[type=number]{max-width:100%}
+.runwarn .warnbox{margin:0 0 8px}
+.ctx{display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0 12px;padding:0}
+.ctx:empty{display:none}
+.ctx .ci{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:1px 11px;font-size:12.5px;line-height:1.7;color:var(--fg)}
+.ctx .ci b{color:var(--muted);font-weight:400}
 
-.settings{display:grid;grid-template-columns:210px minmax(0,1fr);gap:20px;align-items:start}
-.snav{position:sticky;top:70px;display:flex;flex-direction:column;gap:2px}
-.snav a{padding:7px 12px;border-radius:var(--r-sm);color:var(--fg);text-decoration:none;border-inline-start:3px solid transparent}
+/* the bar at the bottom: save / previous / next */
+.actionbar.wiz{position:sticky;bottom:0;z-index:12;margin:var(--sp-4) 0 0;padding:var(--sp-2) var(--sp-3);padding-bottom:calc(var(--sp-2) + env(safe-area-inset-bottom,0px));
+  background:color-mix(in srgb,var(--card) 96%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line-2);border-radius:var(--r);box-shadow:0 -6px 18px rgb(15 23 42 / .08)}
+.actionbar:not(.wiz){bottom:calc(var(--wizbar,0px) + 8px)}
+html{scroll-padding-bottom:calc(var(--wizbar,0px) + 16px);scroll-padding-top:calc(var(--hdr) + 8px)}
+
+/* settings: the sections are the rail's on a wide screen; a row of links above the page on a narrow one */
+.settings{display:block}
+.snav{display:flex;flex-direction:row;gap:2px;overflow-x:auto;margin-bottom:var(--sp-3);scrollbar-width:thin}
+.snav a{padding:7px 12px;border-radius:var(--r-sm);color:var(--fg);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap}
 .snav a:hover{background:var(--accent-soft)}
-.snav a.on{background:var(--accent-soft);color:var(--accent);font-weight:700;border-inline-start-color:var(--accent)}
+.snav a.on{background:var(--accent-soft);color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
 .snav a.danger{color:var(--bad)}
 .sbody{min-width:0}
 .sbody .dangerbox{border-color:var(--bad)}
 .kv{border-collapse:collapse}.kv th{text-align:start;font-weight:600;color:var(--muted);padding:3px 0;padding-inline-end:16px;white-space:nowrap}.kv td{padding:3px 0}
-@media (max-width:760px){
-  .settings{grid-template-columns:1fr}
-  .snav{position:static;flex-direction:row;overflow-x:auto}
-  .snav a{white-space:nowrap}
+
+@media (max-width:700px){
   .ptabs{margin-inline:-13px}
-  .stepper .st{padding-inline:6px}
+  .stepper .st{padding-inline:8px}
+  .sthead h2{font-size:16.5px}
+  .runrow{justify-content:flex-start}
+  .actionbar.wiz{margin-inline:-12px;border-radius:0;border-inline:0}
+  .actionbar.wiz .toolbar{gap:6px}
+  .actionbar.wiz .toolbar button{flex:1 1 auto;padding-inline:8px}
+  .navt{display:none}
+}
+
+@media (min-width:1024px){
+  main.has-rail{max-width:1480px;padding-bottom:24px}
+  .shell{display:grid;grid-template-columns:248px minmax(0,1fr);gap:var(--sp-5);align-items:start}
+  .rail{display:block;position:sticky;top:calc(var(--hdr) + var(--sp-3));max-height:calc(100dvh - var(--hdr) - var(--sp-5));overflow-y:auto;scrollbar-width:thin;padding-bottom:var(--sp-3)}
+  .rail .phead{padding:var(--sp-3);margin-bottom:var(--sp-2)}
+  .rail .ptabs,.rail .stepsel-wrap,.rail .pheadrow>.grow,.stepper,.snav{display:none}
+  .rail .pheadrow{gap:6px}
+  .rail .phead h1{flex:1 1 100%;font-size:15px;line-height:1.6;overflow-wrap:anywhere}
+  .rail .verlabel{flex:1 1 100%;display:flex}
+  .rail .verlabel>.toolbar{flex:1;min-width:0}.rail .verlabel select{flex:1}
+  .rail .verlabel>span:not(.toolbar){min-width:0;overflow-wrap:anywhere;word-break:break-all;font-size:11px}
+  .railnav{display:flex;flex-direction:column;gap:1px}
+  .railnav .rg{font-size:11.5px;font-weight:700;color:var(--muted);padding:var(--sp-2) var(--sp-2) 2px}
+  .railnav .rg:first-child{padding-top:0}
+  .railnav .st,.railnav .rl{display:flex;align-items:center;gap:var(--sp-2);width:100%;padding:3px var(--sp-2);border-radius:var(--r-sm);border-inline-start:3px solid transparent;
+    font-size:13.5px;color:var(--fg);text-decoration:none;white-space:normal;line-height:1.5;transition:background var(--t),color var(--t)}
+  .railnav .st .tt{flex:1;min-width:0}
+  .railnav a.st:hover,.railnav a.rl:hover{background:var(--accent-soft);color:var(--fg)}
+  .railnav .st.unreached{color:var(--muted);opacity:.65;cursor:default}
+  .railnav .st.cur,.railnav .rl.on{background:var(--accent-soft);color:var(--accent);font-weight:700;border-inline-start-color:var(--accent)}
+  .railnav .st .mark{margin-inline-start:auto}
+  .railnav .rl.open{font-weight:700}
+  .railnav .rsub{display:flex;flex-direction:column;margin-inline-start:var(--sp-4)}
+  .railnav .rsub .rl{font-size:13px;padding-block:2px}
+  .railnav .rl.danger{color:var(--bad)}
+  .shellmain .sthead{margin-top:0}
 }

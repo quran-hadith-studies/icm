@@ -1,6 +1,7 @@
 /* ICM wizard styles; shared frame, tokens, chips and controls are in base.css */
 :root{--hl-s:85%;--hl-l:86%;--hd-l:72%;--k-s:62%;--k-l:35%;--band-l:29%}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--hl-s:40%;--hl-l:30%;--hd-l:42%;--k-s:55%;--k-l:64%;--band-l:64%;--on-sw:#101318}}
+:root[data-theme="dark"]{--hl-s:40%;--hl-l:30%;--hd-l:42%;--k-s:55%;--k-l:64%;--band-l:64%;--on-sw:#101318}
 input[type=text]{min-width:260px}
 th{position:sticky;top:0;background:var(--card)}
 h2{font-size:18px}h3{font-size:15px;margin-top:14px}

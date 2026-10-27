@@ -1,8 +1,9 @@
 'use strict';
-/* ICMWizard: the project page. A header (name, state, versions), tabs (steps · results · settings), a numbered stepper of the eleven
-   steps, and for the step on screen: what the earlier steps decided that matters here, the run button (nothing runs by itself), the
-   step's data (the panels of icm.js, one card each) and a bar with save / previous / next. Loaded before icm.js; uses its globals
-   when called (api, post, el, panels, ...). */
+/* ICMWizard: the project page. On a wide screen an app shell: a side rail (name, state, version; the eleven steps in three groups with
+   their marks; results; settings and its sections) beside the step on screen: its title with the run button (nothing runs by itself),
+   what the earlier steps decided that matters here, the step's data (the panels of icm.js, one card each) and a bar that stays at the
+   bottom with save / previous / next. On a narrow screen the rail is the old header card: tabs (steps · results · settings), a
+   drop-down and a stepper of the steps. Loaded before icm.js; uses its globals when called (api, post, el, panels, ...). */
 window.ICMWizard = (() => {
   /* slug, title, the page of the first wizard it was part of (the export files and old links use those names) */
   const WIZ = [
@@ -18,6 +19,11 @@ window.ICMWizard = (() => {
   const STATE_FA = { done: 'به‌روز', idle: 'اختیاری', todo: 'منتظر تصمیم شما', needs_run: 'نیازمند اجرا', stale: 'قدیمی', running: 'در حال محاسبه', awaiting: 'منتظر محاسبه', unreached: 'هنوز نرسیده‌اید' };
   const MARK = { done: '✓', needs_run: '●', todo: '●', stale: '⚠', running: '⟳', awaiting: '⟳', idle: '', unreached: '' };
   const idx = slug => SLUGS.indexOf(slug) + 1;
+  /* the rail sticks under the site header: its height (which wraps on a narrow screen) is a variable the CSS uses */
+  const headerH = () => { const hd = document.querySelector('header.top'); document.documentElement.style.setProperty('--hdr', (hd ? Math.round(hd.getBoundingClientRect().height) : 54) + 'px'); };
+  addEventListener('resize', headerH);
+  const RAIL_GROUPS = ['جستجو و انتخاب', 'هم‌ترازی', 'راویان و تحلیل'];
+  const railGroup = i => (i <= 5 ? 0 : i <= 8 ? 1 : 2);
 
   const normStep = s => (!s ? null : SLUGS.includes(s) || s === 'results' || s === 'settings' ? s : OLD[s] || s);
   const stepTitle = s => {
@@ -65,19 +71,20 @@ window.ICMWizard = (() => {
     const n = tab === 'steps' ? idx(slug) : 0;
     const runId = run || p.current_run || 'current';
     const group = tab === 'steps' ? WIZ[n - 1][2] : 'analysis';
+    $app.classList.add('has-rail'); headerH();
 
     /* ----- header ----- */
     const B = P.branches || { active: null, versions: [] };
     const viewed = run && B.versions.find(b => b.current_run === run);
-    const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('span', { class: 'toolbar', style: 'margin:0;gap:4px' },
+    const runSel = STATIC ? el('span', { class: 'small', dir: 'ltr' }, run) : el('span', { class: 'toolbar tight' },
       el('select', { 'aria-label': 'نسخه', onchange: ev => pickVersion(pid, ev.target.value, tab === 'steps' ? slug : 'results') },
         run && !viewed ? el('option', { value: '', selected: true }, `اجرای ${run.split('-')[0]} (قدیمی)`) : null,
         B.versions.map(b => el('option', { value: b.id, selected: viewed ? b === viewed : !run && b.id === B.active }, b.name + (b.id === B.active ? ' ✓' : '')))),
-      el('button', { type: 'button', class: 'small', title: 'نسخه‌ها: فهرست، فعال کردن، ساختن و حذف', 'aria-label': 'نسخه‌ها', onclick: () => (live ? leave('/p/' + pid + '/settings/versions') : versionsModal(pid, slug || 'results')) }, '☰'));
+      el('button', { type: 'button', class: 'small', title: 'نسخه‌ها: فهرست، فعال کردن، ساختن و حذف', 'aria-label': 'نسخه‌ها', onclick: () => (live ? leave('/p/' + pid + '/settings/versions') : versionsModal(pid, slug || 'results')) }, icon('M4 6h16', 'M4 12h16', 'M4 18h16')));
     const dlStep = el('a', { class: 'btn small', download: '', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت' }, 'دانلود HTML این مرحله');
     const dlAll = el('a', { class: 'btn small', download: '', title: 'یک فایل HTML یک‌تکه، بی‌نیاز از اینترنت' }, 'دانلود کل پروژه');
     dlStep.href = `${API}/project/${pid}/runs/${runId}/export/${group}.html`; dlAll.href = `${API}/project/${pid}/runs/${runId}/export/all.html`;
-    const exportSel = STATIC ? null : el('span', { class: 'toolbar', style: 'margin:0' }, dlStep, dlAll);
+    const exportSel = STATIC ? null : el('span', { class: 'toolbar m0' }, dlStep, dlAll);
     const dot = el('span'), chipSt = el('span'), status = el('div');
     const paintHead = () => {
       dot.replaceChildren(busyDot(P.busy || P.job) || '');
@@ -97,14 +104,14 @@ window.ICMWizard = (() => {
           `${fa(i)} · ${w[1]}${MARK[st.state] ? ' ' + MARK[st.state] : ''}`);
       })].filter(Boolean));
     };
-    const stepLabel = STATIC ? null : el('label', { class: 'small muted' }, 'مرحله: ', stepSel);
+    const stepLabel = STATIC ? null : el('label', { class: 'small muted stepsel-wrap' }, 'مرحله: ', stepSel);
     const mainBox = el('div');
-    $app.replaceChildren(
-      el('div', { class: 'card phead' }, el('div', { class: 'toolbar', style: 'margin:0' },
+    const railNav = el('nav', { class: 'railnav', 'aria-label': 'بخش‌های پروژه' });
+    const rail = el('div', { class: 'rail' }, el('div', { class: 'card phead' }, el('div', { class: 'toolbar m0 pheadrow' },
         el('h1', {}, pname), dot, chipSt,
         info(() => projInfo(p, exportSel), { modal: true, title: 'سازنده، دانلود، تصمیم‌ها و گزارش اجرا' }), el('span', { class: 'grow' }),
-        stepLabel, el('label', { class: 'small muted' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), tabsNav, status),
-      mainBox);
+        stepLabel, el('label', { class: 'small muted verlabel' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), tabsNav), railNav);
+    $app.replaceChildren(el('div', { class: 'shell' }, rail, el('div', { class: 'shellmain' }, status, mainBox)));
     paintHead(); statusBox(status, p, pid);
     const titleNow = () => setTitle((P.job || P.busy ? '● ' : '') + pname, tab === 'steps' ? WIZ[n - 1][1] : tab === 'results' ? 'نتایج' : 'تنظیمات');
     titleNow();
@@ -127,29 +134,44 @@ window.ICMWizard = (() => {
       if (isDirty() && can) {
         const how = await askSave();
         if (how === 'stay') return;
-        if (how === 'save') { try { await saveNow(); } catch (e) { alert(faErr(e.message)); return; } }
+        if (how === 'save') { try { await saveNow(); } catch (e) { toast(faErr(e.message), 'bad'); return; } }
       }
       pageDirty = null; go(path);
     }
 
     /* ----- the stepper ----- */
     const stepper = el('nav', { class: 'stepper', 'aria-label': 'مرحله‌ها' });
-    const paintStepper = () => {
-      const cur = W.current;
-      paintStepSel();
-      stepper.replaceChildren(...shown.map(w => {
-        const i = idx(w[0]), st = (W.steps[i - 1] || { state: 'unreached' }), on = tab === 'steps' && w[0] === slug;
-        const cls = 'st ' + (st.state === 'needs_run' || st.state === 'todo' ? 'needs' : st.state) + (on ? ' cur' : '') + (!readonly && w[0] === cur ? ' now' : '');
-        const body = [el('span', { class: 'n' }, fa(i)), w[1], MARK[st.state] ? el('span', { class: 'mark', 'aria-hidden': 'true' }, MARK[st.state]) : null];
-        const tip = `${w[1]} — ${STATE_FA[st.state] || ''}${st.changed_since && st.changed_since.length ? '؛ تغییر در مرحله‌ی ' + st.changed_since.map(x => fa(x.n)).join('، ') : ''}`;
-        if (st.state === 'unreached') return el('span', { class: cls, title: tip, 'aria-disabled': 'true' }, ...body);
-        const u = stepUrl(pid, run, w[0]);
-        return el('a', { class: cls, href: BASE + u, title: tip, 'aria-current': on ? 'step' : null, onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); if (!on) leave(u); } }, ...body);
-      }));
+    /* one step as a link with its number, its mark and its state in the tooltip: used by the stepper (a narrow screen) and by the rail */
+    const stepItem = w => {
+      const i = idx(w[0]), st = (W.steps[i - 1] || { state: 'unreached' }), on = tab === 'steps' && w[0] === slug, cur = W.current;
+      const cls = 'st ' + (st.state === 'needs_run' || st.state === 'todo' ? 'needs' : st.state) + (on ? ' cur' : '') + (!readonly && w[0] === cur ? ' now' : '');
+      const body = [el('span', { class: 'n' }, fa(i)), el('span', { class: 'tt' }, w[1]), MARK[st.state] ? el('span', { class: 'mark', 'aria-hidden': 'true' }, MARK[st.state]) : null];
+      const tip = `${w[1]} — ${STATE_FA[st.state] || ''}${st.changed_since && st.changed_since.length ? '؛ تغییر در مرحله‌ی ' + st.changed_since.map(x => fa(x.n)).join('، ') : ''}`;
+      if (st.state === 'unreached') return el('span', { class: cls, title: tip, 'aria-disabled': 'true' }, ...body);
+      const u = stepUrl(pid, run, w[0]);
+      return el('a', { class: cls, href: BASE + u, title: tip, 'aria-current': on ? 'step' : null, onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); if (!on) leave(u); } }, ...body);
     };
+    const railLink = (text, u, on, cls) => el('a', { class: 'rl' + (cls ? ' ' + cls : '') + (on ? ' on' : ''), href: BASE + u, 'aria-current': on ? 'page' : null,
+      onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); if (!on) leave(u); } }, text);
+    /* the rail: the steps in three groups, then the results, then the settings with its sections while they are open (one DOM for the poll to repaint) */
+    const paintRail = () => {
+      const kids = []; let last = -1;
+      shown.forEach(w => { const g = railGroup(idx(w[0])); if (g !== last) { kids.push(el('div', { class: 'rg' }, RAIL_GROUPS[g])); last = g; } kids.push(stepItem(w)); });
+      const more = [];
+      if (!STATIC || STATIC.steps.includes('analysis')) more.push(railLink('نتایج', stepUrl(pid, run, 'results'), tab === 'results'));
+      if (live) {
+        more.push(railLink('تنظیمات', '/p/' + pid + '/settings/general', false, tab === 'settings' ? 'open' : ''));
+        if (tab === 'settings') more.push(el('div', { class: 'rsub' }, ICMSettings.SECTIONS.map(([k, t]) => railLink(t, '/p/' + pid + '/settings/' + k, section === k, k === 'danger' ? 'danger' : ''))));
+      }
+      if (more.length) kids.push(el('div', { class: 'rg' }, 'پروژه'), ...more);
+      railNav.replaceChildren(...kids);
+      const here_ = railNav.querySelector('.rl.on, .st.cur');                // a tall rail scrolls by itself: the open item comes to its middle
+      if (here_ && rail.scrollHeight > rail.clientHeight) rail.scrollTop = Math.max(0, here_.offsetTop - rail.clientHeight / 2);
+    };
+    const paintStepper = () => { paintStepSel(); stepper.replaceChildren(...shown.map(stepItem)); paintRail(); };
 
     /* ----- the pieces of a step page ----- */
-    const ctx = el('div', { class: 'ctx' }), runbar = el('div', { class: 'card runbar' }), data = el('div'), actions = el('div', { class: 'card actionbar' });
+    const ctx = el('div', { class: 'ctx' }), runrow = el('div', { class: 'runrow' }), runwarn = el('div', { class: 'runwarn' }), data = el('div'), actions = el('div', { class: 'actionbar wiz' });
     const stepInfo = el('span', { class: 'stepinfo' });
     const c = { pid, p, runId, can, readonly, only: null, setInfo: (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title })),
       register, counts: v => { c.nums = v; paintRun(); } };
@@ -161,8 +183,8 @@ window.ICMWizard = (() => {
     }
     const knobSem = () => {
       const d = knobs.dec || {};
-      const mn = knobs.min || (knobs.min = el('input', { type: 'number', min: '0.5', max: '0.95', step: '0.01', value: String(d.sem_min || 0.75), style: 'width:5em', 'aria-label': 'کمترین هم‌معنایی' }));
-      const k = knobs.k || (knobs.k = el('input', { type: 'number', min: '1', max: '100', step: '1', value: String(d.sem_k || 40), style: 'width:5em', 'aria-label': 'شمار حدیث برای هر بخش' }));
+      const mn = knobs.min || (knobs.min = el('input', { class: 'w5', type: 'number', min: '0.5', max: '0.95', step: '0.01', value: String(d.sem_min || 0.75), 'aria-label': 'کمترین هم‌معنایی' }));
+      const k = knobs.k || (knobs.k = el('input', { class: 'w5', type: 'number', min: '1', max: '100', step: '1', value: String(d.sem_k || 40), 'aria-label': 'شمار حدیث برای هر بخش' }));
       return el('span', { class: 'small', style: 'display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap' }, help('step2.semantic'), 'هم‌معنایی دست‌کم', mn, '(۰٫۵ تا ۰٫۹۵؛ کمتر = حدیث‌های بیشتر و نامرتبط‌تر) · تا', k, 'حدیث برای هر بخش ');
     };
     const knobInfer = () => {
@@ -175,7 +197,7 @@ window.ICMWizard = (() => {
     };
 
     function paintRun() {
-      if (!live || tab !== 'steps') { runbar.hidden = true; return; }
+      if (!live || tab !== 'steps') { runrow.hidden = true; runwarn.hidden = true; return; }
       const st = W.steps[n - 1], busy = !!(P.job || P.busy || P.project.status === 'running'), dirty = isDirty();
       const warn = [];
       if (st.changed_since && st.changed_since.length && st.state !== 'done' && st.state !== 'idle') {
@@ -198,12 +220,13 @@ window.ICMWizard = (() => {
           el('span', { class: 'what' }, ' ' + rp.label));
         if (busy) bits.push(el('span', { class: 'small muted' }, ' در حال محاسبه… '), el('button', { class: 'small danger', onclick: () => cancelJob(pid) }, 'لغو محاسبه'));
         else if (hint) bits.push(el('span', { class: 'small muted' }, ' ' + hint));
-        if (noSem) bits.push(el('span', { class: 'small', style: 'color:var(--warn)' }, ' جستجوی معنایی در این سرور آماده نیست.'));
+        if (noSem) bits.push(el('span', { class: 'small warn' }, ' جستجوی معنایی در این سرور آماده نیست.'));
       } else if (rp) bits.push(el('span', { class: 'small muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند این مرحله را اجرا کند.'));
       else if (n === 1) bits.push(el('span', { class: 'small muted' }, 'این مرحله دکمه‌ی اجرا ندارد: تغییرهایش با «اجرا»ی مرحله‌ی ۲ به نامزدها می‌رسد.'));
       if (runErr) bits.push(el('div', { class: 'small', role: 'alert', style: 'color:var(--bad);margin-top:6px' }, runErr));
-      runbar.replaceChildren(...warn, el('div', { class: 'runrow' }, ...bits));
-      runbar.hidden = false;
+      runwarn.replaceChildren(...warn); runwarn.hidden = !warn.length;
+      runrow.classList.toggle('knobs', !!(rp && can && (rp.what === 'semantic' || rp.what === 'infer')));      // knobs (steps 4 and 11) take a line of their own
+      runrow.replaceChildren(...bits); runrow.hidden = false;
     }
 
     const ASKS = {
@@ -227,7 +250,7 @@ window.ICMWizard = (() => {
           body = { sem_min: Number(knobs.min.value), sem_k: Number(knobs.k.value) };
         } else if (what === 'infer') {
           body = { preset: knobs.preset.value || null, compute: knobs.compute.value };
-          if (body.compute === 'server' && !confirm('محاسبه روی سرور نزدیک یک ساعت طول می‌کشد. ادامه؟')) return;
+          if (body.compute === 'server' && !(await sure('محاسبه روی سرور نزدیک یک ساعت طول می‌کشد. ادامه؟'))) return;
         } else if (what === 'align' || what === 'identify') {
           let nSel = null;
           try { nSel = ((await decOf(c, 'selection')).selected || []).length || null; } catch (_) {}
@@ -260,20 +283,20 @@ window.ICMWizard = (() => {
     }
 
     function paintActions() {
-      if (!live || tab !== 'steps' || !can) { actions.hidden = true; return; }
+      if (!live || tab !== 'steps' || !can) { actions.hidden = true; document.documentElement.style.removeProperty('--wizbar'); return; }
       const dirty = isDirty(), prev = n > 1 ? WIZ[n - 2] : null, next = n < 11 ? WIZ[n] : null;
       const nst = next && W.steps[n] ? W.steps[n].state : null;
       const nav = (w, label, dis) => el('button', { disabled: dis, title: dis ? 'هنوز به آن مرحله نرسیده‌اید' : '', onclick: () => leave(stepUrl(pid, null, w[0])) }, label);
       const own = reg && reg.own;
-      actions.replaceChildren(el('div', { class: 'toolbar', style: 'margin:0' },
-        prev ? nav(prev, '→ مرحله‌ی پیش: ' + prev[1]) : null,
+      actions.replaceChildren(el('div', { class: 'toolbar m0' },
+        prev ? nav(prev, ['→ مرحله‌ی پیش', el('span', { class: 'navt' }, ': ' + prev[1])]) : null,
         own ? null : el('button', { class: 'primary', disabled: !reg || !(dirty || (reg.pending && reg.pending())), title: reg ? '' : 'تغییرهای این صفحه همان لحظه ذخیره می‌شود', onclick: async ev => {
           ev.currentTarget.disabled = true;
-          try { await saveNow(); cache.clear(); await render(); } catch (e) { alert(faErr(e.message)); paintActions(); } } }, reg ? 'ذخیره' : 'ذخیره‌شده ✓'),
-        el('span', { class: 'small', style: dirty ? 'color:var(--warn)' : 'color:var(--muted)' }, dirty ? 'تغییرهای ذخیره‌نشده' : ''),
+          try { await saveNow(); cache.clear(); await render(); } catch (e) { toast(faErr(e.message), 'bad'); paintActions(); } } }, reg ? 'ذخیره' : 'ذخیره‌شده ✓'),
+        el('span', { class: dirty ? 'small warn' : 'small muted', role: 'status' }, dirty ? 'تغییرهای ذخیره‌نشده' : ''),
         el('span', { class: 'grow' }),
-        next ? nav(next, 'مرحله‌ی بعد: ' + next[1] + ' ←', nst === 'unreached') : null));
-      actions.hidden = false;
+        next ? nav(next, ['مرحله‌ی بعد', el('span', { class: 'navt' }, ': ' + next[1]), ' ←'], nst === 'unreached') : null));
+      actions.hidden = false; document.documentElement.style.setProperty('--wizbar', actions.offsetHeight + 'px');
     }
     const refreshBars = () => { paintRun(); paintActions(); };
     mainBox.addEventListener('input', () => setTimeout(refreshBars, 0));
@@ -281,6 +304,7 @@ window.ICMWizard = (() => {
     mainBox.addEventListener('click', () => setTimeout(refreshBars, 0));
 
     /* ----- the three tabs ----- */
+    paintRail(); paintStepSel();          // on every tab: the rail and the step drop-down (the steps tab repaints them with the stepper)
     if (tab === 'settings') {
       mainBox.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       await ICMSettings.page(mainBox, { pid, p, can, W, section });
@@ -289,7 +313,7 @@ window.ICMWizard = (() => {
       await resultsPage(mainBox, c, W, live);
     } else {
       paintStepper();
-      mainBox.replaceChildren(stepper, el('div', { class: 'toolbar sthead' }, el('h2', {}, `${fa(n)} · ${WIZ[n - 1][1]}`, stepInfo)), ctx, runbar, data, actions);
+      mainBox.replaceChildren(stepper, el('div', { class: 'sthead' }, el('h2', {}, el('span', { class: 'stn' }, fa(n)), WIZ[n - 1][1], stepInfo), runrow), runwarn, ctx, data, actions);
       const cur = stepper.querySelector('.cur'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
       data.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       refreshBars();
@@ -316,7 +340,7 @@ window.ICMWizard = (() => {
         if (!q || q.job || q.busy || q.project.status === 'running') { timer = setTimeout(poll, 3000); return; }
         const redraw = async () => { const y = scrollY; cache.clear(); await render(); scrollTo(0, y); };
         if (!isDirty()) return redraw();
-        status.append(el('div', { class: 'toolbar small', style: 'color:var(--accent)' }, 'محاسبه تمام شد؛ با «ذخیره» این صفحه به‌روز می‌شود.',
+        status.append(el('div', { class: 'toolbar small accent' }, 'محاسبه تمام شد؛ با «ذخیره» این صفحه به‌روز می‌شود.',
           el('button', { class: 'small', onclick: redraw }, 'به‌روزرسانی اکنون (تغییرهای ذخیره‌نشده از دست می‌روند)')));
       };
       timer = setTimeout(poll, 3000);
@@ -392,11 +416,11 @@ window.ICMWizard = (() => {
       const seedUnconf = S5 && !seedPartsState(S5, pd).confirmed;
       const warns = [
         !c.readonly ? undNote(pid, G.undecided || [], I5, true) : null,
-        !c.readonly && (unconf.length || seedUnconf) ? el('p', { class: 'small', style: 'color:var(--warn)' }, 'فرازبندی هنوز کامل تأیید نشده است: ',
+        !c.readonly && (unconf.length || seedUnconf) ? el('p', { class: 'small warn' }, 'فرازبندی هنوز کامل تأیید نشده است: ',
           seedUnconf ? ['بریدن حدیث‌ها به بخش‌ها (', stepLink(pid, null, 'parts', 'مرحله‌ی ۲'), ')', unconf.length ? '، و ' : ''] : null,
           unconf.length ? [`${fa(unconf.length)} از ${fa(A5.clauses.length)} بخش در شاهدها (`, stepLink(pid, null, 'slots', 'مرحله‌ی ۶'), ')'] : null,
           '. تحلیل با پیشنهادهای خودکار همان‌ها انجام می‌شود.') : null,
-        (G.flags || []).length ? el('p', { class: 'small', style: 'color:var(--warn)' }, `${fa(G.flags.length)} هشدار در شجره هست (`, stepLink(pid, null, 'graph', 'مرحله‌ی ۱۰'), ').') : null,
+        (G.flags || []).length ? el('p', { class: 'small warn' }, `${fa(G.flags.length)} هشدار در شجره هست (`, stepLink(pid, null, 'graph', 'مرحله‌ی ۱۰'), ').') : null,
       ].filter(Boolean);
       kids.push(card('پیش از اجرا', help('step5.confirm'), warns.length ? warns : el('p', { class: 'small muted' }, 'هشداری نیست.'),
         el('p', { class: 'small muted' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند. دقت و جای محاسبه را بالا، کنار دکمه‌ی «اجرا» برگزینید.`)));

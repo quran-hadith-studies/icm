@@ -144,7 +144,7 @@ window.ICMUsers = (() => {
     const d = await api('/users');
     const msg = msgBox();
     const act = async (u, action, value, ask) => {
-      if (ask && !confirm(ask)) return;
+      if (ask && !(await sure(ask))) return;
       try { await post('/users/' + encodeURIComponent(u.username), { action, value }); await render(); }
       catch (e) { say(msg, e.message, true); }
     };
@@ -174,7 +174,7 @@ window.ICMUsers = (() => {
           !me ? el('button', { class: 'small danger', onclick: () => act(u, 'delete', null, `حساب «${u.username}» برای همیشه پاک شود؟ پروژه‌هایش می‌مانند.`) }, 'حذف') : null));
     });
     $app.replaceChildren(el('div', { class: 'card' },
-      el('div', { class: 'toolbar utools', style: 'margin:0' }, el('h2', { style: 'margin:0' }, 'مدیریت کاربران'), el('span', { class: 'grow' }), ...chips),
+      el('div', { class: 'toolbar utools m0' }, el('h2', { class: 'm0' }, 'مدیریت کاربران'), el('span', { class: 'grow' }), ...chips),
       el('p', { class: 'small muted' }, 'هر حساب تازه نخست با ربات بله تأیید می‌شود و سپس منتظر تأیید شما می‌ماند. نقش‌ها: ',
         Object.keys(ROLE).flatMap((r, i) => [i ? '؛ ' : '', el('b', {}, ROLE[r]), ': ', ROLE_HELP[r]]), '.'), msg,
       rows.length ? el('div', { class: 'tscroll' }, el('table', { class: 'utable' },

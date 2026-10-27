@@ -1,6 +1,7 @@
 'use strict';
-/* ICMSettings: a project's settings as a page (a sidebar of sections, like a repository's settings), and the pop-up of the
-   project list (ⓘ): owner, downloads, decisions, the run log and delete. Loaded before icm.js; uses its globals when called. */
+/* ICMSettings: a project's settings as a page (its sections are listed in the wizard's side rail; on a narrow screen as a row of links
+   above the page), and the pop-up of the project list (ⓘ): owner, downloads, decisions, the run log and delete. Loaded before icm.js;
+   uses its globals when called. */
 window.ICMSettings = (() => {
   const SECTIONS = [['general', 'عمومی'], ['narrators', 'پایگاه راویان'], ['versions', 'نسخه‌ها'], ['download', 'دانلود'], ['danger', 'حذف پروژه']];
   const GROUPS = [['seed', 'حدیث‌ها'], ['selection', 'جستجو و انتخاب (مرحله‌های ۲ تا ۵)'], ['alignment', 'هم‌ترازی (مرحله‌های ۶ تا ۸)'], ['identities', 'راویان'], ['phylogeny', 'شجره'], ['analysis', 'نتایج']];
@@ -9,7 +10,7 @@ window.ICMSettings = (() => {
   function exportLinks(pid, run) {
     if (!run) return el('p', { class: 'small muted' }, 'هنوز اجرایی نیست که دانلود شود.');
     const a = (what, t) => el('a', { class: 'btn small', download: '', href: `${API}/project/${pid}/runs/${run}/export/${what}.html` }, t);
-    return el('div', { class: 'toolbar', style: 'margin:0' }, ...GROUPS.map(([k, t]) => a(k, t)), a('all', 'کل پروژه'));
+    return el('div', { class: 'toolbar m0' }, ...GROUPS.map(([k, t]) => a(k, t)), a('all', 'کل پروژه'));
   }
 
   async function page(host, c) {
@@ -21,7 +22,7 @@ window.ICMSettings = (() => {
     const readOnly = () => el('p', { class: 'small muted' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند این بخش را تغییر دهد.');
     if (section === 'general') {
       const title = el('input', { type: 'text', maxlength: 120, value: p.label || p.title, 'aria-label': 'نام پروژه', style: 'min-width:20em' });
-      const err = el('span', { class: 'small', style: 'color:var(--bad)' });
+      const err = el('span', { class: 'small bad' });
       body.append(card('عمومی', help('settings.general'),
         el('div', { class: 'toolbar' }, el('label', {}, 'نام پروژه: ', title), can ? el('button', { class: 'primary', onclick: async () => {
           err.textContent = '';
@@ -66,5 +67,5 @@ window.ICMSettings = (() => {
       ...projInfo(p, exportLinks(p.pid, p.current_run), q));
   }
 
-  return { page, projectMenu, exportLinks };
+  return { page, projectMenu, exportLinks, SECTIONS };
 })();
