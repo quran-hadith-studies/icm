@@ -57,8 +57,9 @@
 .rv button.lnk{color:var(--accent);background:none;border:0;padding:0;font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .rv .insp h3{margin:14px 0 4px;font-size:14px}
 @media (max-width:900px){.rv .explorer{grid-template-columns:1fr}.rv .insp{position:static;max-height:none}}
-.info{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;margin-inline-start:6px;border-radius:50%;border:1px solid var(--line-2);background:var(--card);color:var(--muted);font:italic 700 11.5px/1 Georgia,serif;vertical-align:middle;cursor:pointer;transition:background var(--t),border-color var(--t),color var(--t)}
-.info:hover{border-color:var(--accent);color:var(--on-accent);background:var(--accent)}
+.info{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;min-height:0;padding:0;margin-inline-start:4px;border:0;border-radius:50%;background:none;color:var(--muted);vertical-align:middle;cursor:pointer;transition:background var(--t),color var(--t)}
+.info .ico{width:17px;height:17px;vertical-align:0}
+.info:hover{color:var(--accent);background:var(--accent-soft)}
 .pop{position:fixed;z-index:60;max-width:min(380px,calc(100vw - 16px));background:var(--card);color:var(--fg);border:1px solid var(--line-2);border-radius:var(--r);padding:10px 14px;font-size:13px;line-height:1.8;box-shadow:var(--sh-lg,0 8px 28px rgb(0 0 0 / .18))}
 /* full explanations (help_fa.js), shared by the wizard, the standalone page and the exports */
 .helpblk{border:0;border-inline-start:3px solid var(--accent);border-radius:var(--r-sm,6px);border-start-start-radius:0;border-end-start-radius:0;background:color-mix(in srgb,var(--accent-soft) 55%,var(--card));margin:6px 0 12px;padding:4px 12px;font-size:13px}

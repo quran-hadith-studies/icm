@@ -674,18 +674,19 @@ const panels = {
     const isOn = x => cid(x) in want ? want[cid(x)] : x.st === 'in';
     const setWant = (x, on) => { if (on === (x.st === 'in')) delete want[cid(x)]; else want[cid(x)] = on; };
     const statOf = x => x.st === 'in' ? (x.u.by === 'user' ? ['دستی', 'partial'] : x.u.user_keep ? ['نگه‌داشته', 'partial'] : ['خودکار', 'auto']) : x.st === 'dropped' ? ['کنارگذاشته‌ی شما', 'medium'] : [WHY[x.st], 'medium'];
-    const saveSelection = () => saveUnits(cand.filter(x => cid(x) in want).map(x => [clauseKeyOf(x.u), x.u.ukey, want[cid(x)] ? e => { e.keep = true; delete e.drop; } : e => { e.drop = true; delete e.keep; }]), 'unit selection');
+    const unitEdits = () => cand.filter(x => cid(x) in want).map(x => [clauseKeyOf(x.u), x.u.ukey, want[cid(x)] ? e => { e.keep = true; delete e.drop; } : e => { e.drop = true; delete e.keep; }]);
+    if (canEdit && c.register && !STATIC) c.register({ dirty: () => Object.keys(want).length > 0, save: () => saveParts(c.pid, d => foldUnits(d, unitEdits()), 'unit selection') });      // the wizard's «ذخیره»
     const decided = () => Object.entries(pd.units || {}).flatMap(([k, m]) => Object.entries(m).filter(([, e]) => e.drop || e.keep).map(([uk]) => [k, uk, e => { delete e.drop; delete e.keep; }]));
     const drawUnits = () => {
       const vis = cand;                                // every unit, the ones set aside included
       const pending = Object.keys(want).length, nOn = cand.filter(isOn).length, mine = decided(), all = (on) => () => { vis.filter(usable).forEach(x => setWant(x, on)); drawUnits(); };
       unitsBox.replaceChildren(
-        canEdit && cand.some(usable) ? el('div', { class: 'toolbar' + (pending ? ' actionbar' : '') },
+        canEdit && cand.some(usable) ? el('div', { class: 'toolbar' },
           el('b', {}, `${fa(nOn)} از ${fa(cand.length)} واحد برای مدل (مرحله‌ی ۱۰) انتخاب شده`),
           el('button', { class: 'small', onclick: all(true) }, 'انتخاب همه'), el('button', { class: 'small', onclick: all(false) }, 'برداشتن همه'),
           el('button', { class: 'small', disabled: !mine.length || pending > 0, title: 'همه‌ی «نگه داشتن» و «کنار گذاشتن»های شما برداشته می‌شود و انتخاب خودکار برمی‌گردد', onclick: () => saveUnits(mine, 'unit selection reset') }, 'بازگشت به انتخاب خودکار'),
-          pending ? [el('button', { class: 'primary', onclick: saveSelection }, `ذخیره‌ی انتخاب (${fa(pending)} تغییر)`), el('button', { class: 'small', onclick: () => { Object.keys(want).forEach(k => delete want[k]); drawUnits(); } }, 'لغو تغییرها'),
-            el('span', { class: 'small muted' }, 'پس از ذخیره، هم‌ترازی و مرحله‌های بعد را با «اجرا» دوباره بسازید.')] : null) : null,
+          pending ? [el('span', { class: 'small warn' }, `${fa(pending)} تغییر ذخیره‌نشده`), el('button', { class: 'small', onclick: () => { Object.keys(want).forEach(k => delete want[k]); drawUnits(); } }, 'لغو تغییرها'),
+            el('span', { class: 'small muted' }, 'با «ذخیره» در نوار بالا ثبت می‌شود؛ پس از آن هم‌ترازی و مرحله‌های بعد را با «اجرا» دوباره بسازید.')] : null) : null,
         el('table', { class: 'units' },
           el('tr', {}, ...['در مدل', 'واحد', 'بخش', 'گونه', 'جا در متن', 'حالت‌ها (شمار شاهدها)', 'وضع', 'افزوده یا افتاده؟', ''].map(t => el('th', {}, t))),
           vis.map(x => { const u = x.u, on = isOn(x), nNA = Object.values(u.states).filter(v => v < 0).length, [stt, stc] = statOf(x), inm = x.st === 'in';
@@ -898,7 +899,7 @@ const panels = {
       !== JSON.stringify([saved.choices, saved.overrides, saved.dates, saved.merges, [...saved.drops].sort(), [...saved.dismissed].sort(), saved.splits]);
     /* the step's work as it stands (a chain edit saves it first, so nothing done here is lost) */
     const saveStep = (o = {}) => post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides, dates, merges, drops: [...drops], dismissed: [...dismissed], splits, ...o } });
-    if (c.register && c.can && !STATIC) c.register({ dirty, save: saveStep, own: true });
+    if (c.register && c.can && !STATIC) c.register({ dirty, save: saveStep, pending: () => !dec.version });       // the first save records the automatic choices too
     /* death dates: the user's, else the databases' (fetched per id), else the work's author for a collector */
     const known = {}, asked = new Set();
     const fetchDeaths = async ids => {
@@ -1463,7 +1464,7 @@ const panels = {
           el('span', { class: 'small muted' }, 'یک سال یا یک بازه؛ با «ذخیره» ثبت می‌شود.'))];
     };
 
-    const status = el('span', { class: 'toolbar small m0' }), save = el('div', { class: 'toolbar actionbar' }), listSum = el('div', { class: 'small muted' });
+    const status = el('span', { class: 'toolbar small m0' }), save = el('div', { class: 'toolbar' }), listSum = el('div', { class: 'small muted' });
     const drawStatus = () => {
       const n = counts();
       /* the counts in the colours of the name labels: status and legend in one */
@@ -1472,19 +1473,8 @@ const panels = {
         chip('auto', `${fa(n.auto)} خودکار`), chip('user', `${fa(n.user)} انتخاب کاربر`), chip('und', `${fa(n.und)} بی‌تصمیم`),
         chip('exact', `قطعی ${fa(I.stats.exact)} از ${fa(I.stats.elements)} جا`, `${fa(I.stats.exact)} از ${fa(I.stats.elements)} جای سند را خود منبع به راوی‌ای پیوند داده است`),
         dec.version ? el('span', { class: 'muted' }, `· ذخیره: ${fa((dec.created || '').replace('T', ' ').slice(0, 16))}، ${dec.user}${dec.note === 'auto' ? ' (خودکار)' : ''}`) : null);
-      /* «ذخیره» keeps the decision and stays here; the wizard's «مرحله‌ی بعد» asks to save what is unsaved */
-      const saveIt = async ask => {          // ask: only on the way to step 5 (a plain «ذخیره» just keeps the work)
-        const nu = counts().und;
-        if (ask && nu && !(await sure(`${fa(nu)} نام بی‌تصمیم است و بدون هویت (فقط نام) به شجره می‌رود. ادامه؟`))) return false;
-        await saveStep();
-        return true;
-      };
-      const busy = b => { b.disabled = true; return b; };
-      fill(save, [c.can ? [
-        el('button', { class: 'primary', disabled: !!dec.version && !dirty(), onclick: async ev => { const b = busy(ev.currentTarget); if (await saveIt()) reloadAt(c.pid, 'identities'); else b.disabled = false; } }, 'ذخیره'),
-        ]
-        : el('span', { class: 'muted small' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.'),
-        dirty() ? el('span', { class: 'small warn' }, 'تغییرهای ذخیره‌نشده') : null]);
+      fill(save, c.can ? null : el('span', { class: 'muted small' }, 'فقط سازنده‌ی پروژه یا مدیر می‌تواند تصمیم بگیرد.'));
+      c.changed && c.changed();
     };
 
     /* suggestions from the databases, and the automatic choices, to accept or dismiss one by one */
@@ -1817,13 +1807,13 @@ function fullDetails(wid, hl, label, state, key) {
   if (state && state.has(key)) { d.open = true; load(); }
   return d;
 }
-/* (i): a small round button next to a title or a control; its help opens beside it (long help in the modal) */
+/* the info icon: a small button next to a title or a control; its help opens beside it (long help in the modal) */
 function info(content, opts = {}) {
   const b = el('button', { class: 'info', type: 'button', title: opts.title || 'راهنما', 'aria-label': opts.title || 'راهنما', 'aria-haspopup': 'dialog', onclick: ev => {
     ev.preventDefault(); ev.stopPropagation();
     const body = typeof content === 'function' ? content() : content;
     if (opts.modal) { closePop(); modal(el('div', { class: 'helpbox' }, body)); } else popover(ev.currentTarget, body);
-  } }, 'i');
+  } }, icon('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 11v5.5', 'M12 7.6v.01'));
   b._help = { content, title: opts.title };       // card() folds the (i)s of one title into one
   return b;
 }

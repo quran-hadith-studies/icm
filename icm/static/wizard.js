@@ -171,7 +171,7 @@ window.ICMWizard = (() => {
     const ctx = el('div', { class: 'ctx' }), runrow = el('div', { class: 'runrow' }), runwarn = el('div', { class: 'runwarn' }), data = el('div'), actions = el('div', { class: 'actionbar wiz' });
     const stepInfo = el('span', { class: 'stepinfo' });
     const c = { pid, p, runId, can, readonly, only: null, setInfo: (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title })),
-      register, counts: v => { c.nums = v; paintRun(); } };
+      register, counts: v => { c.nums = v; paintRun(); }, changed: () => setTimeout(() => paintActions(), 0) };
     let runErr = '';
     const knobs = {};     // the inputs of the run bar of a step (4: the cut-off; 11: precision and place of computation)
     if (live && tab === 'steps' && (slug === 'semantic' || slug === 'run')) {          // their values are the last press's
