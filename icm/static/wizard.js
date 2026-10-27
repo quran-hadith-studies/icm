@@ -60,8 +60,8 @@ window.ICMWizard = (() => {
       else if (W.current === 'done') tab = 'results';
       else slug = W.current || 'hadiths';
     }
-    if (!STATIC && (!r.step || (r.step !== (tab === 'steps' ? slug : tab) && tab !== 'settings'))) setUrl(BASE + stepUrl(pid, run, tab === 'steps' ? slug : tab), false);     // the address says where the reader is
     const section = r.section || 'general';
+    if (!STATIC) { const canon = BASE + stepUrl(pid, run, tab === 'steps' ? slug : tab === 'results' ? 'results' : 'settings/' + section); if (here() !== canon) setUrl(canon + query(), false); }     // the address says where the reader is
     const n = tab === 'steps' ? idx(slug) : 0;
     const runId = run || p.current_run || 'current';
     const group = tab === 'steps' ? WIZ[n - 1][2] : 'analysis';

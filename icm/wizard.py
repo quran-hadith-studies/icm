@@ -14,6 +14,7 @@ States: ``done`` · ``idle`` (optional, not used) · ``todo`` (its run is curren
 from __future__ import annotations
 
 import os
+import time
 from typing import Dict, List, Optional
 
 from . import config, narrator_versions, pipeline, project
@@ -43,7 +44,8 @@ FIELDS = {
 }
 DEFAULT = {"search": (1, 2), "parts": (6, 6), "selection": (3, 6), "identities": (9, 9), "narrators": (9, 9), "phylogeny": (10, 10)}
 
-_PLANS: Dict[tuple, dict] = {}
+_PLANS: Dict[tuple, tuple] = {}
+_TTL = 20.0                                   # seconds: a job that was cancelled half-way leaves stage files the key does not show
 
 
 def slug(n: int) -> str:
@@ -54,11 +56,11 @@ def _plan(pid: str, p: dict, vers: dict, D: dict) -> dict:
     """``pipeline.plan`` remembered for these decisions and this run (the page asks every few seconds)."""
     key = (pid, p.get("current_run"), tuple(sorted(vers.items())), narrator_versions.default_name(), config.DATA_VERSION)
     got = _PLANS.get(key)
-    if got is None:
+    if got is None or time.time() - got[0] > _TTL:
         if len(_PLANS) > 64:
             _PLANS.clear()
-        got = _PLANS[key] = pipeline.plan(pid, D)
-    return got
+        got = _PLANS[key] = (time.time(), pipeline.plan(pid, D))
+    return got[1]
 
 
 def changed(pid: str, vers: dict, D: dict, mv: dict) -> List[tuple]:
@@ -134,7 +136,8 @@ def staleness(pid: str, job: Optional[dict] = None) -> dict:
         steps.append(dict(n=n, slug=slug(n), title=TITLES[n - 1], stage=s, state=state, key=key, ran=ran, edited=bool(mine), in_run=bool(m) and mst.get(s) == key and key is not None, ready=bool(ready[n]),
                           changed_since=[dict(n=o, slug=slug(o), title=TITLES[o - 1]) for o in since] if state in ("stale", "needs_run") else [],
                           run=(dict(zip(("what", "label", "heavy"), RUN[n])) if n in RUN else None)))
-    cur = next((x["n"] for x in steps if x["state"] not in ("done", "idle")), None)
+    # the step the reader is sent to: the first that waits for them (a step only out of date because the program changed does not)
+    cur = next((x["n"] for x in steps if x["state"] not in ("done", "idle") and not (x["state"] == "stale" and not x["changed_since"])), None)
     return dict(current=slug(cur) if cur else "done", current_n=cur, stale_any=any(x["state"] == "stale" or (x["state"] == "needs_run" and x["edited"]) for x in steps), steps=steps,
                 gate=gate, sem_stale=bool(pl.get("sem_stale")))
 

@@ -39,7 +39,7 @@ window.ICMSettings = (() => {
       if (!can) body.append(readOnly());
     } else if (section === 'versions') {
       const inner = el('div');
-      body.append(card('نسخه‌ها', inner));
+      body.append(el('div', { class: 'card' }, inner));
       versionsModal(pid, route().step && route().step !== 'settings' ? route().step : 'hadiths', inner);
     } else if (section === 'download') {
       body.append(card('دانلود', help('export'), el('p', { class: 'small muted' }, 'هر فایل یک صفحه‌ی HTML یک‌تکه است که بی‌اینترنت باز می‌شود و فقط‌خواندنی است. نسخه‌ی کنونی پروژه (آخرین اجرا) دانلود می‌شود.'), exportLinks(pid, p.current_run)));
