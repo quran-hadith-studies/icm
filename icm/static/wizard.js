@@ -1,9 +1,9 @@
 'use strict';
-/* ICMWizard: the project page. On a wide screen an app shell: a side rail (name, state, version; the eleven steps in three groups with
-   their marks; results; settings and its sections) beside the step on screen: its title with the run button (nothing runs by itself),
-   what the earlier steps decided that matters here, the step's data (the panels of icm.js, one card each) and a bar that stays at the
-   bottom with save / previous / next. On a narrow screen the rail is the old header card: tabs (steps · results · settings), a
-   drop-down and a stepper of the steps. Loaded before icm.js; uses its globals when called (api, post, el, panels, ...). */
+/* ICMWizard: the project page. Its navigation is the site's top bar, which becomes one bar with the project in it: the project's name and
+   state, ONE step button (the step on screen; it opens the list of all eleven with their marks), results, settings, and the version.
+   The page itself is the step on screen: its title with the run button (nothing runs by itself), what the earlier steps decided that
+   matters here, the step's data (the panels of icm.js, one card each) and a bar that stays at the bottom with save / previous / next.
+   Loaded before icm.js; uses its globals when called (api, post, el, panels, ...). */
 window.ICMWizard = (() => {
   /* slug, title, the page of the first wizard it was part of (the export files and old links use those names) */
   const WIZ = [
@@ -19,9 +19,10 @@ window.ICMWizard = (() => {
   const STATE_FA = { done: 'به‌روز', idle: 'اختیاری', todo: 'منتظر تصمیم شما', needs_run: 'نیازمند اجرا', stale: 'قدیمی', running: 'در حال محاسبه', awaiting: 'منتظر محاسبه', unreached: 'هنوز نرسیده‌اید' };
   const MARK = { done: '✓', needs_run: '●', todo: '●', stale: '⚠', running: '⟳', awaiting: '⟳', idle: '', unreached: '' };
   const idx = slug => SLUGS.indexOf(slug) + 1;
-  /* the rail sticks under the site header: its height (which wraps on a narrow screen) is a variable the CSS uses */
+  /* things stick under the top bar: its height (it wraps on a narrow screen) is a variable the CSS uses */
   const headerH = () => { const hd = document.querySelector('header.top'); document.documentElement.style.setProperty('--hdr', (hd ? Math.round(hd.getBoundingClientRect().height) : 54) + 'px'); };
   addEventListener('resize', headerH);
+  if (window.ResizeObserver && document.querySelector('header.top')) new ResizeObserver(headerH).observe(document.querySelector('header.top'));
   const RAIL_GROUPS = ['جستجو و انتخاب', 'هم‌ترازی', 'راویان و تحلیل'];
   const railGroup = i => (i <= 5 ? 0 : i <= 8 ? 1 : 2);
 
@@ -71,7 +72,7 @@ window.ICMWizard = (() => {
     const n = tab === 'steps' ? idx(slug) : 0;
     const runId = run || p.current_run || 'current';
     const group = tab === 'steps' ? WIZ[n - 1][2] : 'analysis';
-    $app.classList.add('has-rail'); headerH();
+    document.querySelector('header.top').classList.add('proj'); headerH();
 
     /* ----- header ----- */
     const B = P.branches || { active: null, versions: [] };
@@ -90,28 +91,21 @@ window.ICMWizard = (() => {
       dot.replaceChildren(busyDot(P.busy || P.job) || '');
       chipSt.className = 'chip ' + P.project.status; chipSt.textContent = STATUS[P.project.status] || P.project.status;
     };
-    const tabUrl = k => (k === 'steps' ? stepUrl(pid, run, tab === 'steps' ? slug : W.current && W.current !== 'done' ? W.current : 'run') : k === 'results' ? stepUrl(pid, run, 'results') : '/p/' + pid + '/settings/general');
-    const tabsNav = STATIC ? null : el('nav', { class: 'ptabs', 'aria-label': 'بخش‌های پروژه' },
-      ...[['steps', 'مراحل'], ['results', 'نتایج'], ...(live ? [['settings', 'تنظیمات']] : [])]
-        .map(([k, t]) => el('a', { class: tab === k ? 'on' : '', href: BASE + tabUrl(k), 'aria-current': tab === k ? 'page' : null,
-          onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); leave(tabUrl(k)); } }, t)));
-    /* the steps as a drop-down in the header (the stepper below stays) */
-    const stepSel = el('select', { 'aria-label': 'مرحله', class: 'stepsel', onchange: ev => { const w = ev.target.value; paintStepSel(); if (w && !(tab === 'steps' && w === slug)) leave(stepUrl(pid, run, w)); } });
-    const paintStepSel = () => {
-      stepSel.replaceChildren(...[tab === 'steps' ? null : el('option', { value: '', selected: true }, '—'), ...shown.map(w => {
-        const i = idx(w[0]), st = W.steps[i - 1] || { state: 'unreached' };
-        return el('option', { value: w[0], disabled: st.state === 'unreached' || null, selected: tab === 'steps' && w[0] === slug },
-          `${fa(i)} · ${w[1]}${MARK[st.state] ? ' ' + MARK[st.state] : ''}`);
-      })].filter(Boolean));
-    };
-    const stepLabel = STATIC ? null : el('label', { class: 'small muted stepsel-wrap' }, 'مرحله: ', stepSel);
+    /* the top bar: name, state, (i) · the step button, results, settings · the version. One link of the bar: */
+    const plain = ev => ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button;
+    const navLink = (text, u, on) => el('a', { class: 'hl' + (on ? ' on' : ''), href: BASE + u, 'aria-current': on ? 'page' : null,
+      onclick: ev => { if (plain(ev)) return; ev.preventDefault(); if (!on) leave(u); } }, text);
+    const stepBtn = el('button', { type: 'button', class: 'hstep', 'aria-haspopup': 'true', title: 'همه‌ی مرحله‌ها', onclick: ev => { ev.stopPropagation(); popover(ev.currentTarget, stepMenu()); } });
+    const resLink = !STATIC || STATIC.steps.includes('analysis') ? navLink('نتایج', stepUrl(pid, run, 'results'), tab === 'results') : null;
+    const setLink = live ? navLink('تنظیمات', '/p/' + pid + '/settings/general', tab === 'settings') : null;
     const mainBox = el('div');
-    const railNav = el('nav', { class: 'railnav', 'aria-label': 'بخش‌های پروژه' });
-    const rail = el('div', { class: 'rail' }, el('div', { class: 'card phead' }, el('div', { class: 'toolbar m0 pheadrow' },
-        el('h1', {}, pname), dot, chipSt,
-        info(() => projInfo(p, exportSel), { modal: true, title: 'سازنده، دانلود، تصمیم‌ها و گزارش اجرا' }), el('span', { class: 'grow' }),
-        stepLabel, el('label', { class: 'small muted verlabel' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), tabsNav), railNav);
-    $app.replaceChildren(el('div', { class: 'shell' }, rail, el('div', { class: 'shellmain' }, status, mainBox)));
+    const hproj = document.getElementById('hproj');
+    hproj.replaceChildren(el('h1', { class: 'pname', title: pname }, pname),
+      el('span', { class: 'hmeta' }, dot, chipSt, info(() => projInfo(p, exportSel), { modal: true, title: 'سازنده، دانلود، تصمیم‌ها و گزارش اجرا' }), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null),
+      el('span', { class: 'hnav' }, stepBtn, resLink, setLink),
+      el('label', { class: 'hver small muted' }, 'نسخه: ', runSel));
+    hproj.hidden = false;
+    $app.replaceChildren(status, mainBox);
     paintHead(); statusBox(status, p, pid);
     const titleNow = () => setTitle((P.job || P.busy ? '● ' : '') + pname, tab === 'steps' ? WIZ[n - 1][1] : tab === 'results' ? 'نتایج' : 'تنظیمات');
     titleNow();
@@ -139,9 +133,8 @@ window.ICMWizard = (() => {
       pageDirty = null; go(path);
     }
 
-    /* ----- the stepper ----- */
-    const stepper = el('nav', { class: 'stepper', 'aria-label': 'مرحله‌ها' });
-    /* one step as a link with its number, its mark and its state in the tooltip: used by the stepper (a narrow screen) and by the rail */
+    /* ----- the steps ----- */
+    /* one step as a link with its number, its mark and its state in the tooltip (in the list of the step button) */
     const stepItem = w => {
       const i = idx(w[0]), st = (W.steps[i - 1] || { state: 'unreached' }), on = tab === 'steps' && w[0] === slug, cur = W.current;
       const cls = 'st ' + (st.state === 'needs_run' || st.state === 'todo' ? 'needs' : st.state) + (on ? ' cur' : '') + (!readonly && w[0] === cur ? ' now' : '');
@@ -149,26 +142,21 @@ window.ICMWizard = (() => {
       const tip = `${w[1]} — ${STATE_FA[st.state] || ''}${st.changed_since && st.changed_since.length ? '؛ تغییر در مرحله‌ی ' + st.changed_since.map(x => fa(x.n)).join('، ') : ''}`;
       if (st.state === 'unreached') return el('span', { class: cls, title: tip, 'aria-disabled': 'true' }, ...body);
       const u = stepUrl(pid, run, w[0]);
-      return el('a', { class: cls, href: BASE + u, title: tip, 'aria-current': on ? 'step' : null, onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); if (!on) leave(u); } }, ...body);
+      return el('a', { class: cls, href: BASE + u, title: tip, 'aria-current': on ? 'step' : null, onclick: ev => { if (plain(ev)) return; ev.preventDefault(); closePop(); if (!on) leave(u); } }, ...body);
     };
-    const railLink = (text, u, on, cls) => el('a', { class: 'rl' + (cls ? ' ' + cls : '') + (on ? ' on' : ''), href: BASE + u, 'aria-current': on ? 'page' : null,
-      onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); if (!on) leave(u); } }, text);
-    /* the rail: the steps in three groups, then the results, then the settings with its sections while they are open (one DOM for the poll to repaint) */
-    const paintRail = () => {
+    /* the list behind the step button: the steps in three groups */
+    const stepMenu = () => {
       const kids = []; let last = -1;
       shown.forEach(w => { const g = railGroup(idx(w[0])); if (g !== last) { kids.push(el('div', { class: 'rg' }, RAIL_GROUPS[g])); last = g; } kids.push(stepItem(w)); });
-      const more = [];
-      if (!STATIC || STATIC.steps.includes('analysis')) more.push(railLink('نتایج', stepUrl(pid, run, 'results'), tab === 'results'));
-      if (live) {
-        more.push(railLink('تنظیمات', '/p/' + pid + '/settings/general', false, tab === 'settings' ? 'open' : ''));
-        if (tab === 'settings') more.push(el('div', { class: 'rsub' }, ICMSettings.SECTIONS.map(([k, t]) => railLink(t, '/p/' + pid + '/settings/' + k, section === k, k === 'danger' ? 'danger' : ''))));
-      }
-      if (more.length) kids.push(el('div', { class: 'rg' }, 'پروژه'), ...more);
-      railNav.replaceChildren(...kids);
-      const here_ = railNav.querySelector('.rl.on, .st.cur');                // a tall rail scrolls by itself: the open item comes to its middle
-      if (here_ && rail.scrollHeight > rail.clientHeight) rail.scrollTop = Math.max(0, here_.offsetTop - rail.clientHeight / 2);
+      return el('nav', { class: 'stlist', 'aria-label': 'مرحله‌ها' }, kids);
     };
-    const paintStepper = () => { paintStepSel(); stepper.replaceChildren(...shown.map(stepItem)); paintRail(); };
+    /* the step button: the step on screen with its mark (on the results or settings page: «مراحل») */
+    const paintStepper = () => {
+      const st = tab === 'steps' ? (W.steps[n - 1] || { state: 'unreached' }) : null;
+      stepBtn.className = 'hstep' + (st ? ' on st ' + (st.state === 'needs_run' || st.state === 'todo' ? 'needs' : st.state) : '');
+      stepBtn.replaceChildren(...(st ? [el('span', { class: 'n' }, fa(n)), el('span', { class: 'tt' }, WIZ[n - 1][1]), MARK[st.state] ? el('span', { class: 'mark', 'aria-hidden': 'true' }, MARK[st.state]) : null] : [el('span', { class: 'tt' }, 'مرحله‌ها')]).filter(Boolean),
+        icon('M6 9l6 6 6-6'));
+    };
 
     /* ----- the pieces of a step page ----- */
     const ctx = el('div', { class: 'ctx' }), runrow = el('div', { class: 'runrow' }), runwarn = el('div', { class: 'runwarn' }), data = el('div'), actions = el('div', { class: 'actionbar wiz' });
@@ -304,7 +292,7 @@ window.ICMWizard = (() => {
     mainBox.addEventListener('click', () => setTimeout(refreshBars, 0));
 
     /* ----- the three tabs ----- */
-    paintRail(); paintStepSel();          // on every tab: the rail and the step drop-down (the steps tab repaints them with the stepper)
+    paintStepper();          // on every tab: the step button
     if (tab === 'settings') {
       mainBox.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       await ICMSettings.page(mainBox, { pid, p, can, W, section });
@@ -312,9 +300,7 @@ window.ICMWizard = (() => {
       mainBox.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       await resultsPage(mainBox, c, W, live);
     } else {
-      paintStepper();
-      mainBox.replaceChildren(stepper, el('div', { class: 'sthead' }, el('h2', {}, el('span', { class: 'stn' }, fa(n)), WIZ[n - 1][1], stepInfo), runrow), runwarn, ctx, data, actions);
-      const cur = stepper.querySelector('.cur'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
+      mainBox.replaceChildren(el('div', { class: 'sthead' }, el('h2', {}, el('span', { class: 'stn' }, fa(n)), WIZ[n - 1][1], stepInfo), runrow), runwarn, ctx, data, actions);
       data.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       refreshBars();
       ctxStrip(slug, c, W).then(items => { ctx.replaceChildren(...items.flatMap((x, i) => [x, i < items.length - 1 ? ' ' : ''])); }).catch(() => {});

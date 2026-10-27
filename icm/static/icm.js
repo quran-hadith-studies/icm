@@ -183,7 +183,12 @@ window.addEventListener('popstate', render);
 async function render() {
   clearTimeout(timer); pageDirty = null; window.onbeforeunload = null;
   setTitle();
-  $app.classList.remove('has-rail'); document.documentElement.style.removeProperty('--wizbar');      // only the project page has the side rail and the bottom bar
+  document.documentElement.style.removeProperty('--wizbar');      // only a step page has the bottom bar
+  if (!route().pid) {                                              // only a project page turns the site's top bar into the project's
+    document.querySelector('header.top').classList.remove('proj');
+    const hp = document.getElementById('hproj'); hp.hidden = true; hp.replaceChildren();
+  }
+  siteMenu();
   ME = await api('/me').catch(() => ME);
   const who = document.getElementById('who');
   who.replaceChildren(STATIC ? el('span', { class: 'small' }, `نسخه‌ی ذخیره‌شده (${fa(STATIC.generated)})، فقط خواندنی${STATIC.narrator_version ? ' · پایگاه راویان: ' + (STATIC.narrator_version.label_fa || (STATIC.narrator_version.name === 'raw' ? 'خام' : STATIC.narrator_version.name)) : ''}`)
@@ -1839,6 +1844,20 @@ function popover(anchor, body) {
   POP.style.left = x + 'px'; POP.style.top = y + 'px';
 }
 function closePop() { if (POP) { POP.remove(); POP = null; } }
+/* the site's links (projects, new project, narrator wiki, hadith search) behind one button of the top bar; shown on a project page, where the bar is the project's */
+function siteMenu() {
+  const b = document.getElementById('sitemenu');
+  if (!b || b.dataset.on) return;
+  b.dataset.on = '1'; b.replaceChildren(icon('M4 6h16', 'M4 12h16', 'M4 18h16'));
+  b.onclick = ev => {
+    ev.stopPropagation();
+    popover(b, el('nav', { class: 'sitemenu', 'aria-label': 'پیوندهای سایت' }, [...document.querySelectorAll('header.top .navs a')].map(a => {
+      let href = a.getAttribute('href'); const mine = !STATIC && (href === BASE || href === BASE + '/new');
+      if (STATIC && href === '/new') href = SITE + '/icm/new';        // an exported file: the site's address
+      return el('a', { href, onclick: e2 => { closePop(); if (mine) { e2.preventDefault(); go(href.slice(BASE.length) || '/'); } } }, a.textContent);
+    })));
+  };
+}
 document.addEventListener('click', ev => { if (POP && !POP.contains(ev.target)) closePop(); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closePop(); });
 addEventListener('resize', closePop);

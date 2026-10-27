@@ -1,33 +1,34 @@
 /* The project page of the wizard (design-system/icm/MASTER.md: Swiss Modernism 2.0, dense, navy + amber; tokens come from base.css).
-   Wide screen (≥1024px): an app shell, a sticky rail on the start side (right, in RTL) with the project's name, state and version, the
-   eleven steps in three groups, the results and the settings; beside it the step: its title with the run button, the facts strip, the
-   data and a bar with save / previous / next that stays at the bottom. Narrow screen: no rail; the same header card with tabs, a step
-   drop-down and the horizontal stepper (the rail's links are hidden, the header card is shown as it is). */
-.shell{display:block}
-.rail{display:contents}
-.railnav{display:none}
-.shellmain{min-width:0}
-.shellmain>div:empty{display:none}
+   The site's top bar becomes the project's while a project is open (header.top.proj): the logo mark, the project's name and state,
+   one step button (the step on screen; its list of all the steps opens on demand), results, settings and the version. The page below
+   it is the step: its title with the run button, the facts strip, the data and a bar with save / previous / next that stays at the
+   bottom. On a narrow screen the bar is not sticky and the name takes a line of its own. */
+main>div:empty{display:none}
 
-/* header card */
-.phead{padding-block:8px 0;overflow:hidden}
-.phead h1{margin:0;font-size:15.5px;font-weight:700}
-.phead label{display:inline-flex;align-items:center;gap:6px;min-width:0}.phead select{min-width:0}
+/* ---- the top bar of a project page ---- */
+header.top.proj .sub,header.top.proj .navs,header.top.proj .grow{display:none}
+header.top.proj .brand{font-size:0;gap:0}
+header.top.proj .brand .mark{font-size:17px}
+#sitemenu[hidden],.hproj[hidden]{display:none}
+header.top.proj #sitemenu{display:inline-grid}
+.hproj{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;flex:1 1 0;min-width:0}
+.pname{margin:0;font-size:14.5px;font-weight:700;max-width:min(30vw,380px);min-width:5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hmeta,.hnav{display:inline-flex;align-items:center;gap:6px}
+.hnav{gap:2px;padding-inline-start:12px;border-inline-start:1px solid var(--line-2)}
+.hstep,.hl{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border:0;border-radius:var(--r-sm);background:none;color:var(--muted);font:inherit;font-size:13px;line-height:1.6;text-decoration:none;cursor:pointer;white-space:nowrap;transition:background var(--t),color var(--t)}
+.hstep:hover,.hl:hover{background:var(--accent-soft);color:var(--fg);text-decoration:none}
+.hstep.on,.hl.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.hstep .ico{width:14px;height:14px}
+.hver{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;min-width:0}
+.hver select{min-width:0;max-width:11em}
+.hver>.toolbar{flex-wrap:nowrap}
+.hver>span:not(.toolbar){max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .busy{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-inline:6px;vertical-align:middle;animation:icm-pulse 1.2s ease-in-out infinite}
 @keyframes icm-pulse{50%{opacity:.3}}
 @media (prefers-reduced-motion:reduce){.busy,.st.running .n{animation:none}}
-.ptabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:8px -18px 0;padding-inline:14px}
-.ptabs a{padding:8px 14px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:13.5px}
-.ptabs a:hover{color:var(--fg)}
-.ptabs a.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
-.phead>div:empty{display:none}
-.phead .pheadrow:last-child{margin-bottom:8px}
 
-/* the steps: the pill (narrow screen) and the row (rail) share the marks of their state */
-.stepper{display:flex;gap:5px;overflow-x:auto;scrollbar-width:thin;padding:2px 1px 8px;margin:0 0 6px}
+/* ---- a step as a row, with its number, its mark and its state; the list behind the step button and the button itself ---- */
 .st{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);text-decoration:none;white-space:nowrap}
-.stepper .st{padding:5px 10px 5px 8px;border:1px solid var(--line-2);border-radius:99px;background:var(--card)}
-.stepper a.st:hover{border-color:var(--accent);color:var(--fg)}
 .st .n{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:50%;background:var(--line);font-size:11px;font-weight:700;color:var(--fg);flex:none}
 .st .mark{font-size:11px}
 .st.done .n{background:var(--good-bg);color:var(--chip-fg)}
@@ -35,12 +36,23 @@
 .st.needs .n,.st.stale .n,.st.awaiting .n{background:var(--warn-bg);color:var(--chip-fg)}
 .st.needs .mark,.st.stale .mark{color:var(--warn)}
 .st.running .n{background:var(--accent);color:var(--on-accent);animation:icm-pulse 1.2s ease-in-out infinite}
-.stepper .st.unreached{border-style:dashed;cursor:default;opacity:.7}
 .st.idle{color:var(--muted)}
-.stepper .st.cur{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:var(--accent-soft);color:var(--accent);font-weight:700}
+.hstep.st{font-size:13px}
+.stlist{display:flex;flex-direction:column;min-width:260px}
+.stlist .rg{font-size:11.5px;font-weight:700;color:var(--muted);padding:8px 8px 2px}
+.stlist .rg:first-child{padding-top:0}
+.stlist .st{display:flex;width:100%;padding:5px 8px;border-radius:var(--r-sm);border-inline-start:3px solid transparent;font-size:13.5px;color:var(--fg);white-space:normal;line-height:1.5}
+.stlist a.st:hover{background:var(--accent-soft);color:var(--fg)}
+.stlist .st.cur{background:var(--accent-soft);color:var(--accent);font-weight:700;border-inline-start-color:var(--accent)}
+.stlist .st.unreached{color:var(--muted);opacity:.6;cursor:default}
+.stlist .st .tt{flex:1;min-width:0}
+.stlist .st .mark{margin-inline-start:auto}
+.sitemenu{display:flex;flex-direction:column;min-width:170px}
+.sitemenu a{padding:7px 10px;border-radius:var(--r-sm);color:var(--fg);text-decoration:none}
+.sitemenu a:hover{background:var(--accent-soft)}
 
-/* step header: number, title, (i); the run button and its knobs on the other side */
-.sthead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:6px 0 8px}
+/* ---- the step: title with its number and (i); the run button and its knobs on the other side ---- */
+.sthead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:0 0 8px}
 .sthead h2{margin:0;font-size:18px;display:flex;align-items:center;gap:8px;flex:0 1 auto}
 .sthead .stn{display:inline-grid;place-items:center;min-width:30px;height:30px;padding-inline:4px;border-radius:var(--r-sm);background:var(--accent-soft);color:var(--accent);font-size:15px;font-weight:700}
 .sthead .stepinfo{display:inline-flex}
@@ -55,58 +67,35 @@
 .ctx .ci{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:1px 11px;font-size:12.5px;line-height:1.7;color:var(--fg)}
 .ctx .ci b{color:var(--muted);font-weight:400}
 
-/* the bar at the bottom: save / previous / next */
+/* ---- the bar at the bottom: save / previous / next ---- */
 .actionbar.wiz{position:sticky;bottom:0;z-index:12;margin:var(--sp-4) 0 0;padding:var(--sp-2) var(--sp-3);padding-bottom:calc(var(--sp-2) + env(safe-area-inset-bottom,0px));
   background:color-mix(in srgb,var(--card) 96%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line-2);border-radius:var(--r);box-shadow:0 -6px 18px rgb(15 23 42 / .08)}
 .actionbar:not(.wiz){bottom:calc(var(--wizbar,0px) + 8px)}
 html{scroll-padding-bottom:calc(var(--wizbar,0px) + 16px);scroll-padding-top:calc(var(--hdr) + 8px)}
 
-/* settings: the sections are the rail's on a wide screen; a row of links above the page on a narrow one */
+/* ---- settings: the sections as a row of links above the page ---- */
 .settings{display:block}
-.snav{display:flex;flex-direction:row;gap:2px;overflow-x:auto;margin-bottom:var(--sp-3);scrollbar-width:thin}
-.snav a{padding:7px 12px;border-radius:var(--r-sm);color:var(--fg);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap}
-.snav a:hover{background:var(--accent-soft)}
-.snav a.on{background:var(--accent-soft);color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
+.snav{display:flex;flex-direction:row;gap:2px;overflow-x:auto;margin-bottom:var(--sp-3);scrollbar-width:thin;border-bottom:1px solid var(--line)}
+.snav a{padding:8px 14px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.snav a:hover{color:var(--fg)}
+.snav a.on{color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
 .snav a.danger{color:var(--bad)}
 .sbody{min-width:0}
 .sbody .dangerbox{border-color:var(--bad)}
 .kv{border-collapse:collapse}.kv th{text-align:start;font-weight:600;color:var(--muted);padding:3px 0;padding-inline-end:16px;white-space:nowrap}.kv td{padding:3px 0}
 
 @media (max-width:700px){
-  .ptabs{margin-inline:-13px}
-  .stepper .st{padding-inline:8px}
+  header.top.proj{position:static}
+  html{scroll-padding-top:8px}
+  .hproj{flex:1 1 100%;order:5}
+  .pname{max-width:calc(100% - 130px)}
+  .hnav{padding-inline-start:0;border-inline-start:0;margin-inline-start:-8px;flex-basis:100%}
+  .hver{margin-inline-start:0;flex-basis:100%}
+  .hver>span:not(.toolbar){max-width:100%}
   .sthead h2{font-size:16.5px}
   .runrow{justify-content:flex-start}
   .actionbar.wiz{margin-inline:-12px;border-radius:0;border-inline:0}
   .actionbar.wiz .toolbar{gap:6px}
   .actionbar.wiz .toolbar button{flex:1 1 auto;padding-inline:8px}
   .navt{display:none}
-}
-
-@media (min-width:1024px){
-  main.has-rail{max-width:1480px;padding-bottom:24px}
-  .shell{display:grid;grid-template-columns:248px minmax(0,1fr);gap:var(--sp-5);align-items:start}
-  .rail{display:block;position:sticky;top:calc(var(--hdr) + var(--sp-3));max-height:calc(100dvh - var(--hdr) - var(--sp-5));overflow-y:auto;scrollbar-width:thin;padding-bottom:var(--sp-3)}
-  .rail .phead{padding:var(--sp-3);margin-bottom:var(--sp-2)}
-  .rail .ptabs,.rail .stepsel-wrap,.rail .pheadrow>.grow,.stepper,.snav{display:none}
-  .rail .pheadrow{gap:6px}
-  .rail .phead h1{flex:1 1 100%;font-size:15px;line-height:1.6;overflow-wrap:anywhere}
-  .rail .verlabel{flex:1 1 100%;display:flex}
-  .rail .verlabel>.toolbar{flex:1;min-width:0}.rail .verlabel select{flex:1}
-  .rail .verlabel>span:not(.toolbar){min-width:0;overflow-wrap:anywhere;word-break:break-all;font-size:11px}
-  .railnav{display:flex;flex-direction:column;gap:1px}
-  .railnav .rg{font-size:11.5px;font-weight:700;color:var(--muted);padding:var(--sp-2) var(--sp-2) 2px}
-  .railnav .rg:first-child{padding-top:0}
-  .railnav .st,.railnav .rl{display:flex;align-items:center;gap:var(--sp-2);width:100%;padding:3px var(--sp-2);border-radius:var(--r-sm);border-inline-start:3px solid transparent;
-    font-size:13.5px;color:var(--fg);text-decoration:none;white-space:normal;line-height:1.5;transition:background var(--t),color var(--t)}
-  .railnav .st .tt{flex:1;min-width:0}
-  .railnav a.st:hover,.railnav a.rl:hover{background:var(--accent-soft);color:var(--fg)}
-  .railnav .st.unreached{color:var(--muted);opacity:.65;cursor:default}
-  .railnav .st.cur,.railnav .rl.on{background:var(--accent-soft);color:var(--accent);font-weight:700;border-inline-start-color:var(--accent)}
-  .railnav .st .mark{margin-inline-start:auto}
-  .railnav .rl.open{font-weight:700}
-  .railnav .rsub{display:flex;flex-direction:column;margin-inline-start:var(--sp-4)}
-  .railnav .rsub .rl{font-size:13px;padding-block:2px}
-  .railnav .rl.danger{color:var(--bad)}
-  .shellmain .sthead{margin-top:0}
 }

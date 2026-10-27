@@ -1,6 +1,5 @@
 'use strict';
-/* ICMSettings: a project's settings as a page (its sections are listed in the wizard's side rail; on a narrow screen as a row of links
-   above the page), and the pop-up of the project list (ⓘ): owner, downloads, decisions, the run log and delete. Loaded before icm.js;
+/* ICMSettings: a project's settings as a page (its sections are a row of links above the page), and the pop-up of the project list (ⓘ): owner, downloads, decisions, the run log and delete. Loaded before icm.js;
    uses its globals when called. */
 window.ICMSettings = (() => {
   const SECTIONS = [['general', 'عمومی'], ['narrators', 'پایگاه راویان'], ['versions', 'نسخه‌ها'], ['download', 'دانلود'], ['danger', 'حذف پروژه']];

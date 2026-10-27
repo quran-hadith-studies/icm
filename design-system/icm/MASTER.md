@@ -3,7 +3,7 @@
 > **How ICM applies this file (2026-10-27).** Generated with the `ui-ux-pro-max` skill
 > (`search.py "academic research tool manuscript text analysis scholarly" --design-system --density 8 --motion 2`).
 > The palette, style (Swiss Modernism 2.0) and the dials are used as generated; the implementation is `icm/static/base.css`
-> (tokens, spacing `--sp-1..6`, utilities, toast, theme button) and `icm/static/wizard.css` (app shell with a side rail).
+> (tokens, spacing `--sp-1..6`, utilities, toast, theme button) and `icm/static/wizard.css` (one top bar that carries the project: name, state, step button, results, settings, version).
 > Deliberate differences from the generated text below:
 > - **Fonts.** The UI is Persian/Arabic: Vazirmatn (UI) and BLotus / Noto Naskh Arabic (hadith text) replace the generated Latin
 >   pairing (Crimson Pro / Atkinson Hyperlegible). No webfont is fetched.
