@@ -88,12 +88,22 @@ window.ICMWizard = (() => {
       ...[['steps', 'مراحل'], ['results', 'نتایج'], ...(live ? [['settings', 'تنظیمات']] : [])]
         .map(([k, t]) => el('a', { class: tab === k ? 'on' : '', href: BASE + tabUrl(k), 'aria-current': tab === k ? 'page' : null,
           onclick: ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return; ev.preventDefault(); leave(tabUrl(k)); } }, t)));
+    /* the steps as a drop-down in the header (the stepper below stays) */
+    const stepSel = el('select', { 'aria-label': 'مرحله', class: 'stepsel', onchange: ev => { const w = ev.target.value; paintStepSel(); if (w && !(tab === 'steps' && w === slug)) leave(stepUrl(pid, run, w)); } });
+    const paintStepSel = () => {
+      stepSel.replaceChildren(...[tab === 'steps' ? null : el('option', { value: '', selected: true }, '—'), ...shown.map(w => {
+        const i = idx(w[0]), st = W.steps[i - 1] || { state: 'unreached' };
+        return el('option', { value: w[0], disabled: st.state === 'unreached' || null, selected: tab === 'steps' && w[0] === slug },
+          `${fa(i)} · ${w[1]}${MARK[st.state] ? ' ' + MARK[st.state] : ''}`);
+      })].filter(Boolean));
+    };
+    const stepLabel = STATIC ? null : el('label', { class: 'small muted' }, 'مرحله: ', stepSel);
     const mainBox = el('div');
     $app.replaceChildren(
       el('div', { class: 'card phead' }, el('div', { class: 'toolbar', style: 'margin:0' },
         el('h1', {}, pname), dot, chipSt,
         info(() => projInfo(p, exportSel), { modal: true, title: 'سازنده، دانلود، تصمیم‌ها و گزارش اجرا' }), el('span', { class: 'grow' }),
-        el('label', { class: 'small muted' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), tabsNav, status),
+        stepLabel, el('label', { class: 'small muted' }, 'نسخه: ', runSel), readonly ? el('span', { class: 'chip partial' }, 'فقط‌خواندنی') : null), tabsNav, status),
       mainBox);
     paintHead(); statusBox(status, p, pid);
     const titleNow = () => setTitle((P.job || P.busy ? '● ' : '') + pname, tab === 'steps' ? WIZ[n - 1][1] : tab === 'results' ? 'نتایج' : 'تنظیمات');
@@ -126,6 +136,7 @@ window.ICMWizard = (() => {
     const stepper = el('nav', { class: 'stepper', 'aria-label': 'مرحله‌ها' });
     const paintStepper = () => {
       const cur = W.current;
+      paintStepSel();
       stepper.replaceChildren(...shown.map(w => {
         const i = idx(w[0]), st = (W.steps[i - 1] || { state: 'unreached' }), on = tab === 'steps' && w[0] === slug;
         const cls = 'st ' + (st.state === 'needs_run' || st.state === 'todo' ? 'needs' : st.state) + (on ? ' cur' : '') + (!readonly && w[0] === cur ? ' now' : '');
