@@ -34,7 +34,7 @@ from hadith_phylogeny.report import finite
 from . import config, narrator_versions
 
 STEPS = ("search", "selection", "identities", "phylogeny", "parts", "narrators", "go")      # steps with decisions (newer ones last: run ids keep their leading numbers)
-WIZARD = ("seed", "search", "selection", "alignment", "identities", "phylogeny", "analysis", "done")
+LEGACY_STEP = {"search": "hadiths", "seed": "hadiths", "selection": "candidates", "alignment": "slots", "identities": "narrators", "phylogeny": "graph", "analysis": "run"}    # the steps of the six-page wizard -> the eleven of today (wizard.py)
 
 
 def h(*objs) -> str:
@@ -123,6 +123,14 @@ def cuts_of(pdec: Optional[dict]):
     own), or the list of spans an earlier decision made for the first hadith alone, or None (all automatic)."""
     pdec = pdec or {}
     return pdec.get("cuts") or pdec.get("seed") or None
+
+
+def rename(pid: str, title: str) -> None:
+    with lock(pid):
+        p = load(pid)
+        p["title"] = title
+        save(p)
+    refresh_indexes()
 
 
 def delete(pid: str) -> None:
@@ -291,10 +299,10 @@ def add_decision(pid: str, step: str, payload: dict, user: str, note: str = "") 
     return n
 
 
-def narrator_version(pid: str) -> narrator_versions.Version:
+def narrator_version(pid: str, D: Optional[dict] = None) -> narrator_versions.Version:
     """The project's narrator database version: its ``narrators`` decision, else the configured default (``raw``
     when that file is absent). A decided version whose file has gone falls back to raw, logged."""
-    name = (decision(pid, "narrators") or {}).get("name") or narrator_versions.default_name()
+    name = ((D["narrators"] if D is not None else decision(pid, "narrators")) or {}).get("name") or narrator_versions.default_name()
     try:
         return narrator_versions.get(name)
     except KeyError:
@@ -369,7 +377,7 @@ def refresh_indexes() -> None:
     """index.json (all projects) and hadith_index.json (hadith -> projects that contain it)."""
     projs = list_projects()
     idx = [dict(pid=p["pid"], title=(hadith_label(p["seed"]) if p["title"] == p["seed"] else p["title"]), seed=p["seed"], owner=p["owner"], status=p["status"],
-                step=p["step"], updated=p["updated"], current_run=p.get("current_run")) for p in projs]
+                step=LEGACY_STEP.get(p["step"], p["step"]), stale=bool(p.get("stale")), updated=p["updated"], current_run=p.get("current_run")) for p in projs]
     hidx: Dict[str, list] = {}
     for p in projs:
         wids = {p["seed"]}

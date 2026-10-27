@@ -26,13 +26,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hadith_phylogeny.report import finite
 
-from . import config, corpus, export, family, finder, identity, jobs, lex, narrator_info, narrator_versions, pipeline, project, semantic, serve, users, viewer
+from . import config, corpus, export, wizard, family, finder, identity, jobs, lex, narrator_info, narrator_versions, pipeline, project, semantic, serve, users, viewer
 from . import graph as graph_mod
 from . import query as query_mod
 from .text import norm
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
-ASSETS = ("icm.js", "users.js", "base.js", "base.css", "icm.css", "users.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
+ASSETS = ("icm.js", "wizard.js", "settings.js", "users.js", "base.js", "base.css", "icm.css", "wizard.css", "users.css", "tree.js", "tree.css", "results.js", "results.css", "recon.js", "help_fa.js", "icm.html",
           "model_worker.js", "model.zip")
 ID_RE = re.compile(r"^(?:(?:noor|kg):\d+|wiki:[0-9a-f]{6,32})$")     # wiki:<token>: a person made by hand in the narrator wiki, with no Noor / KG id
 SPLIT_RE = re.compile(r"^split:\d{1,6}$")
@@ -123,7 +123,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         res["provenance"] = provenance
         out = dict(results=res, viz=viz, stage_version=1, inputs_hash=aw["key"], generated=project.now())
         project.stage_put(pid, "infer", aw["key"], finite(out))
-        jobs.enqueue(pid)                                   # the worker finalises (cheap: every stage is cached)
+        jobs.enqueue(pid, "finalize")                       # the worker finalises (cheap: every stage is cached)
         return dict(ok=True)
 
     def _project(pid: str) -> dict:
@@ -147,13 +147,14 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.get("/new", response_class=HTMLResponse)
     @r.get("/p/{pid}", response_class=HTMLResponse)
     @r.get("/p/{pid}/{step}", response_class=HTMLResponse)
+    @r.get("/p/{pid}/settings/{section}", response_class=HTMLResponse)
     @r.get("/p/{pid}/r/{run}", response_class=HTMLResponse)
     @r.get("/p/{pid}/r/{run}/{step}", response_class=HTMLResponse)
     @r.get("/login", response_class=HTMLResponse)
     @r.get("/register", response_class=HTMLResponse)
     @r.get("/account", response_class=HTMLResponse)
     @r.get("/users", response_class=HTMLResponse)
-    def index_page(pid: str = "", run: str = "", step: str = ""):
+    def index_page(pid: str = "", run: str = "", step: str = "", section: str = ""):
         return page()
 
     @r.get("/static/{name}")
@@ -183,8 +184,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.get("/api/index")
     def index():
         idx = project.read(os.path.join(config.CACHE_DIR, "index.json"), dict(projects=[]))
+        busy = jobs.active_all()                           # the red dot next to a project's name: something is queued or running for it
         # projects made before titles were readable carry their seed id as the title: name them from the hadith
-        return dict(idx, projects=[dict(p, title=project.hadith_label(p["seed"])) if p.get("title") == p.get("seed") else p for p in idx.get("projects", [])])
+        return dict(idx, projects=[dict(p, busy=busy.get(p["pid"]), **({"title": project.hadith_label(p["seed"])} if p.get("title") == p.get("seed") else {})) for p in idx.get("projects", [])])
 
     @r.get("/api/hadith/{wid}/projects")
     def hadith_projects(wid: str):
@@ -285,7 +287,14 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         p = _project(pid)
         vers = project.versions(pid)
         p = dict(p, label=(project.hadith_label(p["seed"]) if p.get("title") == p.get("seed") else p.get("title")))
-        return dict(project=p, narrator_version=(project.decision(pid, "narrators") or {}).get("name") or narrator_versions.default_name(), versions=vers, runs=project.runs(pid), job=jobs.active(pid),
+        job = jobs.active(pid)
+        try:
+            w = wizard.staleness(pid, job)
+        except Exception as e:                                # the marks are a help: a broken one must not hide the project
+            w = dict(current=p.get("step"), stale_any=False, steps=[], error=str(e))
+        sdec = project.decision(pid, "search") or {}
+        return dict(project=p, narrator_version=(project.decision(pid, "narrators") or {}).get("name") or narrator_versions.default_name(), versions=vers, runs=project.runs(pid), job=job, busy=job,
+                    wizard=w, semantic_available=semantic.available(), lex_available=lex.available(),
                     branches=project.branches(pid),
                     last_job=(jobs.for_project(pid, 1) or [None])[0], log=(project.read(os.path.join(project.pdir(pid), "log.json"), []))[-30:],
                     decisions={s: project.history(pid, s) for s in project.STEPS})
@@ -417,27 +426,12 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         if len(open_) >= (MAX_OPEN if u.get("quota") is None else u["quota"]) and not u.get("is_admin"):
             raise HTTPException(429, f"you have {len(open_)} unfinished projects; finish or continue one first")
         p = project.create(seed, u["username"], body.get("title"))
-        jobs.enqueue(p["pid"])
+        jobs.enqueue(p["pid"], "run:search")                # «ساخت پروژه» is the button that cuts the seed (no corpora are asked: that is step 3's)
         return dict(pid=p["pid"])
 
-    @r.post("/api/project/{pid}/decide/{step}")
-    async def decide(request: Request, pid: str, step: str):
-        u, p = own_project(request, pid)
-        if step not in project.STEPS:
-            raise HTTPException(404)
-        body = await request.json()
+    def _write_decision(u: dict, p: dict, pid: str, step: str, payload: dict, note: str = "") -> int:
+        """Write one decision and the decisions it makes unusable (it only writes: nothing is computed)."""
         prev_search = project.decision(pid, "search") or {} if step == "search" else {}
-        payload = _validate(step, body.get("payload") or {}, pid, p)
-        if step == "go":
-            j = jobs.active(pid)
-            if j:
-                raise HTTPException(409, "این پروژه هم‌اکنون در حال محاسبه است" + (" (در صف)" if j["status"] == "queued" else "")
-                                    + "؛ پس از پایان دوباره بزنید، یا اگر کاری پیش نمی‌رود «لغو محاسبه» را بزنید.")
-            n = pipeline.request(pid, payload["stage"], u["username"])
-            if n is None:
-                raise HTTPException(409, "choose the witnesses (step 2)" if payload["stage"] == "align" else "build the alignment (step 3) first")
-            jobs.enqueue(pid, "go:" + payload["stage"])
-            return dict(ok=True)
         if step == "search":
             # hadiths added now join a selection already made (they would otherwise be listed unticked), and a rebuilt search clears it
             sel = project.decision(pid, "selection") or {}
@@ -472,14 +466,113 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                     project.add_decision(pid, "search", dict(sdec, part_query=None), u["username"], "the seed's parts changed")
             else:
                 payload["keep_ids"] = prev.get("keep_ids", [])
-        n = project.add_decision(pid, step, payload, u["username"], str(body.get("note", ""))[:500])
-        if step == "phylogeny" and payload.get("confirmed"):
-            with project.lock(pid):                     # the next tab at once; the run that follows sets its own step
-                q = project.load(pid)
-                q["step"] = "analysis"
-                project.save(q)
-        jobs.enqueue(pid)
-        return dict(version=n)
+        n = project.add_decision(pid, step, payload, u["username"], note[:500])
+        wizard.touch(pid)                                   # the marks of the steps after a changed one
+        return n
+
+    @r.post("/api/project/{pid}/decide/{step}")
+    async def decide(request: Request, pid: str, step: str):
+        """Save a decision. Saving never runs anything: the run buttons (``/run/{what}``) do."""
+        u, p = own_project(request, pid)
+        if step not in project.STEPS:
+            raise HTTPException(404)
+        if step == "go":
+            raise HTTPException(410, "use /run/{what}: each step has its own run button")
+        body = await request.json()
+        payload = _validate(step, body.get("payload") or {}, pid, p)
+        return dict(version=_write_decision(u, p, pid, step, payload, str(body.get("note", ""))))
+
+    BUSY = "این پروژه هم‌اکنون در حال محاسبه است"
+
+    def _busy(pid: str) -> None:
+        j = jobs.active(pid)
+        if j:
+            raise HTTPException(409, BUSY + (" (در صف)" if j["status"] == "queued" else "")
+                                + "؛ پس از پایان دوباره بزنید، یا اگر کاری پیش نمی‌رود «لغو محاسبه» را بزنید.")
+
+    RUNS = ("rescore", "search", "semantic", "align", "identify", "graph", "infer")
+
+    @r.post("/api/project/{pid}/run/{what}")
+    async def run(request: Request, pid: str, what: str):
+        """A run button: write what the button asks for, then queue the job that computes exactly that step. Nothing else
+        runs, and nothing runs while a job of this project is queued or running."""
+        u, p = own_project(request, pid)
+        if what not in RUNS:
+            raise HTTPException(404)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        _busy(pid)
+        vers, D = pipeline.snapshot(pid)
+        pl = pipeline.plan(pid, D)
+        have = set(pl["cached"])
+
+        def need(ok, msg):
+            if not ok:
+                raise HTTPException(409, msg)
+        sdec = D["search"] or {}
+        user = u["username"]
+        if what == "rescore":
+            m = project.run_hashes(pid)
+            if "search" in have and m.get("search") == pl["keys"].get("search"):
+                return dict(ok=True, noop=True)
+        elif what == "search":
+            mode = body.get("mode") or "rebuild"
+            base = {k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits") if k in sdec}
+            payload = _validate_search(dict(base, **({"anchor": sdec["anchor"]} if sdec.get("anchor") else {})), pid, p, press=dict(mode=mode))
+            _write_decision(u, p, pid, "search", payload, f"search pressed ({mode})")
+        elif what == "semantic":
+            need(sdec.get("ret") or not p.get("manual_search"), "نخست «جستجو» را در مرحله‌ی ۳ بزنید")
+            need(semantic.available(), "جستجوی معنایی در این سرور آماده نیست")
+            sm, sk = body.get("sem_min"), body.get("sem_k")
+            num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)
+            if not ((sm is None or (num(sm) and 0.5 <= sm <= 0.95)) and (sk is None or (isinstance(sk, int) and not isinstance(sk, bool) and 1 <= sk <= 100))):
+                raise HTTPException(400, "sem_min must be between 0.5 and 0.95 and sem_k between 1 and 100")
+            if not sdec.get("ret"):                      # a project from before the buttons: its search on screen becomes the press the semantic one is made on
+                sdec = dict(sdec, ret=_validate_search({k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits") if k in sdec}, pid, p)["ret"])
+            rs = dict(n=((sdec.get("ret_sem") or {}).get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.75, 2), sem_k=sk if sk is not None else 40,
+                      model=semantic.meta().get("model") or True, at=pipeline.sem_at(p, sdec, D["parts"] or {}), created=project.now())
+            payload = {k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits", "ret") if k in sdec}
+            project.add_decision(pid, "search", dict(payload, ret_sem=rs), user, "semantic search pressed")
+            wizard.touch(pid)
+        elif what == "align":
+            need("search" in have, "نخست مرحله‌ی ۲ تا ۵ را اجرا کنید (جستجوی کنونی هنوز ساخته نشده است)")
+            need(pl["gate"] != "selection", "نخست در مرحله‌ی ۳ شاهدها را انتخاب و ذخیره کنید")
+            go = D["go"] or {}
+            project.add_decision(pid, "go", dict({k: go[k] for k in ("align", "identify") if go.get(k)}, align=pipeline.go_key(pl["k_search"], pl["selected"])), user, "align asked for")
+        elif what == "identify":
+            need("align" in have, "نخست هم‌ترازی را بسازید (مرحله‌ی ۶)")
+            go = D["go"] or {}
+            project.add_decision(pid, "go", dict({k: go[k] for k in ("align", "identify") if go.get(k)}, identify=pipeline.go_key(pl["k_search"], pl["selected"])), user, "identify asked for")
+        elif what == "graph":
+            need("identify" in have and "graph" in pl["keys"], "نخست راویان را بیابید و ذخیره کنید (مرحله‌ی ۹)")
+            prev = {k: v for k, v in (D["phylogeny"] or {}).items() if k not in wizard.META}
+            project.add_decision(pid, "phylogeny", dict(prev, build=pl["keys"]["graph"]), user, "tree ordered")
+            wizard.touch(pid)
+        elif what == "infer":
+            need("graph" in have, "نخست شجره را بسازید (مرحله‌ی ۱۰)")
+            prev = {k: v for k, v in (D["phylogeny"] or {}).items() if k not in wizard.META}
+            preset, compute = body.get("preset", prev.get("preset")), body.get("compute") or prev.get("compute") or "browser"
+            if preset is not None and preset not in config.PRESETS:
+                raise HTTPException(400, "unknown preset")
+            if compute not in ("browser", "helper", "server"):
+                raise HTTPException(400, "unknown compute mode")
+            project.add_decision(pid, "phylogeny", dict(prev, preset=preset, compute=compute, confirmed=pl["keys"]["graph"]), user, "analysis asked for")
+            wizard.touch(pid)
+        jid = jobs.enqueue(pid, "run:" + what)
+        return dict(ok=True, job=jid, kind="run:" + what)
+
+    @r.post("/api/project/{pid}/rename")
+    async def rename(request: Request, pid: str):
+        own_project(request, pid)
+        title = re.sub(r"\s+", " ", str((await request.json()).get("title") or "")).strip()[:120]
+        if not title:
+            raise HTTPException(400, "a project needs a name")
+        project.rename(pid, title)
+        return dict(ok=True, title=title)
 
     @r.get("/api/project/{pid}/compute-input")
     def compute_input(request: Request, pid: str):
@@ -549,7 +642,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
     @r.post("/api/project/{pid}/rerun")
     async def rerun(request: Request, pid: str):
         own_project(request, pid)
-        jobs.enqueue(pid)
+        _busy(pid)
+        last = (jobs.for_project(pid, 1) or [None])[0]
+        jobs.enqueue(pid, (last or {}).get("kind") or "advance")        # the same thing again (a failed or stuck job)
         return dict(ok=True)
 
     # -- versions: named sets of decisions; the page edits the active one (project.py «versions») --
@@ -560,10 +655,9 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         return name
 
     def _switch(pid: str, bid: str) -> None:
-        if jobs.active(pid):
-            raise HTTPException(409, "a computation is running for this project; switch versions when it is over")
+        _busy(pid)
         project.activate(pid, bid)
-        project.refresh_indexes()
+        wizard.touch(pid)
 
     def _bid(pid: str, bid: str) -> str:
         if not any(b["id"] == bid for b in project.branches(pid)["versions"]):
@@ -701,7 +795,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 prev = project.decision(pid, "phylogeny") or {}
                 if pl["deleted"] != p.get("graph_hash"):
                     raise HTTPException(409, "the graph changed; delete the one on screen")
-                if prev.get("confirmed") == pl["deleted"] or p.get("step") not in ("phylogeny",):
+                if prev.get("confirmed") == pl["deleted"]:
                     raise HTTPException(409, "the tree is already confirmed; it cannot be deleted")
                 out["deleted"] = pl["deleted"]
             if pl.get("confirmed"):
@@ -711,10 +805,13 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             return out
         raise HTTPException(400)
 
-    def _validate_search(pl: dict, pid: str, p: dict) -> dict:
+    def _validate_search(pl: dict, pid: str, p: dict, press: Optional[dict] = None) -> dict:
         """The search decision is the full state: ``part_query`` (parts asked in the corpora), ``extra_ids`` (hadiths the user added),
         ``seeds`` (further seed hadiths), ``edits`` (wid -> the user's text) and ``ret``, the parameters of the last press of
-        «جستجو» (the server writes it: ``go`` is the press, ``mode`` what to do with the earlier candidates)."""
+        «جستجو» (the server writes it: ``press`` is the press of the run button, ``mode`` what to do with the earlier candidates) and
+        ``ret_sem``, the press of step 4 (carried over by a save, dropped by a new «جستجو»)."""
+        if pl.get("go") or pl.get("mode"):
+            raise HTTPException(400, "the search is pressed with /run/search")
         prev = project.decision(pid, "search") or {}
         pq = pl.get("part_query")
         if pq is not None and not (isinstance(pq, list) and all(isinstance(i, int) and not isinstance(i, bool) for i in pq)):
@@ -752,14 +849,10 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             cl = pdec.get("seed") or None
             ret = dict(legacy=True, n=0, clauses=cl, join=pdec.get("join"), part_query=prev.get("part_query"), extra=sorted(set(prev.get("extra_ids") or [])),
                        keep=sorted(set(pdec.get("keep_ids") or [])) if cl else [], seeds=[])
-        if pl.get("go"):
-            mode = pl.get("mode") or "rebuild"
+        if press is not None:
+            mode = press.get("mode") or "rebuild"
             if mode not in ("rebuild", "selected", "all"):
                 raise HTTPException(400, "mode must be rebuild, selected or all")
-            sm, sk = pl.get("sem_min"), pl.get("sem_k")
-            num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)
-            if not ((sm is None or (num(sm) and 0.5 <= sm <= 0.95)) and (sk is None or (isinstance(sk, int) and not isinstance(sk, bool) and 1 <= sk <= 100))):
-                raise HTTPException(400, "sem_min must be between 0.5 and 0.95 and sem_k between 1 and 100")
             keep: list = []
             if S is not None and S.get("searched") is not False:
                 if mode == "all":
@@ -769,11 +862,11 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             cl = pdec.get("seed") or None
             ret = dict(legacy=False, n=(ret or {}).get("n", 0) + 1, clauses=cl, join=pdec.get("join"), part_query=pq, extra=[],
                        keep=sorted(set(keep) - {first})[:5000], seeds=seeds, **({"anchor": first} if first != p["seed"] else {}),
-                       **({"lex": config.LEX_VERSION, **({"sem": semantic.meta().get("model") or True, **({"sem_min": round(sm, 2)} if sm is not None and round(sm, 2) != 0.75 else {}),
-                                                           **({"sem_k": sk} if sk is not None and sk != 40 else {})} if semantic.available() else {})}
-                          if lex.available() else {}))       # the press asks the root index too, and the semantic one, when there are
+                       **({"lex": config.LEX_VERSION} if lex.available() else {}))       # the press asks the root index too, when there is one (the semantic index has its own button, step 4)
             if mode == "rebuild":
                 out["_reset"] = True
+        elif prev.get("ret_sem"):
+            out["ret_sem"] = prev["ret_sem"]                  # a save keeps step 4's press (a new «جستجو» drops it: the semantic list is asked again on its own button)
         if ret is not None:
             out["ret"] = ret
         return out

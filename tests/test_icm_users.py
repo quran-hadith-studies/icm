@@ -108,7 +108,7 @@ def test_roles_and_quota(monkeypatch):
     c.post("/icm/api/users/bob", json={"action": "approve"}, headers=X)
     login(bob, "bob")
     monkeypatch.setattr("icm.corpus.get", lambda wid: {"wid": wid})
-    monkeypatch.setattr("icm.jobs.enqueue", lambda pid: None)
+    monkeypatch.setattr("icm.jobs.enqueue", lambda pid, kind="advance": None)
     assert bob.post("/icm/api/project", json={"seed": "v02:1"}, headers=X).status_code == 200
     assert c.post("/icm/api/users/bob", json={"action": "quota", "value": 1}, headers=X).json()["quota"] == 1
     assert bob.get("/icm/api/me").json()["quota"] == 1

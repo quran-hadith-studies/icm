@@ -22,7 +22,7 @@ def run_job(job) -> None:
         jobs.progress(job["id"], stage, frac, msg)
 
     try:
-        pipeline.advance(pid, progress=cb)
+        pipeline.advance(pid, progress=cb, want=pipeline.want_of(job["kind"]))
         jobs.finish(job["id"])
     except jobs.Cancelled:
         print("job", job["id"], "cancelled", flush=True)

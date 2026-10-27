@@ -125,6 +125,17 @@ def active(pid: str) -> Optional[dict]:
     return None
 
 
+def active_all() -> dict:
+    """pid -> {kind, status} of every project with a queued or running job (one query: the project list's red dots)."""
+    with _db() as c:
+        rows = c.execute("select pid, kind, status from jobs where status in ('queued','running') order by id").fetchall()
+    out: dict = {}
+    for r in rows:
+        if r["pid"] not in out or r["status"] == "running":
+            out[r["pid"]] = dict(kind=r["kind"], status=r["status"])
+    return out
+
+
 def forget(pid: str) -> int:
     """Drop a project's jobs (it was deleted); a running one is not touched (the caller refuses while one runs)."""
     with _db() as c:

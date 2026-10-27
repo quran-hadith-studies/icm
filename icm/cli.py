@@ -26,26 +26,25 @@ from . import cache, config, pipeline, project, search
 
 
 def _auto(pid: str, user: str) -> dict:
+    """Run a project through every gate with the default decisions (no one presses the buttons here: ``advance`` with no
+    ``want`` computes everything the decisions allow)."""
     p = pipeline.advance(pid)
-    while True:
-        if p["step"] == "selection":
+    for _ in range(12):
+        pl = pipeline.plan(pid)
+        gate = pl["gate"]
+        if gate == "selection":
             S = project.run_stage(pid, "current", "search")
             sel = [S["seed"]["wid"]] + [c["wid"] for c in S["candidates"] if search.preselected(c)]
             project.add_decision(pid, "selection", dict(selected=sel), user, "auto")
-        elif p["step"] == "alignment":
-            if pipeline.request(pid, "align", user) is None:
-                return p
-        elif p["step"] == "identities":
-            if "identify" not in project.run_hashes(pid):
-                if pipeline.request(pid, "identify", user) is None:
-                    return p
-            else:
-                project.add_decision(pid, "identities", dict(choices={}), user, "auto")
-        elif p["step"] == "phylogeny":
-            project.add_decision(pid, "phylogeny", dict(build=p["graph_hash"], confirmed=p["graph_hash"]), user, "auto")
+        elif gate == "identities":
+            project.add_decision(pid, "identities", dict(choices={}), user, "auto")
+        elif gate in ("build", "confirm"):
+            prev = {k: v for k, v in (project.decision(pid, "phylogeny") or {}).items() if k not in ("version", "user", "created", "note", "prev")}
+            project.add_decision(pid, "phylogeny", dict(prev, build=pl["k_graph"], confirmed=pl["k_graph"]), user, "auto")
         else:
             return p
         p = pipeline.advance(pid)
+    return p
 
 
 def _reexec_with_hashseed(argv: list) -> None:

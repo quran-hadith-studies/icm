@@ -65,7 +65,7 @@ DEFAULTS = dict(
 
 
 def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (), keep_ids: Sequence[str] = (), *,
-        seeds: Sequence[str] = (), prior: Optional[dict] = None, retrieve: bool = True, texts: Optional[dict] = None) -> dict:
+        seeds: Sequence[str] = (), prior: Optional[dict] = None, retrieve: bool = True, texts: Optional[dict] = None, semantic_only: bool = False) -> dict:
     """``seed`` and ``seeds`` are the hadiths of step 1's list, all equal: each is cut into parts on its own
     (``params["clauses"]``: the user's cuts, ``{wid: [[start, end), ...]}``, or a list for ``seed``) and the cuts that are
     the same part make the family's parts (``family.py``); candidates are compared with those. ``seed`` of the result is
@@ -74,7 +74,8 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
     ``extra_ids``: hadiths the user added; scored whatever their score. ``seeds`` are searched from like ``seed``
     (their own words are queried), always candidates, never folded away. ``retrieve=False`` asks the corpora nothing: only
     ``prior`` (wid -> signals/round/via of an earlier search's candidates), the extras, kept and source hadiths are scored again,
-    against the parts as they are now. ``texts``: wid -> the text the user edited, used instead of the corpus's."""
+    against the parts as they are now. ``texts``: wid -> the text the user edited, used instead of the corpus's.
+    ``semantic_only``: with ``retrieve=False``, still ask the semantic index (step 4's own press) and add what it finds to ``prior``'s pool."""
     p = {**DEFAULTS, **(params or {})}
     t0 = time.time()
     texts = texts or {}
@@ -130,7 +131,7 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
             for w, d in (prior or {}).items():
                 new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"), sem=d.get("sem"),
                                 sem_hits={h["clause"]: (h["cos"], h["first"]) for h in d.get("sem_hits") or ()})
-        if retrieve and rnd == 1 and p.get("sem") and semantic.available():
+        if (retrieve or semantic_only) and rnd == 1 and p.get("sem") and semantic.available():
             _semantic(src, own_parts, [seed, *seeds], p, new_pool, queries, flags)
         for w in extra_ids:
             new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("user")
