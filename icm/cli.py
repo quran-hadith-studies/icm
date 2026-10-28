@@ -13,7 +13,7 @@
   build kg|noor|termdf|books|hadithai   (re)build the laptop-side data files
   build roots                    the root of every Arabic word form (needs camel-tools: conda env dev3)  -> external/icm/term_root.tsv
   build lex                      lex.sqlite: word / root / sanad / book index of both corpora (needs the roots file)
-  build vec --model NAME         the semantic index (needs torch + transformers: conda env dev2; hours)
+  build parts --model NAME       the semantic index of text parts (needs torch + transformers: conda env dev3; hours; `vec` is the same)
 """
 from __future__ import annotations
 
@@ -68,10 +68,13 @@ def main(argv=None) -> int:
     sub.add_parser("eval")
     sub.add_parser("app", add_help=False)           # own parser in icm.app
     hp = sub.add_parser("helper", add_help=False)   # own parser in icm.helper
-    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "model", "roots", "lex", "vec", "all"])
+    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "model", "roots", "lex", "vec", "parts", "all"])
     b.add_argument("--model", default="BAAI/bge-m3", help="build vec: the embedding model (Hugging Face name)")
     b.add_argument("--limit", type=int, help="build lex / vec: only the first N rows of each corpus (a trial)")
-    b.add_argument("--out", help="build lex / vec: another output path")
+    b.add_argument("--out", help="build lex / vec / parts: another output path")
+    b.add_argument("--lists", type=int, help="build parts: number of IVF lists (default: 2*sqrt(n), at most 8192)")
+    b.add_argument("--pca", type=int, default=256, help="build parts: stored vector size (0: the model's own 1024)")
+    b.add_argument("--pilot-only", action="store_true", help="build parts: only cut, fit the PCA and check it")
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "app":
         if argv[1:2] not in (["install"], ["uninstall"]) and os.environ.get("PYTHONHASHSEED") != "0":
@@ -122,9 +125,9 @@ def main(argv=None) -> int:
             from .build import lex as build_lex
             build_lex.run(a.out, a.limit)
             return 0
-        if a.what == "vec":
-            from .build import vec as build_vec
-            build_vec.run(a.model, a.out, a.limit)
+        if a.what in ("vec", "parts"):
+            from .build import parts as build_parts
+            build_parts.run(a.model, a.out, a.limit, lists=a.lists, pca=a.pca, pilot_only=a.pilot_only)
             return 0
         for name, mod in (("books", books_meta), ("noor", noor_relations), ("kg", kg_extract), ("termdf", termdf), ("hadithai", hadithai)):
             if a.what in (name, "all"):

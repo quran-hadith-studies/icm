@@ -105,8 +105,9 @@ def test_semantic_search_is_its_own_run_on_top_of_the_lexical_press(monkeypatch)
         pipeline.advance(pid, want={"search"})
         assert run(c, pid, "semantic", 409).json()["detail"]                             # nothing pressed yet / no index
         monkeypatch.setattr(semantic, "available", lambda: True)
-        monkeypatch.setattr(semantic, "meta", lambda: {"model": "toy"})
-        monkeypatch.setattr(semantic, "neighbours", lambda texts, k=40, min_cos=0.0, chunks=False, **kw: [[("v02:800316145", 0.9, 0)] for _ in texts])
+        monkeypatch.setattr(semantic, "meta", lambda: {"model": "toy", "unit": "parts", "pca": {"to": 32}})
+        monkeypatch.setattr(semantic, "neighbours", lambda texts, k=40, min_cos=0.0, **kw: [[(7, 0.9)] for _ in texts])
+        monkeypatch.setattr(semantic, "parts_of", lambda ids, exclude=(), occ_max=None: {i: dict(text="قال رسول الله", ntok=3, n=1, occ=[("v02:800316145", 0, 3, 1)]) for i in ids})
         assert run(c, pid, "semantic", 409).json()["detail"]                             # «جستجو» (step 3) first
         press_search(c, pid)
         S0 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
@@ -119,16 +120,17 @@ def test_semantic_search_is_its_own_run_on_top_of_the_lexical_press(monkeypatch)
         S1 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         assert rs["mode"] == "parts" and not any("q:sem" in x["signals"] for x in S1["candidates"])       # the first press only finds passages
         assert S1["sem_n"] == 1 and S1["params"]["sem_min"] == 0.6
-        found = [(q["clause"], it) for q in S1["sem_parts"] for it in q["items"]]
-        assert found and all(it["wid"] == "v02:800316145" and it["text"] and 0.9 == it["cos"] for _, it in found)
+        found = [(q["clause"], v) for q in S1["sem_parts"] for v in q["variants"]]
+        assert found and all(v["id"] == 7 and v["text"] and 0.9 == v["cos"] and v["items"][0]["wid"] == "v02:800316145" for _, v in found)
+        assert rs["unit"] == "parts" and rs["pca"] == 32
         assert run(c, pid, "sempick", 400, picks="x") and run(c, pid, "sempick", 409, picks=[])        # a pick is needed
         cl, it = found[0]
-        run(c, pid, "sempick", picks=[[it["wid"], cl], ["v02:1", cl]])
-        assert project.decision(pid, "search")["ret_sem"]["picks"] == [["v02:1", cl], [it["wid"], cl]] and project.decision(pid, "search")["ret_sem"]["pn"] == 1
+        run(c, pid, "sempick", picks=[[str(it["id"]), cl], ["999", cl]])
+        assert project.decision(pid, "search")["ret_sem"]["picks"] == [["7", cl], ["999", cl]] and project.decision(pid, "search")["ret_sem"]["pn"] == 1
         S1 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         row = next(x for x in S1["candidates"] if x["wid"] == "v02:800316145")                           # the second press lists the hadiths of the ticked passages
-        assert "q:sem" in row["signals"] and S1["sem_pn"] == 1 and S1["sem_parts"] and row["sem_hits"][0]["clause"] == cl
-        assert not any(x["wid"] == "v02:1" for x in S1["candidates"])                                   # (a pair the passages did not have is ignored)
+        assert "q:sem" in row["signals"] and S1["sem_pn"] == 1 and S1["sem_parts"] and row["sem_hits"][0]["clause"] == cl and row["sem_hits"][0]["span"] == [0, 3]
+        assert not any(x["wid"] == "v02:1" for x in S1["candidates"])                                   # (a pair the texts did not have is ignored)
         rs = project.decision(pid, "search")["ret_sem"]
         by, w = _states(c, pid)
         assert by["semantic"]["state"] == "done"

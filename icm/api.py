@@ -534,7 +534,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             if not sdec.get("ret"):                      # a project from before the buttons: its search on screen becomes the press the semantic one is made on
                 sdec = dict(sdec, ret=_validate_search({k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits") if k in sdec}, pid, p)["ret"])
             rs = dict(mode="parts", n=((sdec.get("ret_sem") or {}).get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.75, 2), sem_k=sk if sk is not None else 40,
-                      model=semantic.meta().get("model") or True, at=pipeline.sem_at(p, sdec, D["parts"] or {}), created=project.now())
+                      model=semantic.meta().get("model") or True, unit=semantic.meta().get("unit"), pca=(semantic.meta().get("pca") or {}).get("to"),
+                      at=pipeline.sem_at(p, sdec, D["parts"] or {}), created=project.now())
             payload = {k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits", "ret") if k in sdec}
             project.add_decision(pid, "search", dict(payload, ret_sem=rs), user, "semantic search pressed")
             wizard.touch(pid)

@@ -60,6 +60,8 @@ DEFAULTS = dict(
     sem=False,                 # semantic search (``semantic.py``): hadiths of the meaning of a part in other words
     sem_k_part=40,             # nearest hadiths asked for per ticked part ...
     sem_k_all=80,              # ... and for all the ticked parts of a hadith together
+    sem_occ_max=2000,          # hadiths of one ticked part that join the pool (a very common part stands in thousands)
+    sem_items=60,              # hadiths listed under one part text in step 4
     sem_min=0.75,              # least cosine (bge-m3) for a hadith found only by meaning to be a candidate: keeps 91% of the hadiths of one consensus set with other wording, see ``evaluate.hard_pairs``
 )
 
@@ -135,13 +137,13 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
         elif rnd == 1:
             for w, d in (prior or {}).items():
                 new_pool[w] = dict(signals=set(d.get("signals") or ()), nq=0, round=d.get("round") or 1, via=d.get("via"), sem=d.get("sem"),
-                                sem_hits={h["clause"]: (h["cos"], h["first"]) for h in d.get("sem_hits") or ()})
+                                sem_hits={h["clause"]: (h["cos"], h.get("span") or h.get("first", 0)) for h in d.get("sem_hits") or ()})
         if (retrieve or semantic_only) and rnd == 1 and p.get("sem") and semantic.available():
             _semantic(src, own_parts, [seed, *seeds], p, new_pool, queries, flags)
         if rnd == 1 and sem_passages and semantic.available():
             sem_parts = _sem_passages(src, own_parts, [seed, *seeds], p, queries, flags)
         if rnd == 1 and sem_picks:
-            _picked(src, sem_picks, new_pool)
+            _picked(src, sem_picks, new_pool, p, flags)
         for w in extra_ids:
             new_pool.setdefault(w, dict(signals=set(), nq=0, round=rnd, via=None))["signals"].add("user")
         for w in seeds:
@@ -331,13 +333,13 @@ def _semantic(src: dict, own_parts, order: Sequence[str], p: dict, pool: Dict[st
         return
     t0 = time.time()
     try:
-        res = semantic.neighbours(texts, k=max(ks), min_cos=p["sem_min"], chunks=True)
+        res = semantic.hadith_hits(texts, k=max(ks), min_cos=p["sem_min"], exclude=set(src))
     except Exception as e:                                   # a missing or broken index must not fail the search
         flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {e}"))
         return
     for (w, c), k, hits in zip(tags, ks, res):
         n_new = 0
-        for wid, cos, first in hits[:k]:
+        for wid, cos, span, _ in hits[:k]:
             if wid in src:
                 continue
             d = pool.setdefault(wid, dict(signals=set(), nq=0, round=1, via=None))
@@ -346,18 +348,23 @@ def _semantic(src: dict, own_parts, order: Sequence[str], p: dict, pool: Dict[st
             d["nq"] += 1
             d["sem"] = max(d.get("sem") or 0.0, cos)
             if cos > d.setdefault("sem_hits", {}).get(c, (0.0, 0))[0]:      # per part of the sources (-1: all parts together): the best
-                d["sem_hits"][c] = (cos, first)
+                d["sem_hits"][c] = (cos, span)
         queries.append(dict(round=1, source=w, clause=c, kind="sem", corpus="v02+kg", expr=texts[tags.index((w, c))][:90], hits=min(len(hits), k),
                             capped=len(hits) >= k, new=n_new))
 
 
+def _shared_words(text: str, own: set) -> list:
+    """``[[word, whether the part has it]]`` for the words of ``text`` (``own``: the ``match_key`` of the part's words)."""
+    return [[w, bool(own & {match_key(t) for t in tokens(w)})] for w in text.split()]
+
+
 def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: List[dict], flags: List[dict]) -> List[dict]:
-    """The passages of other hadiths that resemble each ticked part: ``[dict(clause, items=[...])]``, one entry per ticked part
-    (the hadiths of step 1's list each ask with their own words of it; a hadith found by several keeps its best passage), the
-    nearest first, at most ``sem_k_part`` per part and none with a cosine under ``sem_min``. An item: ``wid``, ``cos``, ``first``
-    (the word the passage starts at), ``text`` (the passage), ``copies`` (hadiths of the identical text) and the hadith's
-    book data. Nothing joins the pool: the user picks passages first."""
-    from . import finder
+    """The TEXTS of other hadiths' parts that resemble each ticked part: ``[dict(clause, variants=[...])]``, one entry per ticked
+    part (the hadiths of step 1's list each ask with their own words of it; a part found by several keeps its best cosine), the
+    nearest first, at most ``sem_k_part`` per part and none under ``sem_min``. A variant is one distinct part text: ``id`` (its row in
+    the semantic index), ``text``, ``ntok``, ``cos``, ``n`` (hadiths that have it), ``words`` (``[[word, shared with the part]]``)
+    and ``items`` (the first ``sem_items`` of those hadiths: ``wid``, ``span`` [a, b) in its words, ``src`` how the part was cut, book
+    data). Nothing joins the pool: the user picks texts first."""
     texts: List[str] = []
     tags: List[Tuple[str, int]] = []
     for w in order:
@@ -370,65 +377,96 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
     if not texts:
         return []
     try:
-        res = semantic.neighbours(texts, k=p["sem_k_part"], min_cos=p["sem_min"], chunks=True)
+        res = semantic.neighbours(texts, k=p["sem_k_part"], min_cos=p["sem_min"])
     except Exception as e:                                   # a missing or broken index must not fail the run
         flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {e}"))
         return []
-    best: Dict[int, Dict[str, Tuple[float, int]]] = {}
+    best: Dict[int, Dict[int, float]] = {}
     for (w, c), hits in zip(tags, res):
-        for wid, cos, first in hits:
-            if wid in src:
-                continue
-            if cos > best.setdefault(c, {}).get(wid, (0.0, 0))[0]:
-                best[c][wid] = (cos, first)
-    recs = corpus.get_many(sorted({wid for d in best.values() for wid in d}))
+        for pid, cos in hits:
+            if cos > best.setdefault(c, {}).get(pid, 0.0):
+                best[c][pid] = cos
+    got = semantic.parts_of(sorted({pid for d in best.values() for pid in d}), exclude=set(src), occ_max=p["sem_items"])
+    own_keys: Dict[int, set] = {}
+    for (w, c), t in zip(tags, texts):
+        own_keys.setdefault(c, set()).update(match_key(x) for x in tokens(t))
+    recs = corpus.get_many(sorted({o[0] for d in best.values() for pid in d for o in (got.get(pid) or {}).get("occ", ())}))
     out = []
     for c in sorted(best):
-        keep, copies = finder._fold(sorted(best[c], key=lambda x: -best[c][x][0]), recs)
-        items = []
-        for wid in keep[:p["sem_k_part"]]:
-            cos, first = best[c][wid]
-            rec, st = recs[wid], strip_tags(recs[wid]["matn"])
-            r = semantic.chunk_range(rec["matn"], first)
-            a, b = r if r else (0, min(len(st), 600))
-            items.append(dict(wid=wid, cos=round(cos, 3), first=first, text=st[a:b], cut_before=a > 0, cut_after=b < len(st), copies=copies[wid],
-                              book=rec["book"], title=rec["title"], author=rec["author"], tradition=rec["tradition"], vol=rec["vol"], page=rec["page"]))
-        out.append(dict(clause=c, items=items))
-        queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="passages", hits=len(items), capped=len(items) >= p["sem_k_part"], new=len(items)))
+        vs = []
+        for pid, cos in sorted(best[c].items(), key=lambda kv: -kv[1])[:p["sem_k_part"]]:
+            g = got.get(pid)
+            if not g or not g["n"]:
+                continue                                         # it stands only in the hadiths of step 1's list
+            items = []
+            for wid, a, b, sc in g["occ"]:
+                rec = recs.get(wid)
+                if rec is None:
+                    continue
+                items.append(dict(wid=wid, span=[a, b], src=sc, book=rec["book"], title=rec["title"], author=rec["author"],
+                                  tradition=rec["tradition"], vol=rec["vol"], page=rec["page"], copies=[]))
+            vs.append(dict(id=pid, text=g["text"], ntok=g["ntok"], cos=round(cos, 3), n=g["n"], words=_shared_words(g["text"], own_keys.get(c, set())), items=items))
+        out.append(dict(clause=c, variants=vs))
+        queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="parts", hits=len(vs), capped=len(vs) >= p["sem_k_part"], new=len(vs)))
     return out
 
 
 def resolve_picks(sem_parts: Sequence[dict], picks: Sequence) -> List[dict]:
-    """The passages the user ticked, ``[[wid, clause], ...]``, as the items ``_sem_passages`` found (a pair it did not find is ignored)."""
-    by = {(it["wid"], q["clause"]): it for q in sem_parts or () for it in q["items"]}
+    """The texts the user ticked, ``[[part id, clause], ...]``, as ``_sem_passages`` found them (a pair it did not find is ignored).
+    Parts found by the first index (``items`` per hadith, picks ``[wid, clause]``) resolve as they did."""
+    by, old = {}, {}
+    for q in sem_parts or ():
+        for v in q.get("variants") or ():
+            by[(str(v["id"]), q["clause"])] = v
+        for it in q.get("items") or ():
+            old[(it["wid"], q["clause"])] = it
     out = []
-    for wid, c in picks or ():
-        it = by.get((wid, c))
-        if it:
-            out.append(dict(wid=wid, clause=c, cos=it["cos"], first=it["first"], copies=it.get("copies") or []))
+    for pid, c in picks or ():
+        if (pid, c) in by:
+            out.append(dict(id=int(pid), clause=c, cos=by[(pid, c)]["cos"]))
+        elif (pid, c) in old:
+            it = old[(pid, c)]
+            out.append(dict(wid=pid, clause=c, cos=it["cos"], first=it["first"], copies=it.get("copies") or []))
     return out
 
 
-def _picked(src: dict, picks: Sequence[dict], pool: Dict[str, dict]) -> None:
-    """The hadiths of the ticked passages (and their identical copies) join the pool as found by meaning, with the part and passage."""
+def _picked(src: dict, picks: Sequence[dict], pool: Dict[str, dict], p: dict, flags: List[dict]) -> None:
+    """The hadiths that have the ticked texts join the pool as found by meaning, with the part and where the text stands in them."""
+    def put(wid, clause, cos, loc):
+        if wid in src:
+            return
+        d = pool.setdefault(wid, dict(signals=set(), nq=0, round=1, via=None))
+        d["signals"].add("q:sem")
+        d["nq"] += 1
+        d["sem"] = max(d.get("sem") or 0.0, cos)
+        if cos > d.setdefault("sem_hits", {}).get(clause, (0.0, 0))[0]:
+            d["sem_hits"][clause] = (cos, loc)
     for pk in picks:
-        for wid in [pk["wid"], *pk.get("copies", ())]:
-            if wid in src:
-                continue
-            d = pool.setdefault(wid, dict(signals=set(), nq=0, round=1, via=None))
-            d["signals"].add("q:sem")
-            d["nq"] += 1
-            d["sem"] = max(d.get("sem") or 0.0, pk["cos"])
-            if pk["cos"] > d.setdefault("sem_hits", {}).get(pk["clause"], (0.0, 0))[0]:
-                d["sem_hits"][pk["clause"]] = (pk["cos"], pk["first"])
+        if "id" in pk:
+            g = semantic.parts_of([pk["id"]], exclude=set(src), occ_max=p["sem_occ_max"])[pk["id"]]
+            if g["n"] > p["sem_occ_max"]:
+                flags.append(dict(kind="sem_part_large", ref=None, n=g["n"], kept=p["sem_occ_max"],
+                                  message=f"a ticked text stands in {g['n']} hadiths; the first {p['sem_occ_max']} were taken"))
+            for wid, a, b, _ in g["occ"]:
+                put(wid, pk["clause"], pk["cos"], [a, b])
+        else:
+            for wid in [pk["wid"], *pk.get("copies", ())]:
+                put(wid, pk["clause"], pk["cos"], pk["first"])
 
 
 def _shown(matn: str, sem_hits: List[dict]) -> int:
     """How many characters of a candidate's text are kept: 1500, or more when a part matched in it by meaning lies further on."""
-    end = 0
+    end, offs = 0, None
     for h in sem_hits:
-        r = semantic.chunk_range(matn, h["first"]) if h["clause"] >= 0 else None
-        end = max(end, r[1] + 20 if r else 0)
+        if h["clause"] < 0:
+            continue
+        if "span" in h:
+            offs = offs or token_offsets(matn)
+            b = min(h["span"][1], len(offs))
+            end = max(end, offs[b - 1][1] + 20 if b > 0 else 0)
+        else:
+            r = semantic.chunk_range(matn, h["first"])
+            end = max(end, r[1] + 20 if r else 0)
     return min(max(1500, end + len(matn) - len(strip_tags(matn))), 6000)
 
 
@@ -515,7 +553,7 @@ def _score_pool(seed: str, s_tok: List[str], s_spans, n_seed: int, pool: Dict[st
         cls, score = classify(res, n_seed, len(c_tok))
         score["share_grams"] = round(share, 3)
         sem = pool[w].get("sem")
-        sem_hits = [dict(clause=c, cos=round(v[0], 3), first=v[1]) for c, v in sorted((pool[w].get("sem_hits") or {}).items(), key=lambda kv: -kv[1][0])]
+        sem_hits = [dict(clause=c, cos=round(v[0], 3), **({"span": list(v[1])} if isinstance(v[1], (list, tuple)) else {"first": v[1]})) for c, v in sorted((pool[w].get("sem_hits") or {}).items(), key=lambda kv: -kv[1][0])]
         if sem is not None:
             score["sem"] = round(sem, 3)
             if cls in ("different", "partial") and not any(g.startswith(("q:", "rel:", "ref")) and g != "q:sem" for g in pool[w]["signals"]):
@@ -723,11 +761,18 @@ def with_marks(S: dict) -> dict:
             known = {c["i"] for c in S["clauses"]}
             offs = token_offsets(cand["matn"])
             for h in sorted(cand.get("sem_hits") or (), key=lambda h: -h["cos"]):         # where a part matched by its meaning
-                r = semantic.chunk_range(cand["matn"], h["first"]) if h["clause"] in known else None
+                if h["clause"] not in known:
+                    continue
+                if "span" in h:                                  # a part of the index: its words
+                    for j in range(h["span"][0], min(h["span"][1], len(lab))):
+                        if lab[j] < 0:
+                            lab[j] = h["clause"]
+                    continue
+                r = semantic.chunk_range(cand["matn"], h["first"])      # a window of the first index
                 for j, (a, b) in enumerate(offs[:len(lab)]):
                     if r and lab[j] < 0 and a >= r[0] and b <= r[1]:
                         lab[j] = h["clause"]
         cand["marks"] = marks(cand["matn"], lab)
     if S.get("sem_parts"):
-        S["sem_variants"] = sem_variants(S)
+        S["sem_variants"] = S["sem_parts"] if any("variants" in q for q in S["sem_parts"]) else sem_variants(S)
     return S

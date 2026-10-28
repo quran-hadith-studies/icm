@@ -516,7 +516,8 @@ const panels = {
     } });
     /* the passages as distinct TEXTS: one row per wording (words the part has are coloured), the hadiths that have it folded under it */
     const SP = S.sem_variants;
-    const wids = v => v.items.map(i => i.wid);
+    const wids = v => v.id != null ? [String(v.id)] : v.items.map(i => i.wid);      // what a pick of this text is made of (a part of the index: its id; a window of the first index: its hadiths)
+    const SRCS = ['hadith.ai', 'قاعده', 'تمام متن', 'ترکیب'];
     const passRow = (q, v) => {
       const on = wids(v).every(w => picked.has(pk(w, q.clause)));
       return el('tr', { class: on ? 'on' : '' },
@@ -524,10 +525,11 @@ const panels = {
           onchange: ev => { wids(v).forEach(w => ev.target.checked ? picked.add(pk(w, q.clause)) : picked.delete(pk(w, q.clause))); ev.target.closest('tr').classList.toggle('on', ev.target.checked); updPass(); } })),
         el('td', { class: 'small', title: 'شباهت معنایی (کسینوس) با این بخش؛ بهترین میان حدیث‌های این متن' }, fa(v.cos.toFixed(2))),
         el('td', { class: 'txt' }, el('div', { class: 'ar matn' }, v.cut_before ? '… ' : '', ...v.words.map(([w, sh], k) => [k ? ' ' : '', sh ? el('span', { class: 'pv', style: `--h:${hue(q.clause)}`, title: 'این واژه در بخش هم هست' }, w) : w]).flat(), v.cut_after ? ' …' : ''),
-          el('details', { class: 'fullt' }, el('summary', { class: 'small' }, `در ${fa(v.n)} حدیث` + (v.items.some(i => lexical.has(i.wid)) ? (v.items.length > 1 ? ' (برخی در نامزدهای مرحله‌ی ۳ هم هستند)' : ' (در نامزدهای مرحله‌ی ۳ هم هست)') : '')),
+          el('details', { class: 'fullt' }, el('summary', { class: 'small' }, `در ${fa(v.n)} حدیث` + (v.n > v.items.length ? ` (${fa(v.items.length)} نخست)` : '') + (v.items.some(i => lexical.has(i.wid)) ? (v.items.length > 1 ? ' (برخی در نامزدهای مرحله‌ی ۳ هم هستند)' : ' (در نامزدهای مرحله‌ی ۳ هم هست)') : '')),
             v.items.map(i => el('div', { style: 'margin:6px 0' }, el('b', {}, i.title || i.book), ' ', el('span', { class: 'small muted' }, [i.author, i.tradition === 'sunni' ? 'سنی' : 'شیعه', i.vol ? 'ج ' + fa(i.vol) : '', i.page ? 'ص ' + fa(i.page) : ''].filter(Boolean).join(' · ')),
-              i.copies.length ? el('span', { class: 'small muted', title: i.copies.join(' ') }, ` +${fa(i.copies.length)} نسخه‌ی یکسان`) : null,
-              el('div', { class: 'small muted', dir: 'ltr' }, i.wid), fullDetails(i.wid, null, 'سند و متن کامل'))))));
+              i.src != null ? el('span', { class: 'chip', title: 'این بخش را چه چیزی بریده است' }, SRCS[i.src] || '') : null,
+              (i.copies || []).length ? el('span', { class: 'small muted', title: i.copies.join(' ') }, ` +${fa(i.copies.length)} نسخه‌ی یکسان`) : null,
+              el('div', { class: 'small muted', dir: 'ltr' }, i.wid), fullDetails(i.wid, v.id != null ? v.text : null, 'سند و متن کامل'))))));
     };
     const updPass = () => {
       const all = (SP || []).flatMap(q => q.variants.map(v => [q, v])), n = all.filter(([q, v]) => wids(v).every(w => picked.has(pk(w, q.clause)))).length, now = [...picked].sort().join();
@@ -2594,7 +2596,7 @@ function rowActs(c, sdec, x, kind) {
 /* a hadith found by meaning: for each part of the sources the cosine of its closest passage here (the passage is coloured in the text) */
 function semParts(x, S) {
   const known = new Set(S.clauses.map(cl => cl.i));
-  return el('div', {}, x.sem_hits.filter(h => h.clause < 0 || known.has(h.clause)).map(h => el('div', { class: 'small', title: h.clause < 0 ? 'همه‌ی بخش‌های تیک‌خورده با هم' : 'نزدیک‌ترین قطعه‌ی این حدیث به این بخش' },
+  return el('div', {}, x.sem_hits.filter(h => h.clause < 0 || known.has(h.clause)).map(h => el('div', { class: 'small', title: h.clause < 0 ? 'همه‌ی بخش‌های تیک‌خورده با هم' : h.span ? 'بخشی از این حدیث که هم‌معنای این بخش است (در متن رنگی شده)' : 'نزدیک‌ترین قطعه‌ی این حدیث به این بخش' },
     h.clause < 0 ? 'همه‌ی بخش‌ها' : swatch(h.clause), ' ', fa(h.cos.toFixed(2)))));
 }
 

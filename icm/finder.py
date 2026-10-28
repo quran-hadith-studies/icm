@@ -28,9 +28,9 @@ def direct(q: str) -> List[str]:
     return []
 
 
-def _record(rec: dict, hl: Optional[query.Highlight], score=None, copies=None) -> dict:
+def _record(rec: dict, hl: Optional[query.Highlight], score=None, copies=None, marks=None) -> dict:
     raw = rec["matn"]
-    mk = query.marks(raw, hl) if hl is not None else []
+    mk = marks if marks is not None else query.marks(raw, hl) if hl is not None else []
     text, mk, cb, ca = query.snippet(raw, mk)
     return dict(wid=rec["wid"], title=rec["title"], author=rec["author"], tradition=rec["tradition"], vol=rec["vol"], page=rec["page"],
                 matn=text, marks=mk, cut_before=cb, cut_after=ca, score=score, copies=copies or [], projects=project.projects_of(rec["wid"]))

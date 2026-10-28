@@ -126,7 +126,7 @@ def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
     if rs and rs.get("mode") == "parts":
         # two presses: the passages that resemble each part (nothing joins the candidates), then the hadiths of the passages the user ticked
         rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"])
-        k_base = h("sempassages", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), rs.get("at"), STAGE_VERSIONS["search"])
+        k_base = h("sempassages", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), *([rs["unit"], rs.get("pca")] if rs.get("unit") else []), rs.get("at"), STAGE_VERSIONS["search"])
 
         def passages():
             out = search_mod.run(rseed, rsp_sem, ret.get("extra") or [], ret.get("keep") or [], seeds=ret.get("seeds") or [], prior=_prior_of(R),
