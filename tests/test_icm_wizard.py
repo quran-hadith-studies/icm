@@ -112,7 +112,7 @@ def test_semantic_search_is_its_own_run_on_top_of_the_lexical_press(monkeypatch)
         press_search(c, pid)
         S0 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         assert not any("q:sem" in x["signals"] for x in S0["candidates"]) and project.decision(pid, "search").get("ret_sem") is None
-        for bad in ({"sem_min": 0.2}, {"sem_min": "x"}, {"sem_k": 0}, {"sem_k": 500}, {"sem_k": True}):
+        for bad in ({"sem_min": 0.3}, {"sem_min": "x"}, {"sem_k": 0}, {"sem_k": 500}, {"sem_k": True}):
             assert run(c, pid, "semantic", 400, **bad)
         run(c, pid, "semantic", sem_min=0.6, sem_k=5)
         rs = project.decision(pid, "search")["ret_sem"]

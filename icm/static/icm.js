@@ -523,7 +523,7 @@ const panels = {
       return el('tr', { class: on ? 'on' : '' },
         el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این متن', checked: on, disabled: !(c.can && !STATIC),
           onchange: ev => { wids(v).forEach(w => ev.target.checked ? picked.add(pk(w, q.clause)) : picked.delete(pk(w, q.clause))); ev.target.closest('tr').classList.toggle('on', ev.target.checked); updPass(); } })),
-        el('td', { class: 'small', title: 'شباهت معنایی (کسینوس) با این بخش؛ بهترین میان حدیث‌های این متن' }, fa(v.cos.toFixed(2))),
+        el('td', { class: 'small', title: 'شباهت معنایی (کسینوس) با این بخش؛ بهترین میان حدیث‌های این متن' + (v.cov != null ? ` · ${fa(Math.round(100 * v.cov))}٪ واژه‌های بخش را دارد` : '') }, fa(v.cos.toFixed(2))),
         el('td', { class: 'txt' }, el('div', { class: 'ar matn' }, v.cut_before ? '… ' : '', ...v.words.map(([w, sh], k) => [k ? ' ' : '', sh ? el('span', { class: 'pv', style: `--h:${hue(q.clause)}`, title: 'این واژه در بخش هم هست' }, w) : w]).flat(), v.cut_after ? ' …' : ''),
           el('details', { class: 'fullt' }, el('summary', { class: 'small' }, `در ${fa(v.n)} حدیث` + (v.n > v.items.length ? ` (${fa(v.items.length)} نخست)` : '') + (v.items.some(i => lexical.has(i.wid)) ? (v.items.length > 1 ? ' (برخی در نامزدهای مرحله‌ی ۳ هم هستند)' : ' (در نامزدهای مرحله‌ی ۳ هم هست)') : '')),
             v.items.map(i => el('div', { style: 'margin:6px 0' }, el('b', {}, i.title || i.book), ' ', el('span', { class: 'small muted' }, [i.author, i.tradition === 'sunni' ? 'سنی' : 'شیعه', i.vol ? 'ج ' + fa(i.vol) : '', i.page ? 'ص ' + fa(i.page) : ''].filter(Boolean).join(' · ')),
@@ -539,19 +539,27 @@ const panels = {
       pickBtn.title = !picked.size ? 'دست‌کم یک متن را تیک بزنید' : now === pressed ? 'این متن‌ها را همین حالا جستجو کرده‌اید' : '';
     };
     const drawPass = () => {
-      passBox.replaceChildren(...(SP || []).map(q => el('div', { style: 'margin-top:14px' },
-        el('div', { class: 'small muted' }, 'متن این بخش در حدیث‌های فهرست مرحله‌ی ۱ (با اعراب خودِ حدیث؛ در مرحله‌ی ۲ بی‌اعراب و رنگی می‌بینید):'),
-        el('h3', { style: 'margin-top:2px' }, swatch(q.clause), ' ', el('span', { class: 'ar' }, clauseRaw(S, q.clause)), ' ', el('span', { class: 'small muted' }, `${fa(q.variants.length)} متنِ دیگر`),
-          q.same_words ? el('span', { class: 'small muted', title: 'متن‌هایی که خودِ واژه‌های این بخش را دارند در جستجوی لفظی مرحله‌ی ۳ آمده‌اند' }, ` (${fa(q.same_words)} متن که همین واژه‌ها را دارد، در مرحله‌ی ۳ هست)`) : null,
-          c.can && !STATIC && q.variants.length ? [' ', el('button', { class: 'small', onclick: () => { q.variants.forEach(v => wids(v).forEach(w => picked.add(pk(w, q.clause)))); drawPass(); } }, 'تیک همه'),
-            ' ', el('button', { class: 'small', onclick: () => { q.variants.forEach(v => wids(v).forEach(w => picked.delete(pk(w, q.clause)))); drawPass(); } }, 'برداشتن تیک')] : null),
-        q.variants.length ? el('div', { class: 'grid-wrap', style: 'max-height:60vh' }, el('table', { class: 'cands' }, q.variants.map(v => passRow(q, v))))
-          : el('p', { class: 'muted small' }, 'متنی با این هم‌معنایی در حدیث‌های دیگر نیامد (کمترین هم‌معنایی را در نوار «اجرا» کم کنید).'))));
+      /* per part two groups: the texts with OTHER words (what this step is for) first, then those that have most of the part's words; an old result has no `same`: all in the second */
+      const group = (q, vs, title, none) => {
+        const tick = on => () => { vs.forEach(v => wids(v).forEach(w => on ? picked.add(pk(w, q.clause)) : picked.delete(pk(w, q.clause)))); drawPass(); };
+        return [el('div', { style: 'margin-top:8px' }, el('b', { class: 'small' }, `${title} (${fa(vs.length)})`),
+            c.can && !STATIC && vs.length ? [' ', el('button', { class: 'small', onclick: tick(true) }, 'تیک همه'), ' ', el('button', { class: 'small', onclick: tick(false) }, 'برداشتن تیک')] : null),
+          vs.length ? el('div', { class: 'grid-wrap', style: 'max-height:50vh' }, el('table', { class: 'cands' }, vs.map(v => passRow(q, v)))) : el('p', { class: 'muted small' }, none)];
+      };
+      passBox.replaceChildren(...(SP || []).map(q => {
+        const other = q.variants.filter(v => v.same === false), same = q.variants.filter(v => v.same !== false);
+        return el('div', { style: 'margin-top:14px' },
+          el('div', { class: 'small muted' }, 'متن این بخش در حدیث‌های فهرست مرحله‌ی ۱ (با اعراب خودِ حدیث؛ در مرحله‌ی ۲ بی‌اعراب و رنگی می‌بینید):'),
+          el('h3', { style: 'margin-top:2px' }, swatch(q.clause), ' ', el('span', { class: 'ar' }, clauseRaw(S, q.clause)), ' ', el('span', { class: 'small muted' }, `${fa(q.variants.length)} متنِ دیگر`),
+            q.same_words ? el('span', { class: 'small muted', title: 'متن‌هایی که خودِ واژه‌های این بخش را دارند در جستجوی لفظی مرحله‌ی ۳ آمده‌اند' }, ` (${fa(q.same_words)} متن که همین واژه‌ها را دارد، در مرحله‌ی ۳ هست)`) : null),
+          ...group(q, other, 'با واژه‌های دیگر', 'متنی با واژه‌های دیگر و این هم‌معنایی نیامد (کمترین هم‌معنایی را در نوار «اجرا» کم کنید).'),
+          ...group(q, same, 'با بیشترِ همین واژه‌ها', 'متنی با بیشترِ همین واژه‌ها نیامد.'));
+      }));
       updPass();
     };
     const legacyPress = !semParts && !!(rsem.n || (sdec.ret && sdec.ret.sem));      // a semantic list made by the one-press way
     K.semPass = card(['بخش‌های هم‌معنا'], help('step2.semantic'),
-      el('p', { class: 'muted small' }, 'برای هر بخشی که در مرحله‌ی ۲ تیک خورده، متن‌های دیگری که معنایشان به آن نزدیک است. هر متن یک بار آمده، هرچند حدیث‌های بسیار آن را بیاورند («در n حدیث» را باز کنید تا ببینید کدام‌ها)؛ واژه‌های رنگی را خود بخش هم دارد. متنی که خودِ واژه‌های بخش را (همان‌گونه) دارد نیامده، چون جستجوی لفظی مرحله‌ی ۳ حدیث‌هایش را می‌آورد. هر متنی را که واقعاً هم‌معنای آن بخش می‌دانید تیک بزنید و «جستجو» را بزنید؛ آنگاه حدیث‌هایی که آن متن‌ها را دارند در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
+      el('p', { class: 'muted small' }, 'برای هر بخشی که در مرحله‌ی ۲ تیک خورده، متن‌های دیگری که معنایشان به آن نزدیک است. متن‌ها دو دسته‌اند: نخست آن‌هایی که با واژه‌های دیگر همان معنا را دارند، سپس آن‌هایی که بیشترِ واژه‌های بخش را دارند. هر متن یک بار آمده، هرچند حدیث‌های بسیار آن را بیاورند («در n حدیث» را باز کنید تا ببینید کدام‌ها)؛ واژه‌های رنگی را خود بخش هم دارد. متنی که خودِ واژه‌های بخش را (همان‌گونه) دارد نیامده، چون جستجوی لفظی مرحله‌ی ۳ حدیث‌هایش را می‌آورد. هر متنی را که واقعاً هم‌معنای آن بخش می‌دانید تیک بزنید و «جستجو» را بزنید؛ آنگاه حدیث‌هایی که آن متن‌ها را دارند در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
       semParts && SP ? el('div', { class: 'toolbar' }, passCount, c.can && !STATIC ? pickBtn : null)
         : el('p', { class: 'empty-state' }, semParts ? 'متن‌های هم‌معنا هنوز آماده نیست (محاسبه در جریان است).'
           : 'هنوز متن هم‌معنایی یافته نشده است. «اجرا» را در نوار بالای صفحه بزنید' + (legacyPress ? ' (فهرست پایین از شیوه‌ی پیشین است و با اجرای تازه جایش را به متن‌ها می‌دهد).' : '.')),

@@ -529,11 +529,11 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             need(semantic.available(), "جستجوی معنایی در این سرور آماده نیست")
             sm, sk = body.get("sem_min"), body.get("sem_k")
             num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)
-            if not ((sm is None or (num(sm) and 0.5 <= sm <= 0.95)) and (sk is None or (isinstance(sk, int) and not isinstance(sk, bool) and 1 <= sk <= 100))):
-                raise HTTPException(400, "sem_min must be between 0.5 and 0.95 and sem_k between 1 and 100")
+            if not ((sm is None or (num(sm) and 0.4 <= sm <= 0.95)) and (sk is None or (isinstance(sk, int) and not isinstance(sk, bool) and 1 <= sk <= 100))):
+                raise HTTPException(400, "sem_min must be between 0.4 and 0.95 and sem_k between 1 and 100")
             if not sdec.get("ret"):                      # a project from before the buttons: its search on screen becomes the press the semantic one is made on
                 sdec = dict(sdec, ret=_validate_search({k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits") if k in sdec}, pid, p)["ret"])
-            rs = dict(mode="parts", n=((sdec.get("ret_sem") or {}).get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.75, 2), sem_k=sk if sk is not None else 40,
+            rs = dict(mode="parts", n=((sdec.get("ret_sem") or {}).get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.6, 2), sem_k=sk if sk is not None else 40,
                       model=semantic.meta().get("model") or True, unit=semantic.meta().get("unit"), pca=(semantic.meta().get("pca") or {}).get("to"),
                       at=pipeline.sem_at(p, sdec, D["parts"] or {}), created=project.now())
             payload = {k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits", "ret") if k in sdec}

@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import sys
+import zlib
 
 import numpy as np
 import pytest
@@ -32,7 +33,7 @@ class ToyEncoder:
         for j, t in enumerate(texts):
             t = t.replace("query: ", "").replace(" ", "_")
             for i in range(len(t) - 2):
-                out[j, hash(t[i:i + 3]) % DIM] += 1.0
+                out[j, zlib.crc32(t[i:i + 3].encode()) % DIM] += 1.0
         return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-9)
 
 
@@ -126,6 +127,8 @@ def test_passages_are_distinct_part_texts_with_their_hadiths(index, monkeypatch)
     assert top["id"] == 0 and top["n"] == 2 and {i["wid"] for i in top["items"]} == {"v02:1", "v02:6"} and top["items"][0]["span"] == [0, 4]
     assert [sh for _, sh in top["words"]][:2] == [True, True] and top["words"][-1][1] is False         # the words the part itself has
     assert [v["cos"] for v in q["variants"]] == sorted((v["cos"] for v in q["variants"]), reverse=True)
+    assert top["same"] is True and top["cov"] == 0.67 and q["n_same"] + q["n_other"] == len(q["variants"])     # 2 of the part's 3 words
+    assert any(v["same"] is False and v["cov"] < search.SAME_COV for v in q["variants"]) and q["n_other"] >= 1       # a text with other words
     # a text only the hadiths of step 1's list have is not offered
     src2 = {"v02:1": dict(rec=dict(matn="اقیموا الصلاه وادوا")), "v02:6": dict(rec=dict(matn="اقیموا الصلاه وادوا"))}
     (q2,) = search._sem_passages(src2, own, ["v02:1"], p, [], [])
@@ -140,6 +143,9 @@ def test_a_text_that_has_the_words_of_the_part_is_left_out(index, monkeypatch):
     p = dict(search.DEFAULTS, sem_min=0.0, sem_k_part=2)
     (q,) = search._sem_passages(src, lambda w: [(0, 0, 3)], ["v02:9"], p, [], [])
     assert q["same_words"] == 1 and all(v["id"] != 0 for v in q["variants"]) and q["variants"]      # and the others are still offered
+    p1 = dict(p, sem_k_part=1)                                         # each group is cut by itself: near-copies cannot fill the list before other wordings
+    (q1,) = search._sem_passages({"v02:9": dict(rec=dict(matn="اقیموا الصلاه وادوا"))}, lambda w: [(0, 0, 3)], ["v02:9"], p1, [], [])
+    assert q1["n_same"] <= 1 and q1["n_other"] <= 1 and len(q1["variants"]) == q1["n_same"] + q1["n_other"]
     assert search._has_words(["a", "b", "c"], [("b", "c")]) and not search._has_words(["a", "b", "c"], [("c", "b"), ()])
 
 

@@ -61,8 +61,8 @@ DEFAULTS = dict(
     sem_k_part=40,             # nearest hadiths asked for per ticked part ...
     sem_k_all=80,              # ... and for all the ticked parts of a hadith together
     sem_occ_max=2000,          # hadiths of one ticked part that join the pool (a very common part stands in thousands)
-    sem_items=60,              # hadiths listed under one part text in step 4
-    sem_min=0.75,              # least cosine (bge-m3) for a hadith found only by meaning to be a candidate: keeps 91% of the hadiths of one consensus set with other wording, see ``evaluate.hard_pairs``
+    sem_items=25,              # hadiths listed under one part text in step 4
+    sem_min=0.6,               # least cosine for a text / hadith found only by meaning to be offered. The 256-d index (PCA of bge-m3) runs lower than bge-m3 itself: texts with other words and the same meaning stand at 0.60-0.70, under ~0.55 it is mostly noise (the old 0.75 kept 91% of the hadiths of one consensus set with other wording, see ``evaluate.hard_pairs``, but only the near-copies of a part)
 )
 
 
@@ -358,6 +358,9 @@ def _shared_words(text: str, own: set) -> list:
     return [[w, bool(own & {match_key(t) for t in tokens(w)})] for w in text.split()]
 
 
+SAME_COV = 0.6                 # a found text that has this share of the ticked part's words is one of the "same words" group
+
+
 def _has_words(hay: Sequence[str], needles: Sequence[Sequence[str]]) -> bool:
     """Does ``hay`` (a part's words) contain, in a row, all the words of one of ``needles`` (the wordings of the ticked part)?"""
     for nd in needles:
@@ -368,11 +371,14 @@ def _has_words(hay: Sequence[str], needles: Sequence[Sequence[str]]) -> bool:
 
 
 def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: List[dict], flags: List[dict]) -> List[dict]:
-    """The TEXTS of other hadiths' parts that resemble each ticked part: ``[dict(clause, variants=[...])]``, one entry per ticked
-    part (the hadiths of step 1's list each ask with their own words of it; a part found by several keeps its best cosine), the
-    nearest first, at most ``sem_k_part`` per part and none under ``sem_min``. A text that has the words of the ticked part as they are (``same_words`` counts them) is left out: step 3's word search finds its hadiths. A variant is one distinct part text: ``id`` (its row in
-    the semantic index), ``text``, ``ntok``, ``cos``, ``n`` (hadiths that have it), ``words`` (``[[word, shared with the part]]``)
-    and ``items`` (the first ``sem_items`` of those hadiths: ``wid``, ``span`` [a, b) in its words, ``src`` how the part was cut, book
+    """The TEXTS of other hadiths' parts that resemble each ticked part: ``[dict(clause, variants=[...], same_words, n_same, n_other)]``,
+    one entry per ticked part (the hadiths of step 1's list each ask with their own words of it; a part found by several keeps its
+    best cosine), none under ``sem_min``. A text that has the words of the ticked part as they are (``same_words`` counts them) is
+    left out: step 3's word search finds its hadiths. The others come in two groups, each the nearest first and at most ``sem_k_part``
+    long, so the near-copies cannot fill the list before a text in other words: ``same`` (``cov`` >= ``SAME_COV``, ``cov`` the share
+    of the part's words the text has) and the rest. A variant is one distinct part text: ``id`` (its row in the semantic index),
+    ``text``, ``ntok``, ``cos``, ``cov``, ``same``, ``n`` (hadiths that have it), ``words`` (``[[word, shared with the part]]``) and
+    ``items`` (the first ``sem_items`` of those hadiths: ``wid``, ``span`` [a, b) in its words, ``src`` how the part was cut, book
     data). Nothing joins the pool: the user picks texts first."""
     texts: List[str] = []
     tags: List[Tuple[str, int]] = []
@@ -385,8 +391,8 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
                 tags.append((w, c))
     if not texts:
         return []
-    try:                                                     # more than will be shown: the near-copies are dropped below
-        res = semantic.neighbours(texts, k=min(3 * p["sem_k_part"], 300), min_cos=p["sem_min"])
+    try:                                                     # many more than will be shown: the near-copies come first and are cut below
+        res = semantic.neighbours(texts, k=min(8 * p["sem_k_part"] + 100, 1000), min_cos=p["sem_min"])
     except Exception as e:                                   # a missing or broken index must not fail the run
         flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {e}"))
         return []
@@ -402,22 +408,29 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
         ks = [match_key(x) for x in tokens(t)]
         own_keys.setdefault(c, set()).update(ks)
         own_seq.setdefault(c, []).append(tuple(ks))
-    kept: Dict[int, List[Tuple[int, float]]] = {}
+    kept: Dict[int, List[Tuple[int, float, float, bool]]] = {}
     dropped: Dict[int, int] = {}
     for c in sorted(best):
+        left = {False: 0, True: 0}
+        own = own_keys.get(c, set())
         for pid, cos in sorted(best[c].items(), key=lambda kv: -kv[1]):
             g = got.get(pid)
             if not g or not g["n"]:
                 continue                                         # it stands only in the hadiths of step 1's list
-            if _has_words([match_key(x) for x in tokens(g["text"])], own_seq.get(c, ())):
+            ks = [match_key(x) for x in tokens(g["text"])]
+            if _has_words(ks, own_seq.get(c, ())):
                 dropped[c] = dropped.get(c, 0) + 1               # it has the part's words as they are: step 3's word search finds its hadiths
-            elif len(kept.setdefault(c, [])) < p["sem_k_part"]:
-                kept[c].append((pid, cos))
-    recs = corpus.get_many(sorted({o[0] for d in kept.values() for pid, _ in d for o in got[pid]["occ"]}))
+                continue
+            cov = len(own & set(ks)) / len(own) if own else 0.0
+            same = cov >= SAME_COV
+            if left[same] < p["sem_k_part"]:
+                left[same] += 1
+                kept.setdefault(c, []).append((pid, cos, cov, same))
+    recs = corpus.get_many(sorted({o[0] for d in kept.values() for pid, _, _, _ in d for o in got[pid]["occ"]}))
     out = []
     for c in sorted(best):
         vs = []
-        for pid, cos in kept.get(c, ()):
+        for pid, cos, cov, same in kept.get(c, ()):
             g = got[pid]
             items = []
             for wid, a, b, sc in g["occ"]:
@@ -426,9 +439,12 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
                     continue
                 items.append(dict(wid=wid, span=[a, b], src=sc, book=rec["book"], title=rec["title"], author=rec["author"],
                                   tradition=rec["tradition"], vol=rec["vol"], page=rec["page"], copies=[]))
-            vs.append(dict(id=pid, text=g["text"], ntok=g["ntok"], cos=round(cos, 3), n=g["n"], words=_shared_words(g["text"], own_keys.get(c, set())), items=items))
-        out.append(dict(clause=c, variants=vs, same_words=dropped.get(c, 0)))
-        queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="parts", hits=len(vs), capped=len(vs) >= p["sem_k_part"], new=len(vs)))
+            vs.append(dict(id=pid, text=g["text"], ntok=g["ntok"], cos=round(cos, 3), cov=round(cov, 2), same=same, n=g["n"],
+                           words=_shared_words(g["text"], own_keys.get(c, set())), items=items))
+        ns = sum(1 for v in vs if v["same"])
+        out.append(dict(clause=c, variants=vs, same_words=dropped.get(c, 0), n_same=ns, n_other=len(vs) - ns))
+        queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="parts", hits=len(vs),
+                            capped=ns >= p["sem_k_part"] or len(vs) - ns >= p["sem_k_part"], new=len(vs)))
     return out
 
 

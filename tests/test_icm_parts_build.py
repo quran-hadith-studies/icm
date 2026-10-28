@@ -2,6 +2,7 @@
 (cut, PCA, vectors, index) on a handful of hadiths with a toy encoder."""
 import os
 import sys
+import zlib
 from types import SimpleNamespace
 
 import numpy as np
@@ -78,7 +79,7 @@ class FakeEnc:
         for j, t in enumerate(texts):
             t = vec.emb_text(t).replace(" ", "_")
             for i in range(len(t) - 2):
-                out[j, hash(t[i:i + 3]) % 64] += 1.0
+                out[j, zlib.crc32(t[i:i + 3].encode()) % 64] += 1.0
         return (out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-9)).astype(np.float16)
 
 

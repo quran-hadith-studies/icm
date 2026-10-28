@@ -180,9 +180,9 @@ window.ICMWizard = (() => {
     }
     const knobSem = () => {
       const d = knobs.dec || {};
-      const mn = knobs.min || (knobs.min = el('input', { class: 'w5', type: 'number', min: '0.5', max: '0.95', step: '0.01', value: String(d.sem_min || 0.75), 'aria-label': 'کمترین هم‌معنایی' }));
+      const mn = knobs.min || (knobs.min = el('input', { class: 'w5', type: 'number', min: '0.4', max: '0.95', step: '0.01', value: String(d.sem_min || 0.6), 'aria-label': 'کمترین هم‌معنایی' }));
       const k = knobs.k || (knobs.k = el('input', { class: 'w5', type: 'number', min: '1', max: '100', step: '1', value: String(d.sem_k || 40), 'aria-label': 'شمار قطعه برای هر بخش' }));
-      return el('span', { class: 'small', style: 'display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap' }, help('step2.semantic'), 'هم‌معنایی دست‌کم', mn, '(۰٫۵ تا ۰٫۹۵؛ کمتر = قطعه‌های بیشتر و نامرتبط‌تر) · تا', k, 'قطعه برای هر بخش ');
+      return el('span', { class: 'small', style: 'display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap' }, help('step2.semantic'), 'هم‌معنایی دست‌کم', mn, '(۰٫۴ تا ۰٫۹۵؛ حدود ۰٫۶ متن‌های هم‌معنا با واژه‌های دیگر را هم می‌آورد، ۰٫۷۵ فقط نزدیک‌ترین‌ها را؛ زیر ۰٫۵۵ بیشتر نامرتبط است) · تا', k, 'متن در هر دسته برای هر بخش ');
     };
     const knobInfer = () => {
       const d = knobs.dec || {};
@@ -378,7 +378,7 @@ window.ICMWizard = (() => {
       case 'semantic': {
         hadithsItem(); tickItem();
         const rs = sdec.ret_sem, pr = S && S.params;
-        if (rs) { add('آخرین یافتن بخش‌های هم‌معنا', `شماره‌ی ${N(rs.n)}، مدل ${rs.model === true ? '—' : rs.model}، هم‌معنایی ≥ ${N(rs.sem_min)}، تا ${N(rs.sem_k)} ${rs.mode === 'parts' ? 'قطعه' : 'حدیث'} برای هر بخش`);
+        if (rs) { add('آخرین یافتن بخش‌های هم‌معنا', `شماره‌ی ${N(rs.n)}، مدل ${rs.model === true ? '—' : rs.model}، هم‌معنایی ≥ ${N(rs.sem_min)}، تا ${N(rs.sem_k)} ${rs.mode === 'parts' ? 'متن در هر دسته' : 'حدیث'} برای هر بخش`);
           if (rs.mode === 'parts') add('قطعه‌های تیک‌خورده', (rs.picks || []).length ? N(rs.picks.length) : 'هنوز جستجو نشده'); }
         else if (sdec.ret && sdec.ret.sem && pr) add('جستجوی معنایی', `در همان فشار «جستجو» انجام شده بود (هم‌معنایی ≥ ${N(pr.sem_min)})؛ با «اجرا» به‌تنهایی دوباره انجام می‌شود`);
         else add('جستجوی معنایی', 'هنوز انجام نشده (اختیاری)');
