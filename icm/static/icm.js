@@ -542,6 +542,7 @@ const panels = {
       passBox.replaceChildren(...(SP || []).map(q => el('div', { style: 'margin-top:14px' },
         el('div', { class: 'small muted' }, 'متن این بخش در حدیث‌های فهرست مرحله‌ی ۱ (با اعراب خودِ حدیث؛ در مرحله‌ی ۲ بی‌اعراب و رنگی می‌بینید):'),
         el('h3', { style: 'margin-top:2px' }, swatch(q.clause), ' ', el('span', { class: 'ar' }, clauseRaw(S, q.clause)), ' ', el('span', { class: 'small muted' }, `${fa(q.variants.length)} متنِ دیگر`),
+          q.same_words ? el('span', { class: 'small muted', title: 'متن‌هایی که خودِ واژه‌های این بخش را دارند در جستجوی لفظی مرحله‌ی ۳ آمده‌اند' }, ` (${fa(q.same_words)} متن که همین واژه‌ها را دارد، در مرحله‌ی ۳ هست)`) : null,
           c.can && !STATIC && q.variants.length ? [' ', el('button', { class: 'small', onclick: () => { q.variants.forEach(v => wids(v).forEach(w => picked.add(pk(w, q.clause)))); drawPass(); } }, 'تیک همه'),
             ' ', el('button', { class: 'small', onclick: () => { q.variants.forEach(v => wids(v).forEach(w => picked.delete(pk(w, q.clause)))); drawPass(); } }, 'برداشتن تیک')] : null),
         q.variants.length ? el('div', { class: 'grid-wrap', style: 'max-height:60vh' }, el('table', { class: 'cands' }, q.variants.map(v => passRow(q, v))))
@@ -550,7 +551,7 @@ const panels = {
     };
     const legacyPress = !semParts && !!(rsem.n || (sdec.ret && sdec.ret.sem));      // a semantic list made by the one-press way
     K.semPass = card(['بخش‌های هم‌معنا'], help('step2.semantic'),
-      el('p', { class: 'muted small' }, 'برای هر بخشی که در مرحله‌ی ۲ تیک خورده، متن‌های دیگری که معنایشان به آن نزدیک است. هر متن یک بار آمده، هرچند حدیث‌های بسیار آن را بیاورند («در n حدیث» را باز کنید تا ببینید کدام‌ها)؛ واژه‌های رنگی را خود بخش هم دارد. هر متنی را که واقعاً هم‌معنای آن بخش می‌دانید تیک بزنید و «جستجو» را بزنید؛ آنگاه حدیث‌هایی که آن متن‌ها را دارند در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
+      el('p', { class: 'muted small' }, 'برای هر بخشی که در مرحله‌ی ۲ تیک خورده، متن‌های دیگری که معنایشان به آن نزدیک است. هر متن یک بار آمده، هرچند حدیث‌های بسیار آن را بیاورند («در n حدیث» را باز کنید تا ببینید کدام‌ها)؛ واژه‌های رنگی را خود بخش هم دارد. متنی که خودِ واژه‌های بخش را (همان‌گونه) دارد نیامده، چون جستجوی لفظی مرحله‌ی ۳ حدیث‌هایش را می‌آورد. هر متنی را که واقعاً هم‌معنای آن بخش می‌دانید تیک بزنید و «جستجو» را بزنید؛ آنگاه حدیث‌هایی که آن متن‌ها را دارند در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
       semParts && SP ? el('div', { class: 'toolbar' }, passCount, c.can && !STATIC ? pickBtn : null)
         : el('p', { class: 'empty-state' }, semParts ? 'متن‌های هم‌معنا هنوز آماده نیست (محاسبه در جریان است).'
           : 'هنوز متن هم‌معنایی یافته نشده است. «اجرا» را در نوار بالای صفحه بزنید' + (legacyPress ? ' (فهرست پایین از شیوه‌ی پیشین است و با اجرای تازه جایش را به متن‌ها می‌دهد).' : '.')),

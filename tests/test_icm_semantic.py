@@ -116,7 +116,7 @@ def test_passages_are_distinct_part_texts_with_their_hadiths(index, monkeypatch)
     recs = {w: dict(wid=w, book="b", title="t", author="a", tradition="shia", vol=None, page=None, matn=TEXTS[p]) for p, w in
             [(0, "v02:1"), (0, "v02:6"), (1, "v02:2"), (2, "v02:3")]}
     monkeypatch.setattr(corpus, "get_many", lambda ws: {w: recs[w] for w in ws if w in recs})
-    src = {"v02:9": dict(rec=dict(matn="اقیموا الصلاه واتوا"))}
+    src = {"v02:9": dict(rec=dict(matn="اقیموا الصلاه وادوا"))}                  # a wording the texts do not contain as it is
     own = lambda w: [(0, 0, 3)]
     p = dict(search.DEFAULTS, sem_min=0.2, sem_k_part=3)
     queries, flags = [], []
@@ -127,9 +127,20 @@ def test_passages_are_distinct_part_texts_with_their_hadiths(index, monkeypatch)
     assert [sh for _, sh in top["words"]][:2] == [True, True] and top["words"][-1][1] is False         # the words the part itself has
     assert [v["cos"] for v in q["variants"]] == sorted((v["cos"] for v in q["variants"]), reverse=True)
     # a text only the hadiths of step 1's list have is not offered
-    src2 = {"v02:1": dict(rec=dict(matn="اقیموا الصلاه واتوا")), "v02:6": dict(rec=dict(matn="اقیموا الصلاه واتوا"))}
+    src2 = {"v02:1": dict(rec=dict(matn="اقیموا الصلاه وادوا")), "v02:6": dict(rec=dict(matn="اقیموا الصلاه وادوا"))}
     (q2,) = search._sem_passages(src2, own, ["v02:1"], p, [], [])
     assert all(v["id"] != 0 for v in q2["variants"])
+
+
+def test_a_text_that_has_the_words_of_the_part_is_left_out(index, monkeypatch):
+    recs = {w: dict(wid=w, book="b", title="t", author="a", tradition="shia", vol=None, page=None, matn=TEXTS[p]) for p, w in
+            [(0, "v02:1"), (0, "v02:6"), (1, "v02:2"), (2, "v02:3")]}
+    monkeypatch.setattr(corpus, "get_many", lambda ws: {w: recs[w] for w in ws if w in recs})
+    src = {"v02:9": dict(rec=dict(matn="اقیموا الصلاه واتوا"))}                    # part 0 has these words in a row: step 3's word search finds it
+    p = dict(search.DEFAULTS, sem_min=0.0, sem_k_part=2)
+    (q,) = search._sem_passages(src, lambda w: [(0, 0, 3)], ["v02:9"], p, [], [])
+    assert q["same_words"] == 1 and all(v["id"] != 0 for v in q["variants"]) and q["variants"]      # and the others are still offered
+    assert search._has_words(["a", "b", "c"], [("b", "c")]) and not search._has_words(["a", "b", "c"], [("c", "b"), ()])
 
 
 def test_picks_resolve_and_their_hadiths_join_the_pool(index):

@@ -358,10 +358,19 @@ def _shared_words(text: str, own: set) -> list:
     return [[w, bool(own & {match_key(t) for t in tokens(w)})] for w in text.split()]
 
 
+def _has_words(hay: Sequence[str], needles: Sequence[Sequence[str]]) -> bool:
+    """Does ``hay`` (a part's words) contain, in a row, all the words of one of ``needles`` (the wordings of the ticked part)?"""
+    for nd in needles:
+        n = len(nd)
+        if n and any(tuple(hay[i:i + n]) == tuple(nd) for i in range(len(hay) - n + 1)):
+            return True
+    return False
+
+
 def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: List[dict], flags: List[dict]) -> List[dict]:
     """The TEXTS of other hadiths' parts that resemble each ticked part: ``[dict(clause, variants=[...])]``, one entry per ticked
     part (the hadiths of step 1's list each ask with their own words of it; a part found by several keeps its best cosine), the
-    nearest first, at most ``sem_k_part`` per part and none under ``sem_min``. A variant is one distinct part text: ``id`` (its row in
+    nearest first, at most ``sem_k_part`` per part and none under ``sem_min``. A text that has the words of the ticked part as they are (``same_words`` counts them) is left out: step 3's word search finds its hadiths. A variant is one distinct part text: ``id`` (its row in
     the semantic index), ``text``, ``ntok``, ``cos``, ``n`` (hadiths that have it), ``words`` (``[[word, shared with the part]]``)
     and ``items`` (the first ``sem_items`` of those hadiths: ``wid``, ``span`` [a, b) in its words, ``src`` how the part was cut, book
     data). Nothing joins the pool: the user picks texts first."""
@@ -376,8 +385,8 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
                 tags.append((w, c))
     if not texts:
         return []
-    try:
-        res = semantic.neighbours(texts, k=p["sem_k_part"], min_cos=p["sem_min"])
+    try:                                                     # more than will be shown: the near-copies are dropped below
+        res = semantic.neighbours(texts, k=min(3 * p["sem_k_part"], 300), min_cos=p["sem_min"])
     except Exception as e:                                   # a missing or broken index must not fail the run
         flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {e}"))
         return []
@@ -388,16 +397,28 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
                 best[c][pid] = cos
     got = semantic.parts_of(sorted({pid for d in best.values() for pid in d}), exclude=set(src), occ_max=p["sem_items"])
     own_keys: Dict[int, set] = {}
+    own_seq: Dict[int, List[tuple]] = {}
     for (w, c), t in zip(tags, texts):
-        own_keys.setdefault(c, set()).update(match_key(x) for x in tokens(t))
-    recs = corpus.get_many(sorted({o[0] for d in best.values() for pid in d for o in (got.get(pid) or {}).get("occ", ())}))
-    out = []
+        ks = [match_key(x) for x in tokens(t)]
+        own_keys.setdefault(c, set()).update(ks)
+        own_seq.setdefault(c, []).append(tuple(ks))
+    kept: Dict[int, List[Tuple[int, float]]] = {}
+    dropped: Dict[int, int] = {}
     for c in sorted(best):
-        vs = []
-        for pid, cos in sorted(best[c].items(), key=lambda kv: -kv[1])[:p["sem_k_part"]]:
+        for pid, cos in sorted(best[c].items(), key=lambda kv: -kv[1]):
             g = got.get(pid)
             if not g or not g["n"]:
                 continue                                         # it stands only in the hadiths of step 1's list
+            if _has_words([match_key(x) for x in tokens(g["text"])], own_seq.get(c, ())):
+                dropped[c] = dropped.get(c, 0) + 1               # it has the part's words as they are: step 3's word search finds its hadiths
+            elif len(kept.setdefault(c, [])) < p["sem_k_part"]:
+                kept[c].append((pid, cos))
+    recs = corpus.get_many(sorted({o[0] for d in kept.values() for pid, _ in d for o in got[pid]["occ"]}))
+    out = []
+    for c in sorted(best):
+        vs = []
+        for pid, cos in kept.get(c, ()):
+            g = got[pid]
             items = []
             for wid, a, b, sc in g["occ"]:
                 rec = recs.get(wid)
@@ -406,7 +427,7 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
                 items.append(dict(wid=wid, span=[a, b], src=sc, book=rec["book"], title=rec["title"], author=rec["author"],
                                   tradition=rec["tradition"], vol=rec["vol"], page=rec["page"], copies=[]))
             vs.append(dict(id=pid, text=g["text"], ntok=g["ntok"], cos=round(cos, 3), n=g["n"], words=_shared_words(g["text"], own_keys.get(c, set())), items=items))
-        out.append(dict(clause=c, variants=vs))
+        out.append(dict(clause=c, variants=vs, same_words=dropped.get(c, 0)))
         queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="parts", hits=len(vs), capped=len(vs) >= p["sem_k_part"], new=len(vs)))
     return out
 
