@@ -193,8 +193,11 @@ window.ICMWizard = (() => {
       return ['دقت: ', knobs.preset, ' محاسبه: ', knobs.compute, ' '];
     };
 
+    let runSig = '';       // what the run bar showed last: the page repaints it every few seconds, and a repaint takes the focus from a field being typed in
     function paintRun() {
-      if (!live || tab !== 'steps') { runrow.hidden = true; runwarn.hidden = true; return; }
+      if (!live || tab !== 'steps') { runrow.hidden = true; runwarn.hidden = true; runSig = ''; return; }
+      const ae = document.activeElement;
+      if (ae && runrow.contains(ae) && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;      // somebody is typing in a field of the bar: the next repaint catches up
       const st = W.steps[n - 1], busy = !!(P.job || P.busy || P.project.status === 'running'), dirty = isDirty();
       const warn = [];
       if (st.changed_since && st.changed_since.length && st.state !== 'done' && st.state !== 'idle') {
@@ -206,6 +209,9 @@ window.ICMWizard = (() => {
       }
       if (n === 1 && st.state === 'needs_run') warn.push(el('div', { class: 'help warnbox' }, 'فهرست یا متن حدیث‌ها تغییر کرده است. نامزدها و مرحله‌های بعد وقتی در ', stepLink(pid, null, 'parts', 'مرحله‌ی ۲'), ' «اجرا» را بزنید به‌روز می‌شوند.'));
       const rp = st.run;
+      const sig = JSON.stringify([n, st.state, st.ready, st.ran, busy, dirty, can, P.semantic_available, runErr, rp && rp.what, rp && rp.label, warn.map(x => x.textContent)]);
+      if (sig === runSig && !runrow.hidden && runrow.firstChild) return;                          // nothing the bar shows has changed: leave its elements (and their focus) alone
+      runSig = sig;
       const bits = [el('span', { class: 'chip ' + (st.state === 'done' ? 'finalized' : st.state === 'running' ? 'running' : 'partial') }, STATE_FA[st.state] || ''), help(st.state === 'stale' ? 'stale' : 'runs'), ' '];
       if (rp && can) {
         if (rp.what === 'semantic') bits.push(knobSem());
