@@ -23,7 +23,7 @@ WIZARD = ("hadiths", "parts", "candidates", "semantic", "added", "slots", "align
 STAGE_OF = ("search", "search", "search", "search", "search", "align", "align", "align", "identify", "graph", "infer")
 TITLES = ("حدیث‌ها", "حدیث‌ها و بخش‌هایشان", "نامزدها", "هم‌معنا", "حدیث‌های افزوده", "فرازبندی بخش‌ها در شاهدها", "هم‌ترازی", "واحدهای تغییر", "راویان", "شجره", "اجرا")
 # the run button of a step: (what, label, heavy: asks before it starts); step 1 has none (its changes are run by step 2)
-RUN = {2: ("rescore", "سنجش بخش‌ها و نامزدها", False), 3: ("search", "جستجو", False), 4: ("semantic", "جستجوی معنایی", False), 5: ("rescore", "سنجش حدیث‌های افزوده", False),
+RUN = {2: ("rescore", "سنجش بخش‌ها و نامزدها", False), 3: ("search", "جستجو", False), 4: ("semantic", "یافتن بخش‌های هم‌معنا", False), 5: ("rescore", "سنجش حدیث‌های افزوده", False),
        6: ("align", "ساخت هم‌ترازی", True), 7: ("align", "ساخت دوباره‌ی هم‌ترازی", True), 8: ("align", "ساخت دوباره‌ی هم‌ترازی", True),
        9: ("identify", "یافتن راویان", True), 10: ("graph", "ساخت شجره", False), 11: ("infer", "اجرای تحلیل", True)}
 

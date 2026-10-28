@@ -170,7 +170,7 @@ window.ICMWizard = (() => {
     /* ----- the pieces of a step page ----- */
     const ctx = el('div', { class: 'ctx' }), runrow = el('div', { class: 'runrow' }), runwarn = el('div', { class: 'runwarn' }), data = el('div'), actions = el('div', { class: 'actionbar wiz' });
     const stepInfo = el('span', { class: 'stepinfo' });
-    const c = { pid, p, runId, can, readonly, only: null, setInfo: (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title })),
+    const c = { pid, p, runId, can, readonly, only: null, busy: () => !!(P.job || P.busy || P.project.status === 'running'), setInfo: (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title })),
       register, counts: v => { c.nums = v; paintRun(); }, changed: () => setTimeout(() => paintActions(), 0) };
     let runErr = '';
     const knobs = {};     // the inputs of the run bar of a step (4: the cut-off; 11: precision and place of computation)
@@ -181,8 +181,8 @@ window.ICMWizard = (() => {
     const knobSem = () => {
       const d = knobs.dec || {};
       const mn = knobs.min || (knobs.min = el('input', { class: 'w5', type: 'number', min: '0.5', max: '0.95', step: '0.01', value: String(d.sem_min || 0.75), 'aria-label': 'کمترین هم‌معنایی' }));
-      const k = knobs.k || (knobs.k = el('input', { class: 'w5', type: 'number', min: '1', max: '100', step: '1', value: String(d.sem_k || 40), 'aria-label': 'شمار حدیث برای هر بخش' }));
-      return el('span', { class: 'small', style: 'display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap' }, help('step2.semantic'), 'هم‌معنایی دست‌کم', mn, '(۰٫۵ تا ۰٫۹۵؛ کمتر = حدیث‌های بیشتر و نامرتبط‌تر) · تا', k, 'حدیث برای هر بخش ');
+      const k = knobs.k || (knobs.k = el('input', { class: 'w5', type: 'number', min: '1', max: '100', step: '1', value: String(d.sem_k || 40), 'aria-label': 'شمار قطعه برای هر بخش' }));
+      return el('span', { class: 'small', style: 'display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap' }, help('step2.semantic'), 'هم‌معنایی دست‌کم', mn, '(۰٫۵ تا ۰٫۹۵؛ کمتر = قطعه‌های بیشتر و نامرتبط‌تر) · تا', k, 'قطعه برای هر بخش ');
     };
     const knobInfer = () => {
       const d = knobs.dec || {};
@@ -378,11 +378,12 @@ window.ICMWizard = (() => {
       case 'semantic': {
         hadithsItem(); tickItem();
         const rs = sdec.ret_sem, pr = S && S.params;
-        if (rs) add('آخرین جستجوی معنایی', `شماره‌ی ${N(rs.n)}، مدل ${rs.model === true ? '—' : rs.model}، هم‌معنایی ≥ ${N(rs.sem_min)}، تا ${N(rs.sem_k)} حدیث برای هر بخش`);
+        if (rs) { add('آخرین یافتن بخش‌های هم‌معنا', `شماره‌ی ${N(rs.n)}، مدل ${rs.model === true ? '—' : rs.model}، هم‌معنایی ≥ ${N(rs.sem_min)}، تا ${N(rs.sem_k)} ${rs.mode === 'parts' ? 'قطعه' : 'حدیث'} برای هر بخش`);
+          if (rs.mode === 'parts') add('قطعه‌های تیک‌خورده', (rs.picks || []).length ? N(rs.picks.length) : 'هنوز جستجو نشده'); }
         else if (sdec.ret && sdec.ret.sem && pr) add('جستجوی معنایی', `در همان فشار «جستجو» انجام شده بود (هم‌معنایی ≥ ${N(pr.sem_min)})؛ با «اجرا» به‌تنهایی دوباره انجام می‌شود`);
         else add('جستجوی معنایی', 'هنوز انجام نشده (اختیاری)');
         pressItem();
-        if (S) add('نامزدهای هم‌معنا', N(S.candidates.filter(x => x.suggested === 'semantic').length));
+        if (S) add('نامزدهای هم‌معنا', N(S.candidates.filter(x => rs && rs.mode === 'parts' ? x.signals.includes('q:sem') : x.suggested === 'semantic').length));
         break; }
       case 'added': hadithsItem(); partsItem(); selItem(); add('حدیث‌های افزوده', N((sdec.extra_ids || []).length)); break;
       case 'slots': selItem(); partsItem(); add('بخش‌های تأییدشده در شاهدها', N(cnt(pdec.confirmed))); add('جایگاه‌های دستی', N(cnt(pdec.slots))); add('اجرای هم‌ترازی', c.p.current_run ? fa(c.p.current_run.split('-')[0]) : '—'); break;

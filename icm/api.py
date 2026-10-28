@@ -490,7 +490,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             raise HTTPException(409, BUSY + (" (در صف)" if j["status"] == "queued" else "")
                                 + "؛ پس از پایان دوباره بزنید، یا اگر کاری پیش نمی‌رود «لغو محاسبه» را بزنید.")
 
-    RUNS = ("rescore", "search", "semantic", "align", "identify", "graph", "infer")
+    RUNS = ("rescore", "search", "semantic", "sempick", "align", "identify", "graph", "infer")
 
     @r.post("/api/project/{pid}/run/{what}")
     async def run(request: Request, pid: str, what: str):
@@ -533,10 +533,23 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 raise HTTPException(400, "sem_min must be between 0.5 and 0.95 and sem_k between 1 and 100")
             if not sdec.get("ret"):                      # a project from before the buttons: its search on screen becomes the press the semantic one is made on
                 sdec = dict(sdec, ret=_validate_search({k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits") if k in sdec}, pid, p)["ret"])
-            rs = dict(n=((sdec.get("ret_sem") or {}).get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.75, 2), sem_k=sk if sk is not None else 40,
+            rs = dict(mode="parts", n=((sdec.get("ret_sem") or {}).get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.75, 2), sem_k=sk if sk is not None else 40,
                       model=semantic.meta().get("model") or True, at=pipeline.sem_at(p, sdec, D["parts"] or {}), created=project.now())
             payload = {k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits", "ret") if k in sdec}
             project.add_decision(pid, "search", dict(payload, ret_sem=rs), user, "semantic search pressed")
+            wizard.touch(pid)
+        elif what == "sempick":
+            rs = sdec.get("ret_sem")
+            need(rs and rs.get("mode") == "parts", "نخست بخش‌های هم‌معنا را بیابید (دکمه‌ی «اجرا»ی این مرحله)")
+            picks = body.get("picks")
+            ok = isinstance(picks, list) and len(picks) <= 600 and all(isinstance(x, list) and len(x) == 2 and isinstance(x[0], str) and isinstance(x[1], int)
+                                                                       and not isinstance(x[1], bool) for x in picks)
+            if not ok:
+                raise HTTPException(400, "picks must be a list of [hadith id, part number]")
+            picks = sorted({(w, c) for w, c in picks})
+            need(picks, "دست‌کم یک بخش هم‌معنا را تیک بزنید")
+            payload = {k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits", "ret") if k in sdec}
+            project.add_decision(pid, "search", dict(payload, ret_sem=dict(rs, picks=[list(x) for x in picks], pn=(rs.get("pn") or 0) + 1)), user, "semantic passages picked")
             wizard.touch(pid)
         elif what == "align":
             need("search" in have, "نخست مرحله‌ی ۲ تا ۵ را اجرا کنید (جستجوی کنونی هنوز ساخته نشده است)")

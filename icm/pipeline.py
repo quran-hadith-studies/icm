@@ -123,7 +123,31 @@ def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
                                                            seeds=ret.get("seeds") or []), searched=True, stale=False))
     k_base = k_ret
     rs = sdec.get("ret_sem")                                   # step 4's press: the semantic index asked about the parts of that press
-    if rs:
+    if rs and rs.get("mode") == "parts":
+        # two presses: the passages that resemble each part (nothing joins the candidates), then the hadiths of the passages the user ticked
+        rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"])
+        k_base = h("sempassages", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), rs.get("at"), STAGE_VERSIONS["search"])
+
+        def passages():
+            out = search_mod.run(rseed, rsp_sem, ret.get("extra") or [], ret.get("keep") or [], seeds=ret.get("seeds") or [], prior=_prior_of(R),
+                                 retrieve=False, sem_passages=True)
+            return dict(out, searched=True, stale=False, retrieved=R.get("retrieved", True), queries=R["queries"] + out["queries"], rounds=R["rounds"],
+                        flags=R["flags"] + out["flags"], sem_n=rs.get("n"))
+        R = use("search", k_base, passages)
+        picks = [[w, c] for w, c in rs.get("picks") or []]
+        if picks:
+            k_pick = h("sempicks", k_base, picks, STAGE_VERSIONS["search"])
+            parts_found = R.get("sem_parts") or []
+
+            def picked():
+                out = search_mod.run(rseed, rsp_sem, ret.get("extra") or [], ret.get("keep") or [], seeds=ret.get("seeds") or [], prior=_prior_of(R),
+                                     retrieve=False, sem_picks=search_mod.resolve_picks(parts_found, picks))
+                return dict(out, searched=True, stale=False, retrieved=R.get("retrieved", True), queries=R["queries"], rounds=R["rounds"],
+                            flags=R["flags"] + out["flags"], sem_n=rs.get("n"), sem_parts=parts_found, sem_pn=rs.get("pn"))
+            R = use("search", k_pick, picked)
+            k_base = k_pick
+        info["sem_stale"] = rs.get("at") != sem_at(p, sdec, pdec)
+    elif rs:
         k_base = h("semsearch", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), rs.get("at"), STAGE_VERSIONS["search"])
         rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"])
 
@@ -149,7 +173,7 @@ def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
     def rescore():
         out = search_mod.run(seed, sp, cur["extra"], cur["keep"], seeds=cur["seeds"], prior=prior, retrieve=False, texts=cur["edits"])
         # what the corpora were asked and found stays that of the press (its part numbers are the old parts' while ``stale``)
-        return dict(out, searched=True, stale=stale, ret_n=ret.get("n"), sem_n=R.get("sem_n"), retrieved=R.get("retrieved", True), queries=R["queries"], rounds=R["rounds"],
+        return dict(out, searched=True, stale=stale, ret_n=ret.get("n"), sem_n=R.get("sem_n"), sem_pn=R.get("sem_pn"), **({"sem_parts": R["sem_parts"]} if R.get("sem_parts") is not None else {}), retrieved=R.get("retrieved", True), queries=R["queries"], rounds=R["rounds"],
                     flags=R["flags"] + out["flags"])
     return use("search", k_fin, rescore)
 
@@ -174,7 +198,7 @@ def go_key(k_search: str, selected: list) -> str:
     return h("go", k_search, selected)
 
 
-WANT = {"run:rescore": {"search"}, "run:search": {"search"}, "run:semantic": {"search"}, "run:align": {"align"}, "run:identify": {"identify"},
+WANT = {"run:rescore": {"search"}, "run:search": {"search"}, "run:semantic": {"search"}, "run:sempick": {"search"}, "run:align": {"align"}, "run:identify": {"identify"},
         "run:graph": {"graph"}, "run:infer": {"infer"}, "finalize": set()}
 
 

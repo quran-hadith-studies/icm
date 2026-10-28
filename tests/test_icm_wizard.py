@@ -117,9 +117,19 @@ def test_semantic_search_is_its_own_run_on_top_of_the_lexical_press(monkeypatch)
         rs = project.decision(pid, "search")["ret_sem"]
         assert rs["sem_min"] == 0.6 and rs["sem_k"] == 5 and rs["n"] == 1 and rs["model"] == "toy"
         S1 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
-        row = next(x for x in S1["candidates"] if x["wid"] == "v02:800316145")
-        assert "q:sem" in row["signals"] and S1["sem_n"] == 1 and S1["queries"] != S0["queries"]
-        assert S1["params"]["sem_min"] == 0.6 and not any("q:sem" in x["signals"] for x in S0["candidates"])
+        assert rs["mode"] == "parts" and not any("q:sem" in x["signals"] for x in S1["candidates"])       # the first press only finds passages
+        assert S1["sem_n"] == 1 and S1["params"]["sem_min"] == 0.6
+        found = [(q["clause"], it) for q in S1["sem_parts"] for it in q["items"]]
+        assert found and all(it["wid"] == "v02:800316145" and it["text"] and 0.9 == it["cos"] for _, it in found)
+        assert run(c, pid, "sempick", 400, picks="x") and run(c, pid, "sempick", 409, picks=[])        # a pick is needed
+        cl, it = found[0]
+        run(c, pid, "sempick", picks=[[it["wid"], cl], ["v02:1", cl]])
+        assert project.decision(pid, "search")["ret_sem"]["picks"] == [["v02:1", cl], [it["wid"], cl]] and project.decision(pid, "search")["ret_sem"]["pn"] == 1
+        S1 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        row = next(x for x in S1["candidates"] if x["wid"] == "v02:800316145")                           # the second press lists the hadiths of the ticked passages
+        assert "q:sem" in row["signals"] and S1["sem_pn"] == 1 and S1["sem_parts"] and row["sem_hits"][0]["clause"] == cl
+        assert not any(x["wid"] == "v02:1" for x in S1["candidates"])                                   # (a pair the passages did not have is ignored)
+        rs = project.decision(pid, "search")["ret_sem"]
         by, w = _states(c, pid)
         assert by["semantic"]["state"] == "done"
         # a save keeps the semantic press; a change of the parts marks it as made on other parts
