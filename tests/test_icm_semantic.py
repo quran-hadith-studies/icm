@@ -165,3 +165,14 @@ def test_numpy_encoder_matches_torch(tmp_path):
         mk = b["attention_mask"].unsqueeze(-1).float()
         r = torch.nn.functional.normalize((h * mk).sum(1) / mk.sum(1), dim=-1).numpy()
     assert all(float(a @ b) > 0.999 for a, b in zip(v, r))
+
+
+def test_passages_are_shown_as_distinct_texts_with_their_hadiths():
+    it = lambda w, t, c: dict(wid=w, cos=c, first=0, text=t, cut_before=False, cut_after=False, copies=[], book="b", title="t", author="a", tradition="shia", vol=None, page=None)
+    S = dict(clauses=[dict(i=0, text="اقیموا الصلاه", span=[0, 2], members={})],
+             sem_parts=[dict(clause=0, items=[it("v02:1", "أَقِيمُوا الصَّلَاةَ وَآتُوا", 0.8), it("v02:2", "اقیموا الصلاه وآتوا", 0.9), it("v02:3", "یقیم الصلاه", 0.8)])])
+    (q,) = search.sem_variants(S)
+    assert [v["n"] for v in q["variants"]] == [2, 1]                                   # the same words in two spellings are one text, best cosine first
+    top = q["variants"][0]
+    assert top["cos"] == 0.9 and [i["wid"] for i in top["items"]] == ["v02:1", "v02:2"]
+    assert [sh for _, sh in top["words"]] == [True, True, False]                       # the words the part itself has

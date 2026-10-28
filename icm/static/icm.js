@@ -514,46 +514,52 @@ const panels = {
       try { await post(`/project/${c.pid}/run/sempick`, { picks: [...picked].map(k => { const j = k.lastIndexOf('|'); return [k.slice(0, j), Number(k.slice(j + 1))]; }) }); reload(c.pid); }
       catch (e) { pickErr.textContent = e.message; b0.disabled = false; }
     } });
-    const passRow = (q, it) => el('tr', { class: picked.has(pk(it.wid, q.clause)) ? 'on' : '' },
-      el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این قطعه: ' + (it.title || it.book || it.wid), checked: picked.has(pk(it.wid, q.clause)), disabled: !(c.can && !STATIC),
-        onchange: ev => { ev.target.checked ? picked.add(pk(it.wid, q.clause)) : picked.delete(pk(it.wid, q.clause)); ev.target.closest('tr').classList.toggle('on', ev.target.checked); updPass(); } })),
-      el('td', { class: 'small', title: 'شباهت معنایی (کسینوس) با این بخش' }, fa(it.cos.toFixed(2))),
-      el('td', {}, el('b', {}, it.title || it.book), el('div', { class: 'small muted' }, [it.author, it.tradition === 'sunni' ? 'سنی' : 'شیعه', it.vol ? 'ج ' + fa(it.vol) : '', it.page ? 'ص ' + fa(it.page) : ''].filter(Boolean).join(' · ')),
-        it.copies && it.copies.length ? el('div', { class: 'small muted', title: it.copies.join(' ') }, `+${fa(it.copies.length)} نسخه‌ی یکسان`) : null,
-        lexical.has(it.wid) ? el('div', { class: 'small muted', title: 'این حدیث با جستجوی لفظی هم در فهرست نامزدهای مرحله‌ی ۳ آمده است' }, 'در نامزدهای مرحله‌ی ۳') : null,
-        el('div', { class: 'small muted', dir: 'ltr' }, it.wid)),
-      el('td', { class: 'txt' }, el('div', { class: 'ar matn' }, (it.cut_before ? '… ' : '') + it.text + (it.cut_after ? ' …' : '')), fullDetails(it.wid, null, 'سند و متن کامل')));
-    const updPass = () => {
-      const n = picked.size, total = (SP || []).reduce((t, q) => t + q.items.length, 0), now = [...picked].sort().join();
-      passCount.textContent = SP ? `${fa(n)} قطعه تیک خورده از ${fa(total)}` : '';
-      pickBtn.disabled = !n || now === pressed && !!(rsem.picks || []).length || !!(c.busy && c.busy());
-      pickBtn.textContent = (rsem.picks || []).length ? 'جستجوی دوباره‌ی حدیث‌های تیک‌خورده' : 'جستجو';
-      pickBtn.title = !n ? 'دست‌کم یک قطعه را تیک بزنید' : now === pressed && n ? 'این قطعه‌ها را همین حالا جستجو کرده‌اید' : '';
+    /* the passages as distinct TEXTS: one row per wording (words the part has are coloured), the hadiths that have it folded under it */
+    const SP = S.sem_variants;
+    const wids = v => v.items.map(i => i.wid);
+    const passRow = (q, v) => {
+      const on = wids(v).every(w => picked.has(pk(w, q.clause)));
+      return el('tr', { class: on ? 'on' : '' },
+        el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این متن', checked: on, disabled: !(c.can && !STATIC),
+          onchange: ev => { wids(v).forEach(w => ev.target.checked ? picked.add(pk(w, q.clause)) : picked.delete(pk(w, q.clause))); ev.target.closest('tr').classList.toggle('on', ev.target.checked); updPass(); } })),
+        el('td', { class: 'small', title: 'شباهت معنایی (کسینوس) با این بخش؛ بهترین میان حدیث‌های این متن' }, fa(v.cos.toFixed(2))),
+        el('td', { class: 'txt' }, el('div', { class: 'ar matn' }, v.cut_before ? '… ' : '', ...v.words.map(([w, sh], k) => [k ? ' ' : '', sh ? el('span', { class: 'pv', style: `--h:${hue(q.clause)}`, title: 'این واژه در بخش هم هست' }, w) : w]).flat(), v.cut_after ? ' …' : ''),
+          el('details', { class: 'fullt' }, el('summary', { class: 'small' }, `در ${fa(v.n)} حدیث` + (v.items.some(i => lexical.has(i.wid)) ? (v.items.length > 1 ? ' (برخی در نامزدهای مرحله‌ی ۳ هم هستند)' : ' (در نامزدهای مرحله‌ی ۳ هم هست)') : '')),
+            v.items.map(i => el('div', { style: 'margin:6px 0' }, el('b', {}, i.title || i.book), ' ', el('span', { class: 'small muted' }, [i.author, i.tradition === 'sunni' ? 'سنی' : 'شیعه', i.vol ? 'ج ' + fa(i.vol) : '', i.page ? 'ص ' + fa(i.page) : ''].filter(Boolean).join(' · ')),
+              i.copies.length ? el('span', { class: 'small muted', title: i.copies.join(' ') }, ` +${fa(i.copies.length)} نسخه‌ی یکسان`) : null,
+              el('div', { class: 'small muted', dir: 'ltr' }, i.wid), fullDetails(i.wid, null, 'سند و متن کامل'))))));
     };
-    const SP = S.sem_parts;
+    const updPass = () => {
+      const all = (SP || []).flatMap(q => q.variants.map(v => [q, v])), n = all.filter(([q, v]) => wids(v).every(w => picked.has(pk(w, q.clause)))).length, now = [...picked].sort().join();
+      passCount.textContent = SP ? `${fa(n)} متن تیک خورده از ${fa(all.length)} متنِ دیگر` : '';
+      pickBtn.disabled = !picked.size || now === pressed && !!(rsem.picks || []).length || !!(c.busy && c.busy());
+      pickBtn.textContent = (rsem.picks || []).length ? 'جستجوی دوباره‌ی حدیث‌های تیک‌خورده' : 'جستجو';
+      pickBtn.title = !picked.size ? 'دست‌کم یک متن را تیک بزنید' : now === pressed ? 'این متن‌ها را همین حالا جستجو کرده‌اید' : '';
+    };
     const drawPass = () => {
-      passBox.replaceChildren(...(SP || []).map(q => el('div', { style: 'margin-top:10px' },
-        el('h3', {}, swatch(q.clause), ' ', el('span', { class: 'ar' }, clauseRaw(S, q.clause)), ' ', el('span', { class: 'small muted' }, `${fa(q.items.length)} قطعه`),
-          c.can && !STATIC && q.items.length ? [' ', el('button', { class: 'small', onclick: () => { q.items.forEach(it => picked.add(pk(it.wid, q.clause))); drawPass(); } }, 'تیک همه'),
-            ' ', el('button', { class: 'small', onclick: () => { q.items.forEach(it => picked.delete(pk(it.wid, q.clause))); drawPass(); } }, 'برداشتن تیک')] : null),
-        q.items.length ? el('div', { class: 'grid-wrap', style: 'max-height:60vh' }, el('table', { class: 'cands' }, q.items.map(it => passRow(q, it))))
-          : el('p', { class: 'muted small' }, 'قطعه‌ای با این هم‌معنایی در حدیث‌های دیگر نیامد (کمترین هم‌معنایی را در نوار «اجرا» کم کنید).'))));
+      passBox.replaceChildren(...(SP || []).map(q => el('div', { style: 'margin-top:14px' },
+        el('div', { class: 'small muted' }, 'متن این بخش در حدیث‌های فهرست مرحله‌ی ۱ (با اعراب خودِ حدیث؛ در مرحله‌ی ۲ بی‌اعراب و رنگی می‌بینید):'),
+        el('h3', { style: 'margin-top:2px' }, swatch(q.clause), ' ', el('span', { class: 'ar' }, clauseRaw(S, q.clause)), ' ', el('span', { class: 'small muted' }, `${fa(q.variants.length)} متنِ دیگر`),
+          c.can && !STATIC && q.variants.length ? [' ', el('button', { class: 'small', onclick: () => { q.variants.forEach(v => wids(v).forEach(w => picked.add(pk(w, q.clause)))); drawPass(); } }, 'تیک همه'),
+            ' ', el('button', { class: 'small', onclick: () => { q.variants.forEach(v => wids(v).forEach(w => picked.delete(pk(w, q.clause)))); drawPass(); } }, 'برداشتن تیک')] : null),
+        q.variants.length ? el('div', { class: 'grid-wrap', style: 'max-height:60vh' }, el('table', { class: 'cands' }, q.variants.map(v => passRow(q, v))))
+          : el('p', { class: 'muted small' }, 'متنی با این هم‌معنایی در حدیث‌های دیگر نیامد (کمترین هم‌معنایی را در نوار «اجرا» کم کنید).'))));
       updPass();
     };
     const legacyPress = !semParts && !!(rsem.n || (sdec.ret && sdec.ret.sem));      // a semantic list made by the one-press way
     K.semPass = card(['بخش‌های هم‌معنا'], help('step2.semantic'),
-      el('p', { class: 'muted small' }, 'برای هر بخشی که در مرحله‌ی ۲ تیک خورده، قطعه‌هایی از حدیث‌های دیگر که معنایشان به آن نزدیک است (نه خود حدیث‌ها). هر قطعه‌ای را که واقعاً هم‌معنای آن بخش می‌دانید تیک بزنید و «جستجو» را بزنید؛ آنگاه حدیث‌هایی که آن قطعه‌ها را دارند در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
+      el('p', { class: 'muted small' }, 'برای هر بخشی که در مرحله‌ی ۲ تیک خورده، متن‌های دیگری که معنایشان به آن نزدیک است. هر متن یک بار آمده، هرچند حدیث‌های بسیار آن را بیاورند («در n حدیث» را باز کنید تا ببینید کدام‌ها)؛ واژه‌های رنگی را خود بخش هم دارد. هر متنی را که واقعاً هم‌معنای آن بخش می‌دانید تیک بزنید و «جستجو» را بزنید؛ آنگاه حدیث‌هایی که آن متن‌ها را دارند در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
       semParts && SP ? el('div', { class: 'toolbar' }, passCount, c.can && !STATIC ? pickBtn : null)
-        : el('p', { class: 'empty-state' }, semParts ? 'قطعه‌های هم‌معنا هنوز آماده نیست (محاسبه در جریان است).'
-          : 'هنوز قطعه‌ی هم‌معنایی یافته نشده است. «اجرا» را در نوار بالای صفحه بزنید' + (legacyPress ? ' (فهرست پایین از شیوه‌ی پیشین است و با اجرای تازه جایش را به قطعه‌ها می‌دهد).' : '.')),
+        : el('p', { class: 'empty-state' }, semParts ? 'متن‌های هم‌معنا هنوز آماده نیست (محاسبه در جریان است).'
+          : 'هنوز متن هم‌معنایی یافته نشده است. «اجرا» را در نوار بالای صفحه بزنید' + (legacyPress ? ' (فهرست پایین از شیوه‌ی پیشین است و با اجرای تازه جایش را به متن‌ها می‌دهد).' : '.')),
       pickErr, semParts ? passBox : null);
     if (semParts) {
-      K.semantic = card(['حدیث‌های قطعه‌های تیک‌خورده'], rsem.picks && rsem.picks.length ? [
-        el('p', { class: 'muted small' }, 'حدیث‌هایی که قطعه‌های تیک‌خورده‌ی بالا را دارند، با بخش‌های حدیث‌ها سنجیده شده‌اند. از پیش تیک نخورده‌اند؛ هرچه را شاهد می‌دانید تیک بزنید، مثل نامزدهای دیگر در هم‌ترازی و مرحله‌های بعد می‌آید.'),
-        el('div', { class: 'toolbar' }, semCount), semList] : [el('p', { class: 'muted small' }, 'پس از تیک‌زدن قطعه‌ها و زدن «جستجو»، حدیث‌هایشان اینجا می‌آید.')]);
+      K.semantic = card(['حدیث‌های متن‌های تیک‌خورده'], rsem.picks && rsem.picks.length ? [
+        el('p', { class: 'muted small' }, 'حدیث‌هایی که متن‌های تیک‌خورده‌ی بالا را دارند، با بخش‌های حدیث‌ها سنجیده شده‌اند. از پیش تیک نخورده‌اند؛ هرچه را شاهد می‌دانید تیک بزنید، مثل نامزدهای دیگر در هم‌ترازی و مرحله‌های بعد می‌آید.'),
+        el('div', { class: 'toolbar' }, semCount), semList] : [el('p', { class: 'muted small' }, 'پس از تیک‌زدن متن‌ها و زدن «جستجو»، حدیث‌هایشان اینجا می‌آید.')]);
     } else if (legacyPress) {
       K.semantic = card(['هم‌معنا با واژگان دیگر (جستجوی پیشین)'],
-        el('p', { class: 'muted small' }, 'حدیث‌هایی که با واژه‌های دیگر همان معنای بخش‌های حدیث‌ها را دارند و جستجوی لفظی آن‌ها را نیاورد؛ با شیوه‌ی پیشین ساخته شده‌اند. هرچه را شاهد می‌دانید تیک بزنید. «اجرا» (نوار بالا) به‌جای این، قطعه‌های هم‌معنا را نشان می‌دهد تا خودتان برگزینید.'),
+        el('p', { class: 'muted small' }, 'حدیث‌هایی که با واژه‌های دیگر همان معنای بخش‌های حدیث‌ها را دارند و جستجوی لفظی آن‌ها را نیاورد؛ با شیوه‌ی پیشین ساخته شده‌اند. هرچه را شاهد می‌دانید تیک بزنید. «اجرا» (نوار بالا) به‌جای این، متن‌های هم‌معنا را نشان می‌دهد تا خودتان برگزینید.'),
         el('div', { class: 'toolbar' }, semCount), semList);
     }
     K.added = card(['حدیث‌های افزوده‌ی شما'], help('step2.added'),

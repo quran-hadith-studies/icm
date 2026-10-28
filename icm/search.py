@@ -665,6 +665,27 @@ def _fold_across_corpora(rows: List[dict]) -> List[dict]:
     return [r for r in rows if r["wid"] not in drop]
 
 
+def sem_variants(S: dict) -> List[dict]:
+    """``S["sem_parts"]`` (one item per hadith) as the user reads it: per part, the distinct TEXTS of the passages found (the same
+    words, whatever the diacritics and spelling, are one text) with the hadiths that have each. ``words``: the passage's words,
+    each with whether the part itself has it (``match_key``). Shown by the semantic step; not stored."""
+    out = []
+    own = {c["i"]: {match_key(t) for t in c["text"].split()} for c in S.get("clauses") or []}
+    for q in S.get("sem_parts") or []:
+        have, groups = own.get(q["clause"], set()), {}
+        for it in q["items"]:
+            g = groups.setdefault(" ".join(tokens(it["text"])), dict(text=it["text"], cos=it["cos"], cut_before=it["cut_before"], cut_after=it["cut_after"], items=[]))
+            g["items"].append({k: it[k] for k in ("wid", "cos", "copies", "book", "title", "author", "tradition", "vol", "page")})
+        vs = []
+        for g in groups.values():
+            g["words"] = [[w, bool(have & {match_key(t) for t in tokens(w)})] for w in g["text"].split()]
+            g["cos"] = max(i["cos"] for i in g["items"])
+            g["n"] = sum(1 + len(i["copies"]) for i in g["items"])
+            vs.append(g)
+        out.append(dict(clause=q["clause"], variants=sorted(vs, key=lambda g: -g["cos"])))
+    return out
+
+
 def with_marks(S: dict) -> dict:
     """Add ``marks`` (``[start, end, clause]`` character ranges, see ``text.marks``) to the seed and to every
     candidate of a search result, for display: where each part is in each text. A hadith of step 1's list shows its own
@@ -707,4 +728,6 @@ def with_marks(S: dict) -> dict:
                     if r and lab[j] < 0 and a >= r[0] and b <= r[1]:
                         lab[j] = h["clause"]
         cand["marks"] = marks(cand["matn"], lab)
+    if S.get("sem_parts"):
+        S["sem_variants"] = sem_variants(S)
     return S

@@ -8,6 +8,7 @@ h2{font-size:18px}h3{font-size:15px;margin-top:14px}
 .log{font-size:12px;max-height:180px;overflow:auto;color:var(--muted)}
 .bar{height:6px;background:var(--line);border-radius:99px;overflow:hidden;min-width:60px}.bar>i{transition:width 300ms ease-out}.bar>i{display:block;height:100%;background:var(--accent)}
 /* clause colours: elements set --h (a hue) per part of the seed */
+.pv{background:hsl(var(--h) var(--hl-s) var(--hl-l));border-radius:4px;padding:1px 2px}
 .hl{background:hsl(var(--h) var(--hl-s) var(--hl-l));border-radius:4px;padding:1px 0;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .sw{display:inline-block;min-width:22px;border-radius:5px;background:hsl(var(--h) var(--k-s) var(--k-l));color:var(--on-sw,#fff);text-align:center;font-size:12px;font-weight:600}
 .strip{display:inline-flex;gap:2px;vertical-align:middle}
