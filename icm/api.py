@@ -577,12 +577,12 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             go = D["go"] or {}
             project.add_decision(pid, "go", dict({k: go[k] for k in ("align", "identify") if go.get(k)}, identify=pipeline.go_key(pl["k_search"], pl["selected"])), user, "identify asked for")
         elif what == "graph":
-            need("identify" in have and "graph" in pl["keys"], "نخست راویان را بیابید و ذخیره کنید (مرحله‌ی ۹)")
+            need("identify" in have and "graph" in pl["keys"], "نخست راویان را بیابید و ذخیره کنید (مرحله‌ی ۷)")
             prev = {k: v for k, v in (D["phylogeny"] or {}).items() if k not in wizard.META}
             project.add_decision(pid, "phylogeny", dict(prev, build=pl["keys"]["graph"]), user, "tree ordered")
             wizard.touch(pid)
         elif what == "infer":
-            need("graph" in have, "نخست شجره را بسازید (مرحله‌ی ۱۰)")
+            need("graph" in have, "نخست شجره را بسازید (مرحله‌ی ۸)")
             prev = {k: v for k, v in (D["phylogeny"] or {}).items() if k not in wizard.META}
             preset, compute = body.get("preset", prev.get("preset")), body.get("compute") or prev.get("compute") or "browser"
             if preset is not None and preset not in config.PRESETS:

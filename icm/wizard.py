@@ -1,4 +1,4 @@
-"""The eleven steps of the wizard and where a project stands in them.
+"""The nine steps of the wizard and where a project stands in them.
 
     staleness(pid) -> dict(current, stale_any, steps=[{n, slug, stage, state, changed_since, run, ...}])
     touch(pid)     -> writes the project's ``step`` (the slug of the first step that is not done) and ``stale``
@@ -19,13 +19,12 @@ from typing import Dict, List, Optional
 
 from . import config, narrator_versions, pipeline, project
 
-WIZARD = ("hadiths", "parts", "candidates", "semantic", "added", "slots", "alignment", "units", "narrators", "graph", "run")
-STAGE_OF = ("search", "search", "search", "search", "search", "align", "align", "align", "identify", "graph", "infer")
-TITLES = ("حدیث‌ها", "حدیث‌ها و بخش‌هایشان", "نامزدها", "هم‌معنا", "حدیث‌های افزوده", "فرازبندی بخش‌ها در شاهدها", "هم‌ترازی", "واحدهای تغییر", "راویان", "شجره", "اجرا")
+WIZARD = ("hadiths", "parts", "candidates", "semantic", "added", "alignment", "narrators", "graph", "run")
+STAGE_OF = ("search", "search", "search", "search", "search", "align", "identify", "graph", "infer")
+TITLES = ("حدیث‌ها", "حدیث‌ها و بخش‌هایشان", "نامزدها", "هم‌معنا", "حدیث‌های افزوده", "هم‌ترازی", "راویان", "شجره", "اجرا")
 # the run button of a step: (what, label, heavy: asks before it starts); step 1 has none (its changes are run by step 2)
 RUN = {2: ("rescore", "سنجش بخش‌ها و نامزدها", False), 3: ("search", "جستجو", False), 4: ("semantic", "یافتن بخش‌های هم‌معنا", False), 5: ("rescore", "سنجش حدیث‌های افزوده", False),
-       6: ("align", "ساخت هم‌ترازی", True), 7: ("align", "ساخت دوباره‌ی هم‌ترازی", True), 8: ("align", "ساخت دوباره‌ی هم‌ترازی", True),
-       9: ("identify", "یافتن راویان", True), 10: ("graph", "ساخت شجره", False), 11: ("infer", "اجرای تحلیل", True)}
+       6: ("align", "ساخت هم‌ترازی", True), 7: ("identify", "یافتن راویان", True), 8: ("graph", "ساخت شجره", False), 9: ("infer", "اجرای تحلیل", True)}
 
 META = {"version", "user", "created", "note", "prev"}
 # (decision step, field) -> (the wizard step it is the data of, the step whose button makes it count)
@@ -35,14 +34,14 @@ FIELDS = {
     ("parts", "cuts"): (2, 2), ("parts", "cuts_confirmed"): (2, 2), ("parts", "seed"): (2, 2), ("parts", "seed_confirmed"): (2, 2),
     ("parts", "join"): (2, 2), ("parts", "keep_ids"): (2, 2),
     ("parts", "extras_added"): (6, 6), ("parts", "extras_dropped"): (6, 6), ("parts", "slots"): (6, 6), ("parts", "confirmed"): (6, 6), ("parts", "refs"): (6, 6),
-    ("parts", "words"): (7, 7), ("parts", "unit_cls"): (7, 7), ("parts", "units"): (8, 8), ("parts", "renames"): (9, 9), ("parts", "chain"): (9, 9),
+    ("parts", "words"): (6, 6), ("parts", "unit_cls"): (6, 6), ("parts", "units"): (6, 6), ("parts", "renames"): (7, 7), ("parts", "chain"): (7, 7),
     ("selection", "selected"): (3, 6), ("selection", "reset"): (3, 6),
-    ("narrators", "name"): (9, 9),
-    ("phylogeny", "dates"): (10, 10), ("phylogeny", "chain_edits"): (10, 10), ("phylogeny", "deleted"): (10, 10),
-    ("phylogeny", "preset"): (11, 11), ("phylogeny", "compute"): (11, 11),
-    ("phylogeny", "build"): None, ("phylogeny", "confirmed"): None,           # the run buttons of steps 10 and 11 write these: they are the run itself
+    ("narrators", "name"): (7, 7),
+    ("phylogeny", "dates"): (8, 8), ("phylogeny", "chain_edits"): (8, 8), ("phylogeny", "deleted"): (8, 8),
+    ("phylogeny", "preset"): (9, 9), ("phylogeny", "compute"): (9, 9),
+    ("phylogeny", "build"): None, ("phylogeny", "confirmed"): None,           # the run buttons of steps 8 and 9 write these: they are the run itself
 }
-DEFAULT = {"search": (1, 2), "parts": (6, 6), "selection": (3, 6), "identities": (9, 9), "narrators": (9, 9), "phylogeny": (10, 10)}
+DEFAULT = {"search": (1, 2), "parts": (6, 6), "selection": (3, 6), "identities": (7, 7), "narrators": (7, 7), "phylogeny": (8, 8)}
 
 _PLANS: Dict[tuple, tuple] = {}
 _TTL = 20.0                                   # seconds: a job that was cancelled half-way leaves stage files the key does not show
@@ -93,10 +92,10 @@ def staleness(pid: str, job: Optional[dict] = None) -> dict:
     origins = changed(pid, vers, D, mv) if m else []
     want = pipeline.want_of(job["kind"]) if job else False                  # False: nothing runs
     ready = {1: True, 2: True, 3: True, 4: bool(sdec.get("ret")), 5: True,
-             6: "search" in cached and gate != "selection", 7: "search" in cached and gate != "selection", 8: "search" in cached and gate != "selection",
-             9: "align" in cached, 10: "graph" in keys, 11: "graph" in cached}
+             6: "search" in cached and gate != "selection",
+             7: "align" in cached, 8: "graph" in keys, 9: "graph" in cached}
     steps = []
-    for n in range(1, 12):
+    for n in range(1, 10):
         s = STAGE_OF[n - 1]
         key = keys.get(s)
         fresh = bool(m) and key is not None and mst.get(s) == key
@@ -113,7 +112,7 @@ def staleness(pid: str, job: Optional[dict] = None) -> dict:
             state = "idle"
         elif not ready[n]:
             state = "stale" if s in mst else "unreached"                          # what it had is out of date, and what it needs is not there yet
-        elif gate == "awaiting" and n == 11:
+        elif gate == "awaiting" and n == 9:
             state = "awaiting"
         elif mine:
             state = "needs_run"
@@ -124,7 +123,7 @@ def staleness(pid: str, job: Optional[dict] = None) -> dict:
         elif n == 4 and pl.get("sem_stale"):
             state = "stale"
             since = sorted(set(since) | {2})
-        elif (n == 3 and gate == "selection") or (n == 9 and gate == "identities"):
+        elif (n == 3 and gate == "selection") or (n == 7 and gate == "identities"):
             state = "todo"                                                         # run and current: the user's own decision on it is still missing
         else:
             state = "done"

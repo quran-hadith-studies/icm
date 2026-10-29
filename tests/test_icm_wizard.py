@@ -40,16 +40,16 @@ def test_marks_of_the_steps_after_a_change():
         c = TestClient(a)
         pid, sel = _chain(c, d)
         by, w = _states(c, pid)
-        assert [by[s]["state"] for s in ("hadiths", "parts", "candidates", "slots", "alignment", "units", "narrators", "graph")] == ["done"] * 8
+        assert [by[s]["state"] for s in ("hadiths", "parts", "candidates", "alignment", "narrators", "graph")] == ["done"] * 6
         assert by["semantic"]["state"] == "idle" and by["run"]["state"] == "needs_run" and w["current"] == "run" and not w["stale_any"]
-        # a word edit on step 7 is run by step 7's button; the other pages of the alignment and every step after it are marked
+        # a word edit is run by the alignment step's button; every step after it is marked
         prev = {k: v for k, v in project.decision(pid, "parts").items() if k not in wizard.META} if project.decision(pid, "parts") else {}
         project.add_decision(pid, "parts", dict(prev, words={"x": {"y": 1}}), "alice")
         by, w = _states(c, pid)
         assert by["alignment"]["state"] == "needs_run"
-        assert [by[s]["state"] for s in ("slots", "units", "narrators", "graph")] == ["stale"] * 4
+        assert [by[s]["state"] for s in ("narrators", "graph")] == ["stale"] * 2
         assert all(by[s]["state"] in ("done", "idle") for s in ("hadiths", "parts", "candidates", "semantic", "added"))
-        assert [x["slug"] for x in by["graph"]["changed_since"]] == ["alignment"] and w["stale_any"] and w["current"] == "slots"
+        assert [x["slug"] for x in by["graph"]["changed_since"]] == ["alignment"] and w["stale_any"] and w["current"] == "alignment"
         # the same words again: nothing moved, nothing is marked
         project.add_decision(pid, "parts", dict(prev), "alice")
         by, w = _states(c, pid)
@@ -192,7 +192,7 @@ def test_a_run_records_the_decisions_it_was_built_from(monkeypatch):
         m = project.runs(pid)[-1]
         assert m["versions"]["selection"] == before["selection"] == 0 and project.versions(pid)["selection"] == 1
         by, w = _states(c, pid)
-        assert by["slots"]["state"] in ("needs_run", "unreached") or w["steps"]
+        assert by["alignment"]["state"] in ("needs_run", "unreached") or w["steps"]
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -210,6 +210,13 @@ def test_rename_index_and_pages():
         assert c.get(f"/icm/p/{pid}/settings/general").status_code == 200 and c.get(f"/icm/p/{pid}/results").status_code == 200
         assert "wizard.js" in c.get(f"/icm/p/{pid}/hadiths").text
         info = c.get(f"/icm/api/project/{pid}").json()
-        assert len(info["wizard"]["steps"]) == 11 and info["busy"] and "semantic_available" in info
+        assert len(info["wizard"]["steps"]) == 9 and info["busy"] and "semantic_available" in info
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+def test_the_alignment_is_one_step_with_one_run():
+    assert len(wizard.WIZARD) == len(wizard.STAGE_OF) == len(wizard.TITLES) == 9
+    assert [n for n, (what, *_) in wizard.RUN.items() if what == "align"] == [wizard.WIZARD.index("alignment") + 1]     # the words, the units and the parts' places are views of one run
+    assert [wizard.FIELDS[("parts", k)] for k in ("slots", "words", "unit_cls", "units")] == [(6, 6)] * 4
+    assert project.LEGACY_STEP["slots"] == project.LEGACY_STEP["units"] == "alignment"                                # a project left on one of the old pages opens the merged step

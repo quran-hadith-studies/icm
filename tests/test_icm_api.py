@@ -369,7 +369,7 @@ def test_each_step_runs_only_when_the_user_presses_its_button_and_nothing_runs_w
         assert c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel}}, headers=H("alice")).status_code == 200
         assert jobs.active(pid) is None                                               # a save runs nothing
         p = pipeline.advance(pid, want=set())                                         # chosen, but nothing is computed until asked
-        assert p["step"] == "slots" and p["status"] == "draft" and stage("align") is None and stage("identify") is None
+        assert p["step"] == "alignment" and p["status"] == "draft" and stage("align") is None and stage("identify") is None
         assert run(c, pid, "nope", 404) and run(c, pid, "identify", 409) and run(c, pid, "align", 403, user="bob")
         p = run(c, pid, "align")                                                      # step 6's button: the alignment only
         assert p["step"] == "narrators" and stage("align") is not None and stage("identify") is None
@@ -379,10 +379,10 @@ def test_each_step_runs_only_when_the_user_presses_its_button_and_nothing_runs_w
         assert c.post(f"/icm/api/project/{pid}/decide/selection", json={"payload": {"selected": sel[:2]}}, headers=H("alice")).status_code == 200
         w = c.get(f"/icm/api/project/{pid}").json()["wizard"]
         by = {x["slug"]: x for x in w["steps"]}
-        assert by["slots"]["state"] == "needs_run" and by["narrators"]["state"] == "stale" and by["narrators"]["changed_since"][0]["slug"] == "candidates"
-        assert by["candidates"]["state"] == "done" and w["stale_any"] and w["current"] == "slots"
+        assert by["alignment"]["state"] == "needs_run" and by["narrators"]["state"] == "stale" and by["narrators"]["changed_since"][0]["slug"] == "candidates"
+        assert by["candidates"]["state"] == "done" and w["stale_any"] and w["current"] == "alignment"
         p = pipeline.advance(pid, want=set())
-        assert p["step"] == "slots" and stage("align") is None
+        assert p["step"] == "alignment" and stage("align") is None
         p = ask(c, pid, "align", "identify")
         assert stage("identify") is not None
         # nothing runs while a job of the project is queued or running: every button, the re-run and a version change answer 409

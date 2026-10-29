@@ -3,7 +3,7 @@
    uses its globals when called. */
 window.ICMSettings = (() => {
   const SECTIONS = [['general', 'عمومی'], ['narrators', 'پایگاه راویان'], ['versions', 'نسخه‌ها'], ['download', 'دانلود'], ['danger', 'حذف پروژه']];
-  const GROUPS = [['seed', 'حدیث‌ها'], ['selection', 'جستجو و انتخاب (مرحله‌های ۲ تا ۵)'], ['alignment', 'هم‌ترازی (مرحله‌های ۶ تا ۸)'], ['identities', 'راویان'], ['phylogeny', 'شجره'], ['analysis', 'نتایج']];
+  const GROUPS = [['seed', 'حدیث‌ها'], ['selection', 'جستجو و انتخاب (مرحله‌های ۲ تا ۵)'], ['alignment', 'هم‌ترازی (مرحله‌ی ۶)'], ['identities', 'راویان'], ['phylogeny', 'شجره'], ['analysis', 'نتایج']];
 
   /* one link per step's file and one for the whole project: self-contained HTML (export.py) */
   function exportLinks(pid, run) {

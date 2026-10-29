@@ -8,7 +8,7 @@ search -> alignment -> identities -> graph -> analysis. ``want`` is the set of s
 on disk is always read); ``None`` computes everything the decisions allow. Saving a decision never runs anything: the
 run buttons (``api.run``) enqueue a job whose ``want`` is ``want_of(kind)``. The chain stops at a stage that is neither
 cached nor wanted, and at the user's own gates: no selection; no identities decision; the tree ``build`` (the key of the
-graph step 10 orders); ``confirmed`` (for exactly this graph). The ``parts`` decision (the user's segmentation) changes
+graph step 8 orders); ``confirmed`` (for exactly this graph). The ``parts`` decision (the user's segmentation) changes
 search and alignment when it is made; its confirmations are read by the pages only.
 """
 from __future__ import annotations
@@ -245,10 +245,10 @@ def _walk(pid: str, p: dict, D: dict, use, info: dict, say, dry: bool = False) -
     A = use("align", k_align, lambda: align_mod.run(S, selected, parts_in), need=False)
     say("identify", 0.4, "finding the narrators")
     V = project.narrator_version(pid, D)
-    ren = pdec.get("renames") or None                         # step 9: where a name begins and ends (only then, so keys stay)
-    ced = pdec.get("chain") or None                           # step 9: places added, removed or re-bounded in the text
+    ren = pdec.get("renames") or None                         # step 7: where a name begins and ends (only then, so keys stay)
+    ced = pdec.get("chain") or None                           # step 7: places added, removed or re-bounded in the text
     iddec = D["identities"]
-    idrops = sorted(set((iddec or {}).get("drops") or [])) or None   # step 9: places removed on the main page leave the chain too
+    idrops = sorted(set((iddec or {}).get("drops") or [])) or None   # step 7: places removed on the main page leave the chain too
     k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([ren] if ren else []),
                 *([ced] if ced else []), *([{"drops": idrops}] if idrops else []))
     I = use("identify", k_ident, lambda: _identify(S, A, V, ren, ced, idrops), need=False)
@@ -267,9 +267,9 @@ def _walk(pid: str, p: dict, D: dict, use, info: dict, say, dry: bool = False) -
         iddec_in["splits"] = iddec["splits"]
     k_graph = info["k_graph"] = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
     info["keys"]["graph"] = k_graph
-    gone = phdec.get("deleted") == k_graph                    # step 10 «حذف شجره»: the cached tree stays on disk but is not shown until it is ordered again
+    gone = phdec.get("deleted") == k_graph                    # step 8 «حذف شجره»: the cached tree stays on disk but is not shown until it is ordered again
     if (project.stage_get(pid, "graph", k_graph) is None or gone) and phdec.get("build") != k_graph:
-        return dict(status="draft", gate="build")             # step 10 orders the tree by hand
+        return dict(status="draft", gate="build")             # step 8 orders the tree by hand
     G = use("graph", k_graph, lambda: _graph(A, I, iddec_in, ph_in, S, V), need=phdec.get("confirmed") == k_graph)
     if phdec.get("confirmed") != k_graph:
         return dict(status="draft", gate="confirm")

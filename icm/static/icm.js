@@ -138,7 +138,7 @@ const FLAG_FA = {
   seed_short: 'متن حدیث‌ها کوتاه است و جستجو کم‌اعتماد است.', family_large: 'خانواده بسیار بزرگ است.',
   heads_capped: 'تعداد سرزنجیره‌ها از حد گذشت؛ فقط پرشاهدترها نامزد منبع شدند.', units_capped: 'فقط آگاهی‌بخش‌ترین واحدهای تغییر نگه داشته شد.',
   chronology: 'ناسازگاری زمانی: استاد پس از شاگرد درگذشته است (هویت یکی از آن‌ها را بررسی کنید).', repeated_node: 'یک راوی دو بار در یک سند آمده بود.',
-  chain_too_short: 'سندی با کمتر از دو راوی.', witness_without_chain: 'شاهدی بدون سند خوانا؛ فقط در گردآورنده‌اش لنگر شد (پیشنهاد کنار گذاشتنش در مرحله‌ی ۹ آمده است).',
+  chain_too_short: 'سندی با کمتر از دو راوی.', witness_without_chain: 'شاهدی بدون سند خوانا؛ فقط در گردآورنده‌اش لنگر شد (پیشنهاد کنار گذاشتنش در مرحله‌ی ۷ آمده است).',
   unknown_witness: 'شاهد انتخاب‌شده در نتایج جستجو نیست.', part_unused: 'یکی از اصلاح‌های فرازبندی به بخش یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.', no_chain: 'برای این شاهد سندی خوانده نشد.',
   unit_unused: 'یکی از اصلاح‌های واحدها به واحد، واژه یا شاهدی برمی‌گردد که در این هم‌ترازی نیست؛ به کار نرفت.',
   unit_constant: 'واحدی که نگه داشته یا ساخته‌اید در همه‌ی شاهدها یک حالت دارد؛ به مدل نمی‌رود.' };
@@ -767,7 +767,7 @@ const panels = {
       const pending = Object.keys(want).length, nOn = cand.filter(isOn).length, mine = decided(), all = (on) => () => { vis.filter(usable).forEach(x => setWant(x, on)); drawUnits(); };
       unitsBox.replaceChildren(
         canEdit && cand.some(usable) ? el('div', { class: 'toolbar' },
-          el('b', {}, `${fa(nOn)} از ${fa(cand.length)} واحد برای مدل (مرحله‌ی ۱۰) انتخاب شده`),
+          el('b', {}, `${fa(nOn)} از ${fa(cand.length)} واحد برای مدل (مرحله‌ی ۸) انتخاب شده`),
           el('button', { class: 'small', onclick: all(true) }, 'انتخاب همه'), el('button', { class: 'small', onclick: all(false) }, 'برداشتن همه'),
           el('button', { class: 'small', disabled: !mine.length || pending > 0, title: 'همه‌ی «نگه داشتن» و «کنار گذاشتن»های شما برداشته می‌شود و انتخاب خودکار برمی‌گردد', onclick: () => saveUnits(mine, 'unit selection reset') }, 'بازگشت به انتخاب خودکار'),
           pending ? [el('span', { class: 'small warn' }, `${fa(pending)} تغییر ذخیره‌نشده`), el('button', { class: 'small', onclick: () => { Object.keys(want).forEach(k => delete want[k]); drawUnits(); } }, 'لغو تغییرها'),
@@ -898,14 +898,14 @@ const panels = {
           el('span', { class: 'small muted' }, ' مرحله‌های بعد نیز باید دوباره اجرا شوند؛ اجرای کنونی پاک نمی‌شود.')) : null,
         tools, pickBox, body);
     K.units = card(['واحدهای تغییر: ورودی مدل شجره', helpOf('این واحدها چه کاری می‌کنند؟',
-          el('p', {}, 'مدل شجره (مرحله‌ی ۱۰ و ۱۱) هم سندها را می‌بیند و هم این واحدها را. شاهدهایی که در واحدهای بیشتری حالتِ کم‌یاب مشترک دارند (مثلاً «سبعة» به جای «ستة» و پرسشِ «ومن هم یا رسول الله») به احتمال بیشتر از یک منبع یا یک راوی مشترک گرفته‌اند. پس این جدول همان چیزی است که متن‌ها در برآورد «قدیمی‌ترین منبع» می‌گویند.'),
+          el('p', {}, 'مدل شجره (مرحله‌ی ۸ و ۹) هم سندها را می‌بیند و هم این واحدها را. شاهدهایی که در واحدهای بیشتری حالتِ کم‌یاب مشترک دارند (مثلاً «سبعة» به جای «ستة» و پرسشِ «ومن هم یا رسول الله») به احتمال بیشتر از یک منبع یا یک راوی مشترک گرفته‌اند. پس این جدول همان چیزی است که متن‌ها در برآورد «قدیمی‌ترین منبع» می‌گویند.'),
           el('ul', {},
             el('li', {}, el('b', {}, 'حضور بخش: '), 'آیا شاهد این بخش را دارد؟ (دارد / ندارد)'),
             el('li', {}, el('b', {}, 'حضور واژه: '), 'چند واژه‌ی کنار هم که برخی شاهدها دارند و برخی نه.'),
             el('li', {}, el('b', {}, 'واژه‌ی جایگزین: '), 'در یک جایگاه، شاهدها واژه‌های مختلف دارند؛ هر واژه یک حالت.'),
             el('li', {}, el('b', {}, 'عدد: '), 'عددی که حدیث می‌گوید (۴، ۵، ۶، ۷…).')),
           el('p', {}, `«نامعلوم» یعنی آن جا در متن شاهد نیامده چون کوتاه یا خلاصه شده است؛ مدل آن را حدس نمی‌زند. واحدی که فقط یک شاهد با بقیه فرق دارد درباره‌ی گروه‌بندی چیزی نمی‌گوید و کنار گذاشته شد (${fa(nPrivate)} واحد)؛ ${A.dropped_orthographic ? fa(A.dropped_orthographic) + ' ستون هم فقط اختلاف املایی داشت. ' : ''}حداکثر ۴۰ واحد خودکار نگه داشته می‌شود، آگاهی‌بخش‌ترها نخست؛ واحدهایی که خودتان نگه می‌دارید یا می‌سازید جدا از این سقف‌اند.`))], help('step3.units'),
-        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۱۰ (شجره) می‌رود.${DU.length ? ` ${fa(DU.length)} واحد را خودتان کنار گذاشته‌اید.` : ''}${canEdit ? ' ستون «در مدل» را تیک بزنید یا بردارید تا تعیین کنید کدام واحدها به مرحله‌ی بعد بروند (واحدهای کنارگذاشته هم در همین جدول‌اند)؛ با «+ واحد تازه» بالای جدول هم‌ترازی روی چند ستون واحدی بسازید.' : ''}`),
+        el('p', { class: 'small' }, `واحد تغییر جایی از متن است که شاهدها در آن با هم فرق دارند؛ هر شاهد در هر واحد یک «حالت» دارد. ${fa(A.n_units)} واحد از جدول بالا بیرون کشیده شد و به مرحله‌ی ۸ (شجره) می‌رود.${DU.length ? ` ${fa(DU.length)} واحد را خودتان کنار گذاشته‌اید.` : ''}${canEdit ? ' ستون «در مدل» را تیک بزنید یا بردارید تا تعیین کنید کدام واحدها به مرحله‌ی بعد بروند (واحدهای کنارگذاشته هم در همین جدول‌اند)؛ با «+ واحد تازه» بالای جدول هم‌ترازی روی چند ستون واحدی بسازید.' : ''}`),
         stale ? el('div', { class: 'help warnbox' }, 'این هم‌ترازی با نسخه‌ی پیشینِ برنامه ساخته شده است: واحدهای کنارگذاشته (مانند واژه‌ای که فقط یک شاهد دارد، یا ستون‌هایی که فقط در املا فرق دارند) در این جدول نیستند و برخی واحدها را نمی‌توان برداشت. با «اجرای دوباره» همه‌ی آن‌ها در جدول می‌آیند و می‌توانید تیکشان بزنید. ',
           c.can && !STATIC ? el('button', { class: 'small', onclick: async () => { await post(`/project/${c.pid}/run/align`, {}); reloadAt(c.pid, 'alignment'); } }, 'ساخت دوباره با برنامه‌ی تازه') : 'سازنده‌ی پروژه می‌تواند آن را دوباره اجرا کند.',
           el('span', { class: 'small muted' }, ' مرحله‌های بعد نیز باید دوباره اجرا شوند.')) : null,
@@ -1702,7 +1702,7 @@ const panels = {
       const [I5, id5] = await Promise.all([stage(c.pid, c.runId, 'identify').catch(() => null), decOf(c, 'identities').catch(() => ({}))]);
       return main.replaceChildren(card('شجره', help('step5.build'), !c.readonly && I5 ? undNote(c.pid, undecidedKeys(I5, id5), I5, false) : null,
         el('p', { class: 'small' }, c.readonly ? 'در این نسخه شجره ساخته نشده بود.' : 'شجره هنوز ساخته نشده است. با دکمه‌ی «ساخت شجره» بالای صفحه، شجره از تصمیم‌های ذخیره‌شده‌ی راویان ساخته می‌شود؛ اگر هنوز می‌خواهید چیزی را عوض کنید، ',
-          !c.readonly ? [el('a', { href: BASE + stepUrl(c.pid, null, 'narrators'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'narrators')); } }, 'به مرحله‌ی ۹ (راویان) برگردید'), '.'] : null)));
+          !c.readonly ? [el('a', { href: BASE + stepUrl(c.pid, null, 'narrators'), onclick: ev => { ev.preventDefault(); go(stepUrl(c.pid, null, 'narrators')); } }, 'به مرحله‌ی ۷ (راویان) برگردید'), '.'] : null)));
     }
     /* the parts not yet confirmed (step 3) and the seed's segmentation (step 2): a reminder, never a block */
     const [A5, S5, pd5, I5] = await Promise.all([stage(c.pid, c.runId, 'align').catch(() => null), stage(c.pid, c.runId, 'search').catch(() => null), decOf(c, 'parts'),
@@ -1726,7 +1726,7 @@ const panels = {
       return el('li', {}, step4(wid, null, t), el('span', { class: 'small muted wid', dir: 'ltr' }, wid), what.length ? el('div', { class: 'small' }, ...what) : null);
     };
     const groups = {}; G.flags.forEach(f => (groups[f.kind] ||= []).push(f));
-    const flagsCard = G.flags.length ? card('هشدارها', help('step5.warnings'), el('p', { class: 'small muted' }, 'هر هشدار را باز کنید تا حدیث‌ها و راویان آن را ببینید؛ نام حدیث یا راوی شما را به همان جا در مرحله‌ی ۹ می‌برد.'),
+    const flagsCard = G.flags.length ? card('هشدارها', help('step5.warnings'), el('p', { class: 'small muted' }, 'هر هشدار را باز کنید تا حدیث‌ها و راویان آن را ببینید؛ نام حدیث یا راوی شما را به همان جا در مرحله‌ی ۷ می‌برد.'),
       Object.entries(groups).map(([k, fs]) => el('details', { class: 'flagd' }, el('summary', {}, FLAG_FA[k] || k, el('span', { class: 'chip medium' }, fa(fs.length))),
         el('ul', { class: 'flags' }, fs.map(flagItem))))) : null;
     main.replaceChildren(...[
@@ -1735,10 +1735,10 @@ const panels = {
         undN(), graphSvg(G, S5)),
       flagsCard,
       undated.length ? card('راویان بی‌تاریخ', help('step5.undated'), el('p', { class: 'small' }, `${fa(undated.length)} راوی تاریخ وفات ندارند و تاریخشان از روی جایشان در سندها برآورد شده است. `,
-        'هر نام را بزنید تا در ', el('b', {}, 'مرحله‌ی ۹'), ' باز شود و در بخش ۳ «تاریخ وفات» را بنویسید.'),
+        'هر نام را بزنید تا در ', el('b', {}, 'مرحله‌ی ۷'), ' باز شود و در بخش ۳ «تاریخ وفات» را بنویسید.'),
         el('div', { class: 'small undl' }, undated.map(([n]) => nodeLink(n)))) : null,
       /* the tree can be dropped while it is not confirmed (the narrators step is then open again, or the tree is ordered anew) */
-      c.can && !c.readonly && dec.confirmed !== P.project.graph_hash ? card('حذف شجره', el('p', { class: 'small muted' }, 'شجره‌ی فعلی حذف می‌شود؛ تصمیم‌های مرحله‌ی ۹ دست‌نخورده می‌مانند و هر وقت خواستید می‌توانید دوباره شجره را بسازید.'),
+      c.can && !c.readonly && dec.confirmed !== P.project.graph_hash ? card('حذف شجره', el('p', { class: 'small muted' }, 'شجره‌ی فعلی حذف می‌شود؛ تصمیم‌های مرحله‌ی ۷ دست‌نخورده می‌مانند و هر وقت خواستید می‌توانید دوباره شجره را بسازید.'),
         el('div', { class: 'toolbar' }, el('button', { class: 'danger', onclick: async ev => {
           const b0 = ev.currentTarget; if (!(await sure('شجره‌ی فعلی حذف شود؟'))) return; b0.disabled = true;
           await post(`/project/${c.pid}/decide/phylogeny`, { payload: { deleted: P.project.graph_hash, dates: dec.dates || {}, chain_edits: dec.chain_edits || {}, preset: dec.preset || null, compute: dec.compute || 'browser' } });
@@ -2002,9 +2002,9 @@ const undecidedKeys = (I, d) => {
 };
 /* step 5: a reminder (never a block) of the names step 4 left undecided */
 const undNote = (pid, keys, I, built) => keys.length ? el('p', { class: 'small warn' },
-  `${fa(keys.length)} نام در مرحله‌ی ۹ بی‌تصمیم مانده است و بدون هویت (فقط نام) ${built ? 'در شجره آمده است' : 'به شجره می‌رود'}`,
+  `${fa(keys.length)} نام در مرحله‌ی ۷ بی‌تصمیم مانده است و بدون هویت (فقط نام) ${built ? 'در شجره آمده است' : 'به شجره می‌رود'}`,
   I ? [': ', el('span', {}, keys.slice(0, 8).map(k => (I.cards[k] || {}).name || k).join('، ')), keys.length > 8 ? ' و …' : ''] : '',
-  '. برای تعیین هویتشان ', el('a', { href: BASE + stepUrl(pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(pid, null, 'identities')); } }, 'به مرحله‌ی ۹ برگردید'),
+  '. برای تعیین هویتشان ', el('a', { href: BASE + stepUrl(pid, null, 'identities'), onclick: ev => { ev.preventDefault(); go(stepUrl(pid, null, 'identities')); } }, 'به مرحله‌ی ۷ برگردید'),
   built ? ' و شجره را دوباره بسازید.' : '.') : null;
 async function saveParts(pid, patch, note) {
   const d = partsBase(await api(`/project/${pid}/decision/parts`));
@@ -2661,7 +2661,7 @@ function narratorsBox(c, VERS) {
       if (sel.value === cur) return;
       await post(`/project/${c.pid}/decide/narrators`, { payload: { version: sel.value } }); reload(c.pid);
     } }, 'اعمال') : null), desc, line,
-    el('p', { class: 'small muted' }, 'با تغییر پایگاه، راویان و شجره و تحلیل (مرحله‌های ۹ تا ۱۱) با پایگاه تازه از نو ساخته می‌شوند، اما فقط وقتی خودتان «اجرا» را بزنید؛ تا آن زمان علامت «قدیمی» دارند. برای نگه داشتن نتیجه‌ی پایگاه پیشین، پیش از تغییر از «نسخه‌ها» یک رونوشت بسازید. تصمیم‌های شما درباره‌ی راویان می‌مانند.'));
+    el('p', { class: 'small muted' }, 'با تغییر پایگاه، راویان و شجره و تحلیل (مرحله‌های ۷ تا ۹) با پایگاه تازه از نو ساخته می‌شوند، اما فقط وقتی خودتان «اجرا» را بزنید؛ تا آن زمان علامت «قدیمی» دارند. برای نگه داشتن نتیجه‌ی پایگاه پیشین، پیش از تغییر از «نسخه‌ها» یک رونوشت بسازید. تصمیم‌های شما درباره‌ی راویان می‌مانند.'));
 }
 async function narratorCard(id) {
   const vname = NV || (P && P.narrator_version) || null;

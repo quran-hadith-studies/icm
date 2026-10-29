@@ -8,14 +8,14 @@ window.ICMWizard = (() => {
   /* slug, title, the page of the first wizard it was part of (the export files and old links use those names) */
   const WIZ = [
     ['hadiths', 'حدیث‌ها', 'seed'], ['parts', 'حدیث‌ها و بخش‌هایشان', 'selection'], ['candidates', 'نامزدها', 'selection'], ['semantic', 'هم‌معنا', 'selection'],
-    ['added', 'حدیث‌های افزوده', 'selection'], ['slots', 'فرازبندی بخش‌ها در شاهدها', 'alignment'], ['alignment', 'هم‌ترازی', 'alignment'], ['units', 'واحدهای تغییر', 'alignment'],
+    ['added', 'حدیث‌های افزوده', 'selection'], ['alignment', 'هم‌ترازی', 'alignment'],
     ['narrators', 'راویان', 'identities'], ['graph', 'شجره', 'phylogeny'], ['run', 'اجرا', 'analysis']];
   const SLUGS = WIZ.map(w => w[0]);
-  const OLD = { seed: 'hadiths', search: 'hadiths', selection: 'candidates', identities: 'narrators', phylogeny: 'graph', analysis: 'results', done: 'results' };
-  const LEGACY = { seed: 'hadiths', search: 'hadiths', selection: 'candidates', identities: 'narrators', phylogeny: 'graph', analysis: 'run' };    // the step names of the first wizard, as the server's index may still hold them
+  const OLD = { slots: 'alignment', units: 'alignment', seed: 'hadiths', search: 'hadiths', selection: 'candidates', identities: 'narrators', phylogeny: 'graph', analysis: 'results', done: 'results' };
+  const LEGACY = { slots: 'alignment', units: 'alignment', seed: 'hadiths', search: 'hadiths', selection: 'candidates', identities: 'narrators', phylogeny: 'graph', analysis: 'run' };    // the step names of the first wizard, as the server's index may still hold them
   const PANEL = { hadiths: ['seed'], parts: ['selection', 'parts'], candidates: ['selection', 'candidates'], semantic: ['selection', 'semantic'], added: ['selection', 'added'],
-    slots: ['alignment', 'slots'], alignment: ['alignment', 'grid'], units: ['alignment', 'units'], narrators: ['identities'], graph: ['phylogeny'] };
-  const STAGE_OF = ['search', 'search', 'search', 'search', 'search', 'align', 'align', 'align', 'identify', 'graph', 'infer'];
+    alignment: ['alignment'], narrators: ['identities'], graph: ['phylogeny'] };
+  const STAGE_OF = ['search', 'search', 'search', 'search', 'search', 'align', 'identify', 'graph', 'infer'];
   const STATE_FA = { done: 'به‌روز', idle: 'اختیاری', todo: 'منتظر تصمیم شما', needs_run: 'نیازمند اجرا', stale: 'قدیمی', running: 'در حال محاسبه', awaiting: 'منتظر محاسبه', unreached: 'هنوز نرسیده‌اید' };
   const MARK = { done: '✓', needs_run: '●', todo: '●', stale: '⚠', running: '⟳', awaiting: '⟳', idle: '', unreached: '' };
   const idx = slug => SLUGS.indexOf(slug) + 1;
@@ -23,8 +23,8 @@ window.ICMWizard = (() => {
   const headerH = () => { const hd = document.querySelector('header.top'); document.documentElement.style.setProperty('--hdr', (hd ? Math.round(hd.getBoundingClientRect().height) : 54) + 'px'); };
   addEventListener('resize', headerH);
   if (window.ResizeObserver && document.querySelector('header.top')) new ResizeObserver(headerH).observe(document.querySelector('header.top'));
-  const RAIL_GROUPS = ['جستجو و انتخاب', 'هم‌ترازی', 'راویان و تحلیل'];
-  const railGroup = i => (i <= 5 ? 0 : i <= 8 ? 1 : 2);
+  const RAIL_GROUPS = ['جستجو و انتخاب', 'هم‌ترازی و تحلیل'];
+  const railGroup = i => (i <= 5 ? 0 : 1);
 
   const normStep = s => (!s ? null : SLUGS.includes(s) || s === 'results' || s === 'settings' ? s : OLD[s] || s);
   const stepTitle = s => {
@@ -173,7 +173,7 @@ window.ICMWizard = (() => {
     const c = { pid, p, runId, can, readonly, only: null, busy: () => !!(P.job || P.busy || P.project.status === 'running'), setInfo: (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title })),
       register, counts: v => { c.nums = v; paintRun(); }, changed: () => setTimeout(() => paintActions(), 0) };
     let runErr = '';
-    const knobs = {};     // the inputs of the run bar of a step (4: the cut-off; 11: precision and place of computation)
+    const knobs = {};     // the inputs of the run bar of a step (4: the cut-off; 9: precision and place of computation)
     if (live && tab === 'steps' && (slug === 'semantic' || slug === 'run')) {          // their values are the last press's
       const dec = await decOf(c, slug === 'run' ? 'phylogeny' : 'search').catch(() => ({}));
       knobs.dec = slug === 'run' ? dec : dec.ret_sem || {};
@@ -228,7 +228,7 @@ window.ICMWizard = (() => {
       else if (n === 1) bits.push(el('span', { class: 'small muted' }, 'این مرحله دکمه‌ی اجرا ندارد: تغییرهایش با «اجرا»ی مرحله‌ی ۲ به نامزدها می‌رسد.'));
       if (runErr) bits.push(el('div', { class: 'small', role: 'alert', style: 'color:var(--bad);margin-top:6px' }, runErr));
       runwarn.replaceChildren(...warn); runwarn.hidden = !warn.length;
-      runrow.classList.toggle('knobs', !!(rp && can && (rp.what === 'semantic' || rp.what === 'infer')));      // knobs (steps 4 and 11) take a line of their own
+      runrow.classList.toggle('knobs', !!(rp && can && (rp.what === 'semantic' || rp.what === 'infer')));      // knobs (steps 4 and 9) take a line of their own
       runrow.replaceChildren(...bits); runrow.hidden = false;
     }
 
@@ -257,7 +257,7 @@ window.ICMWizard = (() => {
       align: nSel => ({ title: 'ساخت هم‌ترازی', yes: 'بله، هم‌ترازی ساخته شود', check: 'شاهدهای برگزیده را بررسی کرده‌ام و همین‌ها را می‌خواهم.',
         body: [el('p', {}, `متن ${nSel ? fa(nSel) + ' ' : ''}شاهد برگزیده، همراه حدیث‌های فهرست مرحله‌ی ۱، بخش‌به‌بخش و واژه‌به‌واژه هم‌تراز می‌شود.`),
           el('p', { class: 'small muted' }, 'تا پایان محاسبه نمی‌توانید نسخه را عوض کنید یا پروژه را حذف کنید؛ اگر لازم شد «لغو محاسبه» هست. با تغییر شاهدها یا جستجو، هم‌ترازی را باید دوباره بسازید.')] }),
-      identify: () => ({ title: 'یافتن راویان', yes: 'بله، راویان یافته شوند', check: 'هم‌ترازی (مرحله‌های ۶ تا ۸) را دیده‌ام و همین را می‌خواهم.',
+      identify: () => ({ title: 'یافتن راویان', yes: 'بله، راویان یافته شوند', check: 'هم‌ترازی (مرحله‌ی ۶) را دیده‌ام و همین را می‌خواهم.',
         body: [el('p', {}, 'راویان هر سند از متن شاهدها استخراج و با پایگاه راویان سنجیده می‌شوند.'),
           el('p', { class: 'small muted' }, 'تا پایان محاسبه نمی‌توانید نسخه را عوض کنید یا پروژه را حذف کنید؛ اگر لازم شد «لغو محاسبه» هست.')] }),
     };
@@ -308,7 +308,7 @@ window.ICMWizard = (() => {
 
     function paintActions() {
       if (!live || tab !== 'steps' || !can) { for (const h of [prevHost, nextHost, saveHost, actions]) h.replaceChildren(); actions.hidden = true; document.documentElement.style.removeProperty('--wizbar'); return; }
-      const dirty = isDirty(), prev = n > 1 ? WIZ[n - 2] : null, next = n < 11 ? WIZ[n] : null;
+      const dirty = isDirty(), prev = n > 1 ? WIZ[n - 2] : null, next = n < WIZ.length ? WIZ[n] : null;
       const nst = next && W.steps[n] ? W.steps[n].state : null;
       const own = reg && reg.own;
       /* previous / next: an arrow in the top bar (full = with the step's name, in the bar at the bottom) */
@@ -414,34 +414,32 @@ window.ICMWizard = (() => {
         if (S) add('نامزدهای هم‌معنا', N(S.candidates.filter(x => rs && rs.mode === 'parts' ? x.signals.includes('q:sem') : x.suggested === 'semantic').length));
         break; }
       case 'added': hadithsItem(); partsItem(); selItem(); add('حدیث‌های افزوده', N((sdec.extra_ids || []).length)); break;
-      case 'slots': selItem(); partsItem(); add('بخش‌های تأییدشده در شاهدها', N(cnt(pdec.confirmed))); add('جایگاه‌های دستی', N(cnt(pdec.slots))); add('اجرای هم‌ترازی', c.p.current_run ? fa(c.p.current_run.split('-')[0]) : '—'); break;
-      case 'alignment': selItem(); partsItem(); add('بخش‌های تأییدشده', N(cnt(pdec.confirmed)), ' (', link('slots', 'مرحله‌ی ۶'), ')'); add('اصلاح‌های دستی واژه‌ها', N(words)); break;
-      case 'units': selItem(); add('بخش‌های تأییدشده', N(cnt(pdec.confirmed)), ' (', link('slots', 'مرحله‌ی ۶'), ')'); add('اصلاح‌های واژه‌ها', N(words), ' (', link('alignment', 'مرحله‌ی ۷'), ')');
-        add('واحدهای دستی', N(cnt(pdec.units && (pdec.units.own || pdec.units.keep)))); break;
+      case 'alignment': selItem(); partsItem(); add('بخش‌های تأییدشده در شاهدها', N(cnt(pdec.confirmed))); add('جایگاه‌های دستی', N(cnt(pdec.slots))); add('اصلاح‌های دستی واژه‌ها', N(words));
+        add('واحدهای دستی', N(cnt(pdec.units && (pdec.units.own || pdec.units.keep)))); add('اجرای هم‌ترازی', c.p.current_run ? fa(c.p.current_run.split('-')[0]) : '—'); break;
       case 'narrators': selItem(); dbItem(); add('اصلاح نام‌ها', N(cnt(pdec.renames)), '، اصلاح سندها ', N(cnt(pdec.chain)));
-        add('هم‌ترازی', W.steps.slice(5, 8).every(x => x.state === 'done') ? 'به‌روز' : 'قدیمی (مرحله‌های ۶ تا ۸)'); break;
+        add('هم‌ترازی', W.steps[5].state === 'done' ? 'به‌روز' : 'قدیمی (مرحله‌ی ۶)'); break;
       case 'graph': {
         selItem(); dbItem();
-        add('انتخاب‌های راویان', N(cnt(iddec.choices) + cnt(iddec.overrides)), '، ادغام ', N(cnt(iddec.merges)), '، تاریخ ', N(cnt(iddec.dates)), ' (', link('narrators', 'مرحله‌ی ۹'), ')');
+        add('انتخاب‌های راویان', N(cnt(iddec.choices) + cnt(iddec.overrides)), '، ادغام ', N(cnt(iddec.merges)), '، تاریخ ', N(cnt(iddec.dates)), ' (', link('narrators', 'مرحله‌ی ۷'), ')');
         const I = await get(() => stage(pid, c.runId, 'identify'));
         if (I) add('نام‌های بی‌تصمیم', N(undecidedKeys(I, iddec).length));
         break; }
       case 'run': {
         const G = await get(() => stage(pid, c.runId, 'graph'));
-        if (G) { add('شجره', `${N(G.stats.narrators)} راوی، ${N(G.stats.attestations)} سند، ${N(G.stats.witnesses)} شاهد`, ' (', link('graph', 'مرحله‌ی ۱۰'), ')'); add('هشدارها', N((G.flags || []).length)); }
+        if (G) { add('شجره', `${N(G.stats.narrators)} راوی، ${N(G.stats.attestations)} سند، ${N(G.stats.witnesses)} شاهد`, ' (', link('graph', 'مرحله‌ی ۸'), ')'); add('هشدارها', N((G.flags || []).length)); }
         add('دقت', phdec.preset ? { quick: 'سریع', standard: 'معمول', thorough: 'دقیق' }[phdec.preset] : 'خودکار'); break; }
     }
     return out;
   }
 
-  /* ---------- step 11: the last step shows warnings and the running; the results are a page of their own ---------- */
+  /* ---------- step 9: the last step shows warnings and the running; the results are a page of their own ---------- */
   async function runPage(main, c, W) {
-    const pid = c.pid, st = W.steps[10];
+    const pid = c.pid, st = W.steps[8];
     if (c.p.status === 'awaiting' && !c.readonly) return awaitingPanel(main, c);
     const [G, A5, S5, I5] = await Promise.all(['graph', 'align', 'search', 'identify'].map(x => stage(pid, c.runId, x).catch(() => null)));
     const pd = await decOf(c, 'parts').catch(() => ({}));
     const kids = [];
-    if (!G) kids.push(card('اجرای تحلیل', el('p', { class: 'muted' }, 'شجره هنوز ساخته نشده است: نخست در ', stepLink(pid, null, 'graph', 'مرحله‌ی ۱۰'), ' «ساخت شجره» را بزنید.')));
+    if (!G) kids.push(card('اجرای تحلیل', el('p', { class: 'muted' }, 'شجره هنوز ساخته نشده است: نخست در ', stepLink(pid, null, 'graph', 'مرحله‌ی ۸'), ' «ساخت شجره» را بزنید.')));
     else {
       const unconf = A5 && A5.clauses.length && A5.clauses[0].key ? A5.clauses.filter(cl => partStatus(cl, pd, A5.witnesses).k !== 'auto') : [];
       const seedUnconf = S5 && !seedPartsState(S5, pd).confirmed;
@@ -449,9 +447,9 @@ window.ICMWizard = (() => {
         !c.readonly ? undNote(pid, G.undecided || [], I5, true) : null,
         !c.readonly && (unconf.length || seedUnconf) ? el('p', { class: 'small warn' }, 'فرازبندی هنوز کامل تأیید نشده است: ',
           seedUnconf ? ['بریدن حدیث‌ها به بخش‌ها (', stepLink(pid, null, 'parts', 'مرحله‌ی ۲'), ')', unconf.length ? '، و ' : ''] : null,
-          unconf.length ? [`${fa(unconf.length)} از ${fa(A5.clauses.length)} بخش در شاهدها (`, stepLink(pid, null, 'slots', 'مرحله‌ی ۶'), ')'] : null,
+          unconf.length ? [`${fa(unconf.length)} از ${fa(A5.clauses.length)} بخش در شاهدها (`, stepLink(pid, null, 'alignment', 'مرحله‌ی ۶'), ')'] : null,
           '. تحلیل با پیشنهادهای خودکار همان‌ها انجام می‌شود.') : null,
-        (G.flags || []).length ? el('p', { class: 'small warn' }, `${fa(G.flags.length)} هشدار در شجره هست (`, stepLink(pid, null, 'graph', 'مرحله‌ی ۱۰'), ').') : null,
+        (G.flags || []).length ? el('p', { class: 'small warn' }, `${fa(G.flags.length)} هشدار در شجره هست (`, stepLink(pid, null, 'graph', 'مرحله‌ی ۸'), ').') : null,
       ].filter(Boolean);
       kids.push(card('پیش از اجرا', help('step5.confirm'), warns.length ? warns : el('p', { class: 'small muted' }, 'هشداری نیست.'),
         el('p', { class: 'small muted' }, `${fa(G.stats.narrators)} راوی، ${fa(G.stats.attestations)} سند، ${fa(G.stats.witnesses)} شاهد؛ ${fa(G.stats.dated)} راوی تاریخ دارند. دقت و جای محاسبه را بالا، کنار دکمه‌ی «اجرا» برگزینید.`)));

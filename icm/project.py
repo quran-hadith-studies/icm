@@ -34,7 +34,7 @@ from hadith_phylogeny.report import finite
 from . import config, narrator_versions
 
 STEPS = ("search", "selection", "identities", "phylogeny", "parts", "narrators", "go")      # steps with decisions (newer ones last: run ids keep their leading numbers)
-LEGACY_STEP = {"search": "hadiths", "seed": "hadiths", "selection": "candidates", "alignment": "slots", "identities": "narrators", "phylogeny": "graph", "analysis": "run"}    # the steps of the six-page wizard -> the eleven of today (wizard.py)
+LEGACY_STEP = {"search": "hadiths", "seed": "hadiths", "selection": "candidates", "slots": "alignment", "units": "alignment", "identities": "narrators", "phylogeny": "graph", "analysis": "run"}    # the steps of the earlier wizards (six pages; eleven, with the alignment on three) -> the nine of today (wizard.py)
 
 
 def h(*objs) -> str:
