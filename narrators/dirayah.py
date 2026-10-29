@@ -71,7 +71,7 @@ from .common import DB_PATH, EXTERNAL, PROJECT, as_list, bare, norm_name
 
 EXPORT = os.environ.get("DIRAYAH_EXPORT", os.path.join(PROJECT, "dirayah3-data", "export"))
 OUT = os.path.join(EXTERNAL, "dirayah.sqlite")
-V02_DB = os.environ.get("ICM_V02_DB", os.path.join(os.path.dirname(PROJECT), "ebadollah-data", "data", "v02", "hadith.sqlite"))
+V02_DB = os.environ.get("ICM_V02_DB", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "workspace-data", "data", "v02", "hadith.sqlite"))
 NOOR_OFFSET = 800_000_000
 
 MIN_MATN = 3              # tokens of matn below which the written isnad decides
