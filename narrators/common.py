@@ -11,9 +11,22 @@ import sys
 import unicodedata
 from typing import Iterable, Iterator, List
 
+def _project_dir(analysis: str) -> str:
+    """The folder that holds the shared data directories (dirayah3-data, narwiki-data, icm-cache, hadith-hub ...).
+    $ICM_PROJECT wins; checked out beside the other ebadollah projects they still live in
+    ~/Downloads/hadith-project; elsewhere it is the parent of this checkout."""
+    env = os.environ.get("ICM_PROJECT")
+    if env:
+        return env
+    parent = os.path.dirname(analysis)
+    if os.path.basename(parent) == "ebadollah-project":
+        return os.path.join(os.path.dirname(parent), "hadith-project")
+    return parent
+
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ANALYSIS = os.path.dirname(HERE)
-PROJECT = os.path.dirname(ANALYSIS)
+PROJECT = _project_dir(ANALYSIS)
 HUB = os.path.join(PROJECT, "hadith-hub")
 EXTERNAL = os.path.join(ANALYSIS, "external")
 DATASETS = os.path.join(EXTERNAL, "datasets")

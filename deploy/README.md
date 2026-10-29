@@ -1,6 +1,6 @@
 # Site-side files of the ICM wizard
 
-These live in the **ebadollah** workspace (`/Users/mfo19/Downloads/ebadollah-project/ebadollah`, not a git
+These live in the **ebadollah** workspace (`/Users/mfo19/Downloads/ebadollah-data`, not a git
 repository) and on the server `ubuntu@132.145.99.75:~/ebadollah`. They are copies for reference; the live
 ones are the ones that matter. Do **not** run `deploy/deploy.sh` of that workspace blindly: on 2026-10-11 a dry
 run listed ~79 unrelated differing files, and it would overwrite server-only edits.

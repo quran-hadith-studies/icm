@@ -15,8 +15,24 @@ from __future__ import annotations
 
 import os
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))          # analysis/
-PROJECT = os.path.dirname(HERE)                                              # hadith-project/
+def _project_dir(analysis: str) -> str:
+    """The folder that holds the shared data directories (dirayah3-data, narwiki-data, icm-cache, hadith-hub ...).
+
+    $ICM_PROJECT wins. Checked out beside the other ebadollah projects (~/Downloads/ebadollah-project/icm)
+    those folders still live in ~/Downloads/hadith-project; everywhere else (the old laptop layout, the
+    server) it is simply the parent of this checkout.
+    """
+    env = os.environ.get("ICM_PROJECT")
+    if env:
+        return env
+    parent = os.path.dirname(analysis)
+    if os.path.basename(parent) == "ebadollah-project":
+        return os.path.join(os.path.dirname(parent), "hadith-project")
+    return parent
+
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))          # the icm checkout
+PROJECT = _project_dir(HERE)                                                 # hadith-project/
 
 DB = os.environ.get("NARWIKI_DB", os.path.join(PROJECT, "narwiki-data", "wiki.sqlite"))
 OPEN = os.environ.get("NARWIKI_OPEN", "1") != "0"
