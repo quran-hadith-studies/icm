@@ -168,7 +168,7 @@ window.ICMWizard = (() => {
     };
 
     /* ----- the pieces of a step page ----- */
-    const ctx = el('div', { class: 'ctx' }), runrow = el('div', { class: 'runrow' }), runwarn = el('div', { class: 'runwarn' }), data = el('div'), actions = el('div', { class: 'actionbar wiz' });
+    const ctx = el('div', { class: 'ctx' }), runrow = el('div', { class: 'runrow' }), runwarn = el('div', { class: 'runwarn' }), data = el('div'), actions = el('div', { class: 'actionbar wiz' }), repl = el('div', { class: 'replbanner', role: 'status', hidden: true });
     const stepInfo = el('span', { class: 'stepinfo' });
     const c = { pid, p, runId, can, readonly, only: null, busy: () => !!(P.job || P.busy || P.project.status === 'running'), setInfo: (title, body) => stepInfo.replaceChildren(info(() => [el('h3', {}, title), ...[body()].flat()], { modal: true, title })),
       register, counts: v => { c.nums = v; paintRun(); }, changed: () => setTimeout(() => paintActions(), 0) };
@@ -231,6 +231,27 @@ window.ICMWizard = (() => {
       runrow.classList.toggle('knobs', !!(rp && can && (rp.what === 'semantic' || rp.what === 'infer')));      // knobs (steps 4 and 11) take a line of their own
       runrow.replaceChildren(...bits); runrow.hidden = false;
     }
+
+    /* ----- while the job computes THIS step: what the page shows (the earlier result, or nothing yet) is on its way out: dimmed, read-only, with a line that says so ----- */
+    function paintReplaced() {
+      const st = live && tab === 'steps' ? W.steps[n - 1] : null, j = P.job || P.busy;
+      const on = !!(st && (st.state === 'running' || st.state === 'awaiting') && (j || P.project.status === 'running' || st.state === 'awaiting'));
+      data.classList.toggle('replacing', on);
+      if (on) data.setAttribute('aria-busy', 'true'); else data.removeAttribute('aria-busy');
+      for (const x of data.querySelectorAll('button:not(.info), input, select, textarea')) {      // (i) stays: reading is allowed
+        if (on && !x.disabled) { x.disabled = true; x.dataset.repl = '1'; } else if (!on && x.dataset.repl) { x.disabled = false; delete x.dataset.repl; }
+      }
+      repl.hidden = !on;
+      if (!on) return;
+      const pr = j && j.progress && j.progress.msg ? ' (' + j.progress.msg + (j.progress.frac ? '، ' + fa(Math.round(j.progress.frac * 100)) + '٪' : '') + ')' : '';
+      const queued = j && j.status === 'queued';
+      repl.replaceChildren(st.state === 'awaiting' ? 'این مرحله منتظر محاسبه‌ی بیرون از سرور است؛ آنچه می‌بینید از اجرای پیشین است و پس از آن جایگزین می‌شود.'
+        : (queued ? 'محاسبه‌ی این مرحله در صف است. ' : 'این مرحله اکنون محاسبه می‌شود' + pr + '. ') + (st.ran ? 'آنچه زیر می‌بینید نتیجه‌ی پیشین است؛ فقط‌خواندنی است و پس از پایان محاسبه جایگزین می‌شود.'
+          : 'هنوز نتیجه‌ای نیست؛ پس از پایان محاسبه همین‌جا می‌آید.'));
+    }
+    data.addEventListener('click', ev => {                     // buttons added to the page after the mark (a fold opened, a list drawn later) are still shut
+      if (data.classList.contains('replacing')) { const t = ev.target.closest && ev.target.closest('button, input, select, textarea'); if (t && !t.closest('.info')) { ev.preventDefault(); ev.stopPropagation(); } }
+    }, true);
 
     const ASKS = {
       align: nSel => ({ title: 'ساخت هم‌ترازی', yes: 'بله، هم‌ترازی ساخته شود', check: 'شاهدهای برگزیده را بررسی کرده‌ام و همین‌ها را می‌خواهم.',
@@ -322,7 +343,7 @@ window.ICMWizard = (() => {
       mainBox.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       await resultsPage(mainBox, c, W, live);
     } else {
-      mainBox.replaceChildren(el('div', { class: 'sthead' }, el('h2', {}, el('span', { class: 'stn' }, fa(n)), WIZ[n - 1][1], stepInfo), runrow), runwarn, ctx, data, actions);
+      mainBox.replaceChildren(el('div', { class: 'sthead' }, el('h2', {}, el('span', { class: 'stn' }, fa(n)), WIZ[n - 1][1], stepInfo), runrow), runwarn, ctx, repl, data, actions);
       data.replaceChildren(el('p', { class: 'muted' }, 'در حال بارگذاری…'));
       refreshBars();
       ctxStrip(slug, c, W).then(items => { ctx.replaceChildren(...items.flatMap((x, i) => [x, i < items.length - 1 ? ' ' : ''])); }).catch(() => {});
@@ -334,9 +355,10 @@ window.ICMWizard = (() => {
           await panels[px[0]](data, c);
         }
       } catch (e) {
-        data.replaceChildren(e.status === 404 ? card(WIZ[n - 1][1], el('p', { class: 'muted' }, 'این مرحله هنوز اجرا نشده است.' + (live && can ? ' با دکمه‌ی «اجرا» در بالای صفحه آن را بسازید.' : '')))
+        data.replaceChildren(e.status === 404 ? card(WIZ[n - 1][1], el('p', { class: 'muted' }, W.steps[n - 1].state === 'running' ? 'این مرحله اکنون در حال ساخته شدن است.' : 'این مرحله هنوز اجرا نشده است.' + (live && can ? ' با دکمه‌ی «اجرا» در بالای صفحه آن را بسازید.' : '')))
           : el('div', { class: 'card err', role: 'alert' }, 'خطا: ' + e.message));
       }
+      paintReplaced();
       refreshBars();
     }
 
@@ -344,7 +366,7 @@ window.ICMWizard = (() => {
     if (live && (P.job || P.busy || p.status === 'running')) {
       const poll = async () => {
         const q = await api('/project/' + pid).catch(() => null);
-        if (q) { P = q; if (q.wizard && q.wizard.steps && q.wizard.steps.length) W = q.wizard; paintHead(); statusBox(status, q.project, pid); titleNow(); paintStepper(); if (tab === 'steps') paintRun(); }
+        if (q) { P = q; if (q.wizard && q.wizard.steps && q.wizard.steps.length) W = q.wizard; paintHead(); statusBox(status, q.project, pid); titleNow(); paintStepper(); if (tab === 'steps') { paintRun(); paintReplaced(); } }
         if (!q || q.job || q.busy || q.project.status === 'running') { timer = setTimeout(poll, 3000); return; }
         const redraw = async () => { const y = scrollY; cache.clear(); await render(); scrollTo(0, y); };
         if (!isDirty()) return redraw();

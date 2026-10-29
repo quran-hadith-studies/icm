@@ -82,6 +82,14 @@ header.top.proj .brand .mark{font-size:17px}
 .ctx .ci{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:1px 11px;font-size:12.5px;line-height:1.7;color:var(--fg)}
 .ctx .ci b{color:var(--muted);font-weight:400}
 
+/* ---- the step is being computed: what the page shows is on its way out ---- */
+.replbanner{display:flex;gap:10px;align-items:center;margin:0 0 10px;padding:8px 12px;border:1px solid var(--accent);border-radius:var(--r-sm);background:var(--accent-soft);color:var(--fg);font-size:13px;line-height:1.7}
+.replbanner[hidden]{display:none}
+.replbanner::before{content:"";flex:none;width:10px;height:10px;border-radius:50%;background:var(--accent);animation:icm-pulse 1.2s ease-in-out infinite}
+.replacing{opacity:.6;filter:grayscale(.45);border-radius:var(--r);outline:2px dashed var(--line-2);outline-offset:6px;background-image:repeating-linear-gradient(135deg,transparent 0 14px,color-mix(in srgb,var(--muted) 9%,transparent) 14px 15px)}
+.replacing :is(button:not(.info),input,select,textarea){cursor:not-allowed}
+@media (prefers-reduced-motion:reduce){.replbanner::before{animation:none}}
+
 /* ---- the bar at the bottom of a phone: previous / save / next (on a wider screen they are in the top bar) ---- */
 @media (min-width:701px){.actionbar.wiz{display:none}}
 .actionbar.wiz{position:sticky;bottom:0;z-index:12;margin:var(--sp-4) 0 0;padding:var(--sp-2) var(--sp-3);padding-bottom:calc(var(--sp-2) + env(safe-area-inset-bottom,0px));
