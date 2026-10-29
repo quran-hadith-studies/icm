@@ -533,11 +533,26 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
                 raise HTTPException(400, "sem_min must be between 0.4 and 0.95 and sem_k between 1 and 100")
             if not sdec.get("ret"):                      # a project from before the buttons: its search on screen becomes the press the semantic one is made on
                 sdec = dict(sdec, ret=_validate_search({k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits") if k in sdec}, pid, p)["ret"])
-            rs = dict(mode="parts", n=((sdec.get("ret_sem") or {}).get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.6, 2), sem_k=sk if sk is not None else 40,
-                      model=semantic.meta().get("model") or True, unit=semantic.meta().get("unit"), pca=(semantic.meta().get("pca") or {}).get("to"),
-                      at=pipeline.sem_at(p, sdec, D["parts"] or {}), created=project.now())
+            part, rs0 = body.get("part"), sdec.get("ret_sem") or {}
+            if part is not None and not (isinstance(part, int) and not isinstance(part, bool) and 0 <= part < 1000):
+                raise HTTPException(400, "part must be a part number")
+            if part is not None:                         # one part's own threshold (none: it goes back to the general one); the other parts are not asked again
+                need(rs0.get("mode") == "parts", "نخست بخش‌های هم‌معنا را برای همه‌ی بخش‌ها بیابید (دکمه‌ی «اجرا»ی بالای صفحه)")
+                pm = dict(rs0.get("part_min") or {})
+                if sm is None:
+                    pm.pop(str(part), None)
+                else:
+                    pm[str(part)] = round(sm, 2)
+                picks = [x for x in rs0.get("picks") or [] if x[1] != part]                    # its texts are new: the ticks on them go
+                rs = {k: v for k, v in dict(rs0, part_min=pm, picks=picks, pn=(rs0.get("pn") or 0) + (len(picks) != len(rs0.get("picks") or []))).items()
+                      if k not in ("part_min", "picks") or v}
+            else:
+                pm = rs0.get("part_min") or {}           # the parts that have their own threshold keep it; the others get this press's
+                rs = dict(mode="parts", n=(rs0.get("n") or 0) + 1, sem_min=round(sm if sm is not None else 0.6, 2), sem_k=sk if sk is not None else 40,
+                          model=semantic.meta().get("model") or True, unit=semantic.meta().get("unit"), pca=(semantic.meta().get("pca") or {}).get("to"),
+                          at=pipeline.sem_at(p, sdec, D["parts"] or {}), created=project.now(), **({"part_min": pm} if pm else {}))
             payload = {k: sdec[k] for k in ("part_query", "extra_ids", "seeds", "anchor", "edits", "ret") if k in sdec}
-            project.add_decision(pid, "search", dict(payload, ret_sem=rs), user, "semantic search pressed")
+            project.add_decision(pid, "search", dict(payload, ret_sem=rs), user, "semantic search pressed" if part is None else f"semantic search of part {part} pressed")
             wizard.touch(pid)
         elif what == "sempick":
             rs = sdec.get("ret_sem")

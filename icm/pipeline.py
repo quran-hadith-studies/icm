@@ -125,12 +125,21 @@ def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
     rs = sdec.get("ret_sem")                                   # step 4's press: the semantic index asked about the parts of that press
     if rs and rs.get("mode") == "parts":
         # two presses: the passages that resemble each part (nothing joins the candidates), then the hadiths of the passages the user ticked
-        rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"])
-        k_base = h("sempassages", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), *([rs["unit"], rs.get("pca"), "tiers"] if rs.get("unit") else []), rs.get("at"), STAGE_VERSIONS["search"])
+        pmin = {int(c): v for c, v in (rs.get("part_min") or {}).items()}          # the least cosine of the parts that have their own
+        rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"], sem_min_by=pmin)
+        k_base = h("sempassages", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), *([rs["unit"], rs.get("pca"), "tiers"] if rs.get("unit") else []),
+                   *([sorted(pmin.items())] if pmin else []), rs.get("at"), STAGE_VERSIONS["search"])
+
+        def sem_cache(key, fn):                                # a part's passages are kept by what they were made from: a part asked again alone costs that part only
+            got = project.stage_get(pid, "sempart", key)
+            if got is None:
+                got = fn()
+                project.stage_put(pid, "sempart", key, got)
+            return got
 
         def passages():
             out = search_mod.run(rseed, rsp_sem, ret.get("extra") or [], ret.get("keep") or [], seeds=ret.get("seeds") or [], prior=_prior_of(R),
-                                 retrieve=False, sem_passages=True)
+                                 retrieve=False, sem_passages=True, sem_cache=sem_cache)
             return dict(out, searched=True, stale=False, retrieved=R.get("retrieved", True), queries=R["queries"] + out["queries"], rounds=R["rounds"],
                         flags=R["flags"] + out["flags"], sem_n=rs.get("n"))
         R = use("search", k_base, passages)

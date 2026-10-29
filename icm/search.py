@@ -68,7 +68,7 @@ DEFAULTS = dict(
 
 def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (), keep_ids: Sequence[str] = (), *,
         seeds: Sequence[str] = (), prior: Optional[dict] = None, retrieve: bool = True, texts: Optional[dict] = None, semantic_only: bool = False,
-        sem_passages: bool = False, sem_picks: Optional[Sequence[dict]] = None) -> dict:
+        sem_passages: bool = False, sem_picks: Optional[Sequence[dict]] = None, sem_cache=None) -> dict:
     """``seed`` and ``seeds`` are the hadiths of step 1's list, all equal: each is cut into parts on its own
     (``params["clauses"]``: the user's cuts, ``{wid: [[start, end), ...]}``, or a list for ``seed``) and the cuts that are
     the same part make the family's parts (``family.py``); candidates are compared with those. ``seed`` of the result is
@@ -141,7 +141,7 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
         if (retrieve or semantic_only) and rnd == 1 and p.get("sem") and semantic.available():
             _semantic(src, own_parts, [seed, *seeds], p, new_pool, queries, flags)
         if rnd == 1 and sem_passages and semantic.available():
-            sem_parts = _sem_passages(src, own_parts, [seed, *seeds], p, queries, flags)
+            sem_parts = _sem_passages(src, own_parts, [seed, *seeds], p, queries, flags, sem_cache)
         if rnd == 1 and sem_picks:
             _picked(src, sem_picks, new_pool, p, flags)
         for w in extra_ids:
@@ -370,81 +370,95 @@ def _has_words(hay: Sequence[str], needles: Sequence[Sequence[str]]) -> bool:
     return False
 
 
-def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: List[dict], flags: List[dict]) -> List[dict]:
-    """The TEXTS of other hadiths' parts that resemble each ticked part: ``[dict(clause, variants=[...], same_words, n_same, n_other)]``,
-    one entry per ticked part (the hadiths of step 1's list each ask with their own words of it; a part found by several keeps its
-    best cosine), none under ``sem_min``. A text that has the words of the ticked part as they are (``same_words`` counts them) is
-    left out: step 3's word search finds its hadiths. The others come in two groups, each the nearest first and at most ``sem_k_part``
-    long, so the near-copies cannot fill the list before a text in other words: ``same`` (``cov`` >= ``SAME_COV``, ``cov`` the share
-    of the part's words the text has) and the rest. A variant is one distinct part text: ``id`` (its row in the semantic index),
-    ``text``, ``ntok``, ``cos``, ``cov``, ``same``, ``n`` (hadiths that have it), ``words`` (``[[word, shared with the part]]``) and
-    ``items`` (the first ``sem_items`` of those hadiths: ``wid``, ``span`` [a, b) in its words, ``src`` how the part was cut, book
-    data). Nothing joins the pool: the user picks texts first."""
-    texts: List[str] = []
-    tags: List[Tuple[str, int]] = []
+SEM_PART_VERSION = 1           # bump when what ``_sem_part`` returns changes: the per-part results kept by a project are keyed with it
+
+
+def _sem_part(c: int, texts: Sequence[str], mn: float, exclude: set, p: dict) -> dict:
+    """One ticked part's entry of ``_sem_passages``: the texts that resemble ``texts`` (the wordings of the part in the hadiths of
+    step 1's list) at ``mn`` or more."""
+    res = semantic.neighbours(list(texts), k=min(8 * p["sem_k_part"] + 100, 1000), min_cos=mn)     # many more than will be shown: the near-copies come first and are cut below
+    best: Dict[int, float] = {}
+    for hits in res:
+        for pid, cos in hits:
+            if cos > best.get(pid, 0.0):
+                best[pid] = cos
+    got = semantic.parts_of(sorted(best), exclude=exclude, occ_max=p["sem_items"])
+    seqs = [tuple(match_key(x) for x in tokens(t)) for t in texts]
+    own = {k for sq in seqs for k in sq}
+    kept: List[Tuple[int, float, float, bool]] = []
+    left = {False: 0, True: 0}
+    dropped = 0
+    for pid, cos in sorted(best.items(), key=lambda kv: -kv[1]):
+        g = got.get(pid)
+        if not g or not g["n"]:
+            continue                                             # it stands only in the hadiths of step 1's list
+        ks = [match_key(x) for x in tokens(g["text"])]
+        if _has_words(ks, seqs):
+            dropped += 1                                         # it has the part's words as they are: step 3's word search finds its hadiths
+            continue
+        cov = len(own & set(ks)) / len(own) if own else 0.0
+        same = cov >= SAME_COV
+        if left[same] < p["sem_k_part"]:
+            left[same] += 1
+            kept.append((pid, cos, cov, same))
+    recs = corpus.get_many(sorted({o[0] for pid, _, _, _ in kept for o in got[pid]["occ"]}))
+    vs = []
+    for pid, cos, cov, same in kept:
+        g = got[pid]
+        items = []
+        for wid, a, b, sc in g["occ"]:
+            rec = recs.get(wid)
+            if rec is None:
+                continue
+            items.append(dict(wid=wid, span=[a, b], src=sc, book=rec["book"], title=rec["title"], author=rec["author"],
+                              tradition=rec["tradition"], vol=rec["vol"], page=rec["page"], copies=[]))
+        vs.append(dict(id=pid, text=g["text"], ntok=g["ntok"], cos=round(cos, 3), cov=round(cov, 2), same=same, n=g["n"],
+                       words=_shared_words(g["text"], own), items=items))
+    ns = sum(1 for v in vs if v["same"])
+    return dict(clause=c, variants=vs, same_words=dropped, n_same=ns, n_other=len(vs) - ns, sem_min=mn)
+
+
+def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: List[dict], flags: List[dict], cache=None) -> List[dict]:
+    """The TEXTS of other hadiths' parts that resemble each ticked part: ``[dict(clause, variants=[...], sem_min, same_words, n_same,
+    n_other)]``, one entry per ticked part (also one that found nothing: its threshold can be lowered on its own), in the order of
+    the parts. The hadiths of step 1's list each ask with their own words of a part; a text found by several keeps its best cosine.
+    ``sem_min`` is the least cosine of that part: ``p["sem_min_by"][part]`` if the user set one, else ``p["sem_min"]``. A text that has
+    the words of the ticked part as they are (``same_words`` counts them) is left out: step 3's word search finds its hadiths. The
+    others come in two groups, each the nearest first and at most ``sem_k_part`` long, so the near-copies cannot fill the list before a
+    text in other words: ``same`` (``cov`` >= ``SAME_COV``, ``cov`` the share of the part's words the text has) and the rest. A variant is
+    one distinct part text: ``id`` (its row in the semantic index), ``text``, ``ntok``, ``cos``, ``cov``, ``same``, ``n`` (hadiths that
+    have it), ``words`` (``[[word, shared with the part]]``) and ``items`` (the first ``sem_items`` of those hadiths: ``wid``, ``span``
+    [a, b) in its words, ``src`` how the part was cut, book data). Nothing joins the pool: the user picks texts first.
+    ``cache(key, fn)``: if given, a part's entry is kept under ``key`` (what it was made from), so asking again with another threshold
+    for one part computes that part only."""
+    by: Dict[int, List[str]] = {}
     for w in order:
         raw = src[w]["rec"]["matn"]
         offs, st = token_offsets(raw), strip_tags(raw)
         for c, x, y in own_parts(w):
             if 0 <= x < y <= len(offs):
-                texts.append(st[offs[x][0]:offs[y - 1][1]])
-                tags.append((w, c))
-    if not texts:
+                by.setdefault(c, []).append(st[offs[x][0]:offs[y - 1][1]])
+    if not by:
         return []
-    try:                                                     # many more than will be shown: the near-copies come first and are cut below
-        res = semantic.neighbours(texts, k=min(8 * p["sem_k_part"] + 100, 1000), min_cos=p["sem_min"])
-    except Exception as e:                                   # a missing or broken index must not fail the run
-        flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {e}"))
-        return []
-    best: Dict[int, Dict[int, float]] = {}
-    for (w, c), hits in zip(tags, res):
-        for pid, cos in hits:
-            if cos > best.setdefault(c, {}).get(pid, 0.0):
-                best[c][pid] = cos
-    got = semantic.parts_of(sorted({pid for d in best.values() for pid in d}), exclude=set(src), occ_max=p["sem_items"])
-    own_keys: Dict[int, set] = {}
-    own_seq: Dict[int, List[tuple]] = {}
-    for (w, c), t in zip(tags, texts):
-        ks = [match_key(x) for x in tokens(t)]
-        own_keys.setdefault(c, set()).update(ks)
-        own_seq.setdefault(c, []).append(tuple(ks))
-    kept: Dict[int, List[Tuple[int, float, float, bool]]] = {}
-    dropped: Dict[int, int] = {}
-    for c in sorted(best):
-        left = {False: 0, True: 0}
-        own = own_keys.get(c, set())
-        for pid, cos in sorted(best[c].items(), key=lambda kv: -kv[1]):
-            g = got.get(pid)
-            if not g or not g["n"]:
-                continue                                         # it stands only in the hadiths of step 1's list
-            ks = [match_key(x) for x in tokens(g["text"])]
-            if _has_words(ks, own_seq.get(c, ())):
-                dropped[c] = dropped.get(c, 0) + 1               # it has the part's words as they are: step 3's word search finds its hadiths
-                continue
-            cov = len(own & set(ks)) / len(own) if own else 0.0
-            same = cov >= SAME_COV
-            if left[same] < p["sem_k_part"]:
-                left[same] += 1
-                kept.setdefault(c, []).append((pid, cos, cov, same))
-    recs = corpus.get_many(sorted({o[0] for d in kept.values() for pid, _, _, _ in d for o in got[pid]["occ"]}))
+    exclude = set(src)
+    by_min = p.get("sem_min_by") or {}
+    sig = semantic.meta() if cache else {}
     out = []
-    for c in sorted(best):
-        vs = []
-        for pid, cos, cov, same in kept.get(c, ()):
-            g = got[pid]
-            items = []
-            for wid, a, b, sc in g["occ"]:
-                rec = recs.get(wid)
-                if rec is None:
-                    continue
-                items.append(dict(wid=wid, span=[a, b], src=sc, book=rec["book"], title=rec["title"], author=rec["author"],
-                                  tradition=rec["tradition"], vol=rec["vol"], page=rec["page"], copies=[]))
-            vs.append(dict(id=pid, text=g["text"], ntok=g["ntok"], cos=round(cos, 3), cov=round(cov, 2), same=same, n=g["n"],
-                           words=_shared_words(g["text"], own_keys.get(c, set())), items=items))
-        ns = sum(1 for v in vs if v["same"])
-        out.append(dict(clause=c, variants=vs, same_words=dropped.get(c, 0), n_same=ns, n_other=len(vs) - ns))
-        queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="parts", hits=len(vs),
-                            capped=ns >= p["sem_k_part"] or len(vs) - ns >= p["sem_k_part"], new=len(vs)))
+    for c in sorted(by):
+        mn = by_min.get(c, p["sem_min"])
+        try:
+            if cache:
+                key = hashlib.sha1(repr([SEM_PART_VERSION, SAME_COV, sorted(set(by[c])), mn, p["sem_k_part"], p["sem_items"], sorted(exclude),
+                                         sig.get("built"), sig.get("n"), sig.get("model")]).encode()).hexdigest()[:20]
+                e = cache(key, lambda: _sem_part(c, by[c], mn, exclude, p))
+            else:
+                e = _sem_part(c, by[c], mn, exclude, p)
+        except Exception as ex:                                  # a missing or broken index must not fail the run
+            flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {ex}"))
+            return []
+        out.append(e)
+        queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="parts", hits=len(e["variants"]),
+                            capped=e["n_same"] >= p["sem_k_part"] or e["n_other"] >= p["sem_k_part"], new=len(e["variants"])))
     return out
 
 

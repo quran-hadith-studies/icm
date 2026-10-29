@@ -261,3 +261,32 @@ def test_passages_are_shown_as_distinct_texts_with_their_hadiths():
     top = q["variants"][0]
     assert top["cos"] == 0.9 and [i["wid"] for i in top["items"]] == ["v02:1", "v02:2"]
     assert [sh for _, sh in top["words"]] == [True, True, False]                       # the words the part itself has
+
+
+def test_each_part_has_its_own_threshold_and_is_kept_by_itself(index, monkeypatch):
+    wids = {0: "v02:1", 1: "v02:2", 2: "v02:3", 3: "v02:4", 4: "kg:5"}
+    recs = {w: dict(wid=w, book="b", title="t", author="a", tradition="shia", vol=None, page=None, matn=TEXTS[i]) for i, w in wids.items()}
+    recs["v02:6"] = dict(recs["v02:1"], wid="v02:6")
+    monkeypatch.setattr(corpus, "get_many", lambda ws: {w: recs[w] for w in ws if w in recs})
+    monkeypatch.setattr(semantic, "meta", lambda: {"built": "t", "n": 5, "model": "toy"})
+    src = {"v02:9": dict(rec=dict(matn="اقیموا الصلاه وادوا یغفر الله ما دون ذلک لمن یشاء"))}
+    own = lambda w: [(0, 0, 3), (1, 3, 10)]                       # two parts: the first three words, the rest
+    p = dict(search.DEFAULTS, sem_min=0.0, sem_k_part=5)
+    a, b = search._sem_passages(src, own, ["v02:9"], p, [], [])
+    assert (a["clause"], b["clause"]) == (0, 1) and a["sem_min"] == b["sem_min"] == 0.0 and a["variants"] and b["variants"]
+    a1, b1 = search._sem_passages(src, own, ["v02:9"], dict(p, sem_min_by={1: 0.99}), [], [])
+    assert b1["sem_min"] == 0.99 and b1["variants"] == [] and a1 == a                # a part that found nothing is still there: its threshold can be lowered on its own
+    # a part is kept under what it was made from: another threshold for one part computes that part only
+    calls, store = [], {}
+    real = search._sem_part
+    monkeypatch.setattr(search, "_sem_part", lambda c, *a, **k: (calls.append(c), real(c, *a, **k))[1])
+
+    def cache(key, fn):
+        if key not in store:
+            store[key] = fn()
+        return store[key]
+    r1 = search._sem_passages(src, own, ["v02:9"], p, [], [], cache)
+    r2 = search._sem_passages(src, own, ["v02:9"], p, [], [], cache)
+    assert calls == [0, 1] and r1 == r2 == [a, b]
+    r3 = search._sem_passages(src, own, ["v02:9"], dict(p, sem_min_by={1: 0.5}), [], [], cache)
+    assert calls == [0, 1, 1] and r3[0] == a and r3[1]["sem_min"] == 0.5

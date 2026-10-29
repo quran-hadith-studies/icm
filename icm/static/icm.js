@@ -538,6 +538,23 @@ const panels = {
       pickBtn.textContent = (rsem.picks || []).length ? 'جستجوی دوباره‌ی حدیث‌های تیک‌خورده' : 'جستجو';
       pickBtn.title = !picked.size ? 'دست‌کم یک متن را تیک بزنید' : now === pressed ? 'این متن‌ها را همین حالا جستجو کرده‌اید' : '';
     };
+    /* a threshold of its own for each part: its field and button ask the semantic index about that part alone (the bar's «اجرا» asks about all of them with its own number for the parts that have none) */
+    const partInp = {};
+    const partCtl = q => {
+      const own = (rsem.part_min || {})[String(q.clause)] != null, used = q.sem_min != null ? q.sem_min : rsem.sem_min;
+      if (!(c.can && !STATIC)) return el('div', { class: 'small muted' }, `کمترین هم‌معنایی این بخش: ${fa(used)}` + (own ? ' (ویژه‌ی این بخش)' : ''));
+      const inp = partInp[q.clause] || (partInp[q.clause] = el('input', { class: 'w5', type: 'number', min: '0.4', max: '0.95', step: '0.01', 'aria-label': 'کمترین هم‌معنایی این بخش' }));
+      if (inp.dataset.used !== String(used)) { inp.value = String(used); inp.dataset.used = String(used); }
+      const ask = async (ev, v) => {
+        const b0 = ev.currentTarget; b0.disabled = true; pickErr.textContent = '';
+        try { await post(`/project/${c.pid}/run/semantic`, { part: q.clause, sem_min: v }); reload(c.pid); }
+        catch (e) { pickErr.textContent = e.message; b0.disabled = false; }
+      };
+      return el('div', { class: 'small', style: 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 4px' },
+        'کمترین هم‌معنایی این بخش', inp, own ? el('span', { class: 'chip', title: 'اجرای کل (نوار بالا) این عدد را عوض نمی‌کند' }, 'ویژه‌ی این بخش') : el('span', { class: 'muted' }, '(همان عدد نوار بالا)'),
+        el('button', { class: 'small', title: 'فقط متن‌های هم‌معنای این بخش را با این عدد دوباره بیابید؛ بخش‌های دیگر دست نمی‌خورند و تیک‌های همین بخش برداشته می‌شود', disabled: !!(c.busy && c.busy()), onclick: ev => ask(ev, Number(inp.value)) }, 'جستجوی این بخش'),
+        own ? el('button', { class: 'small', title: 'این بخش دوباره عدد نوار بالا را بگیرد', disabled: !!(c.busy && c.busy()), onclick: ev => ask(ev, null) }, 'حد ویژه را بردار') : null);
+    };
     const drawPass = () => {
       /* per part two groups: the texts with OTHER words (what this step is for) first, then those that have most of the part's words; an old result has no `same`: all in the second */
       const group = (q, vs, title, none) => {
@@ -552,6 +569,7 @@ const panels = {
           el('div', { class: 'small muted' }, 'متن این بخش در حدیث‌های فهرست مرحله‌ی ۱ (با اعراب خودِ حدیث؛ در مرحله‌ی ۲ بی‌اعراب و رنگی می‌بینید):'),
           el('h3', { style: 'margin-top:2px' }, swatch(q.clause), ' ', el('span', { class: 'ar' }, clauseRaw(S, q.clause)), ' ', el('span', { class: 'small muted' }, `${fa(q.variants.length)} متنِ دیگر`),
             q.same_words ? el('span', { class: 'small muted', title: 'متن‌هایی که خودِ واژه‌های این بخش را دارند در جستجوی لفظی مرحله‌ی ۳ آمده‌اند' }, ` (${fa(q.same_words)} متن که همین واژه‌ها را دارد، در مرحله‌ی ۳ هست)`) : null),
+          partCtl(q),
           ...group(q, other, 'با واژه‌های دیگر', 'متنی با واژه‌های دیگر و این هم‌معنایی نیامد (کمترین هم‌معنایی را در نوار «اجرا» کم کنید).'),
           ...group(q, same, 'با بیشترِ همین واژه‌ها', 'متنی با بیشترِ همین واژه‌ها نیامد.'));
       }));

@@ -123,6 +123,20 @@ def test_semantic_search_is_its_own_run_on_top_of_the_lexical_press(monkeypatch)
         found = [(q["clause"], v) for q in S1["sem_parts"] for v in q["variants"]]
         assert found and all(v["id"] == 7 and v["text"] and 0.9 == v["cos"] and v["items"][0]["wid"] == "v02:800316145" for _, v in found)
         assert rs["unit"] == "parts" and rs["pca"] == 32
+        # one part on its own: its threshold is its own (the others and the press stay), a press of all keeps it, none takes it back
+        for bad in ({"part": -1, "sem_min": 0.5}, {"part": True, "sem_min": 0.5}, {"part": "0", "sem_min": 0.5}, {"part": 0, "sem_min": 0.2}):
+            assert run(c, pid, "semantic", 400, **bad)
+        run(c, pid, "semantic", part=0, sem_min=0.5)
+        r1 = project.decision(pid, "search")["ret_sem"]
+        assert r1["part_min"] == {"0": 0.5} and r1["sem_min"] == 0.6 and r1["n"] == 1 and r1["at"] == rs["at"] and "picks" not in r1
+        run(c, pid, "semantic", sem_min=0.7, sem_k=5)
+        r2 = project.decision(pid, "search")["ret_sem"]
+        assert r2["part_min"] == {"0": 0.5} and r2["sem_min"] == 0.7 and r2["n"] == 2
+        S2 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert {q["clause"]: q["sem_min"] for q in S2["sem_parts"]}[0] == 0.5 and all(q["sem_min"] == 0.7 for q in S2["sem_parts"] if q["clause"] != 0)
+        run(c, pid, "semantic", part=0)
+        assert "part_min" not in project.decision(pid, "search")["ret_sem"]
+        run(c, pid, "semantic", sem_min=0.6, sem_k=5)
         assert run(c, pid, "sempick", 400, picks="x") and run(c, pid, "sempick", 409, picks=[])        # a pick is needed
         cl, it = found[0]
         run(c, pid, "sempick", picks=[[str(it["id"]), cl], ["999", cl]])
