@@ -1,0 +1,83 @@
+{
+  "_comment": "Authors linked to a narrator-database person by hand, for the cases the automatic name+death check cannot decide (the person has no death year in Noor, or a wrong one, or a title like «السيد» in the name). Key: an OpenITI author id (applies to every spelling of that author the catalogues use) or \"<author as catalogued>|<death year>\". Every entry says in `note` what was checked; build/authors.py ignores an entry without a note or with an id that does not exist.",
+  "openiti:0460ShaykhTusi": {
+    "noor": 5102,
+    "note": "Noor 5102 is exactly «محمد بن الحسن بن علي الطوسي»; its only death year (525, from a KG link) is wrong, al-Tusi died 460"
+  },
+  "طوسی، محمد بن حسن|460": {
+    "noor": 5102,
+    "note": "same person as openiti:0460ShaykhTusi, catalogued in Persian form"
+  },
+  "openiti:0436SharifMurtada": {
+    "noor": 3997,
+    "note": "Noor 3997 «علي بن الحسين السيد المرتضى», death 436 in Noor and in al-Tusi's Fihrist; the title «السيد» is dropped before comparing, so «الشريف المرتضى» did not match"
+  },
+  "سید مرتضی، علی بن حسین|436": {
+    "noor": 3997,
+    "note": "same person, Persian form"
+  },
+  "openiti:0406SharifRadi": {
+    "noor": 5113,
+    "note": "Noor 5113 «محمد بن الحسين السيد الرضي», death 406 in Noor"
+  },
+  "شریف رضی، محمد بن حسین|406": {
+    "noor": 5113,
+    "note": "same person, Persian form"
+  },
+  "ابن‌بابویه، محمد بن علی|381": {
+    "noor": 5507,
+    "note": "Noor 5507 «محمد بن علي بن الحسين بن بابويه»: death 381 in al-Najashi and WikiShia (Noor's own 331 is the odd one out); the words «محمد بن علي» are too common for the automatic rule"
+  },
+  "openiti:0573IbnHibatAllahQutbDinRawandi": {
+    "noor": 2744,
+    "note": "Noor 2744 «سعيد بن هبة الله الراوندي» is Qutb al-Din al-Rawandi (d. 573); Noor has no death year for him"
+  },
+  "قطب راوندی، سعید بن هبه‌الله|573": {
+    "noor": 2744,
+    "note": "same person, Persian form"
+  },
+  "طبرسی، فضل بن حسن|548": {
+    "noor": 1517,
+    "note": "Noor 1517 «الفضل بن الحسن الطبرسي»; its death year (523, from a KG link) is wrong, al-Tabrisi died 548"
+  },
+  "openiti:0664IbnTawus": {
+    "noor": 4234,
+    "note": "Noor 4234 «علي بن موسى بن جعفر بن طاوس» (Sayyid Ibn Tawus, d. 664); no death year in Noor"
+  },
+  "ابن‌طاووس، علی بن موسی|664": {
+    "noor": 4234,
+    "note": "same person, Persian form"
+  },
+  "openiti:0449AbuFathKarajiki": {
+    "noor": 5527,
+    "note": "Noor 5527 «محمد بن علي بن عثمان الكراجكي» (d. 449); no death year in Noor"
+  },
+  "کراجکی، محمد بن علی|449": {
+    "noor": 5527,
+    "note": "same person, Persian form"
+  },
+  "openiti:0363QadiNucman": {
+    "noor": 35374,
+    "note": "Noor 35374 «النعمان بن محمد ابن حيون التميمي المغربي», OpenITI gives «النعمان بن محمد بن منصور بن حيون», d. 363"
+  },
+  "ابن‌حیون، نعمان بن محمد|363": {
+    "noor": 35374,
+    "note": "same person, Persian form"
+  },
+  "openiti:0450Najashi": {
+    "noor": 563,
+    "note": "Noor 563 «أحمد بن علي بن أحمد بن العباس النجاشي»; OpenITI gives «أحمد بن علي بن أحمد بن عباس الأسدي الكوفي», d. 450"
+  },
+  "علامه حلی، حسن بن یوسف|726": {
+    "noor": 1231,
+    "note": "Noor 1231 «الحسن بن يوسف بن المطهر العلامة الحلي» (d. 726)"
+  },
+  "openiti:0726CallamaHilli": {
+    "noor": 1231,
+    "note": "Noor 1231 «الحسن بن يوسف بن المطهر العلامة الحلي» (d. 726); OpenITI's own full name for this id is garbled but its short name is «العلامة الحلي»"
+  },
+  "openiti:0381IbnBabawayhSaduq": {
+    "noor": 5507,
+    "note": "Noor 5507 «محمد بن علي بن الحسين بن بابويه» is al-Saduq: death 381 in al-Najashi and WikiShia; OpenITI spells a grandfather «موسا», so the lineages do not line up"
+  }
+}

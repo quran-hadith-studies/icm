@@ -28,7 +28,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from narrators.common import STOP, bare, name_tokens
-from . import config, corpus, hadithai, narrator_versions, sanad_parse
+from . import authors, config, corpus, hadithai, narrator_versions, sanad_parse
 from .text import norm, strip_tags, token_offsets, tokens
 
 _IMAMS = json.load(open(config.HERE + "/narrators/data/imam_reigns.json", encoding="utf-8"))["imams"]
@@ -411,12 +411,36 @@ def attach_candidates(chains: List[dict], tradition_of: Dict[str, str]) -> None:
                               for i in e["amb"]]
             elif e["kind"] == "relative":
                 e["cands"] = []                             # derived from the narrator before it (_derive_relatives)
+            elif e["kind"] == "collector":
+                _collector(e, trad)
             else:
-                e["cands"] = match(e["name"], trad, e["imam_hint"], e.get("death"), e["kind"] == "collector")
+                e["cands"] = match(e["name"], trad, e["imam_hint"], e.get("death"))
         _derive_relatives(ch)
         for e in ch["elems"]:
             _hai_candidate(e)
         _add_context(ch)
+
+
+def _collector(e: dict, trad: str) -> None:
+    """The book's author. When ``icm.authors`` is sure who he is (name and death year agree with exactly one person) he is
+    exact; otherwise the name-matched candidates stay, except persons whose recorded death is years from the book author's."""
+    got = authors.lookup(e["raw"], e.get("death")) or authors.lookup(e["name"], e.get("death"))
+    if got:
+        ids = sorted(got["ids"], key=lambda i: not i.startswith("noor:" if trad == "shia" else "kg:"))      # his own tradition's database first
+        e["exact"] = ids[0]
+        e["cands"] = [dict(id=i, label=_label(i), score=9.0, cov=1.0, exact=True, author=got["by"]) for i in ids[:1]]
+        return
+    cs = match(e["name"], trad, False, e.get("death"), True)
+    e["cands"] = [c for c in cs if not authors.contradicts(c["id"], e.get("death"))]
+
+
+def _label(pid: str) -> str:
+    kind, _, raw = pid.partition(":")
+    if kind == "noor":
+        r = noor_index()["ravis"].get(int(raw))
+        return r["name"] if r else pid
+    r = corpus.conn("kg").execute("select name from rawis where id=?", (int(raw),)).fetchone()
+    return r["name"] if r else pid
 
 
 HAI_FA = {"ctx3": "با همان راوی پیش و پس از آن", "ctx_prev": "با همان راوی پیش از آن", "ctx_next": "با همان راوی پس از آن"}

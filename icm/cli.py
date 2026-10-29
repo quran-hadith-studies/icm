@@ -11,6 +11,7 @@
   helper [--server URL] [--token-file F]   compute waiting projects on this machine (see icm/helper.py)
   eval                           recall of the search against the diagram witnesses and the consensus sets
   build kg|noor|termdf|books|hadithai   (re)build the laptop-side data files
+  build authors                  authors.json: which book authors are certainly which narrator-database person (name + death year; needs books)
   build roots                    the root of every Arabic word form (needs camel-tools: conda env dev3)  -> external/icm/term_root.tsv
   build lex                      lex.sqlite: word / root / sanad / book index of both corpora (needs the roots file)
   build parts --model NAME       the semantic index of text parts (needs torch + transformers: conda env dev3; hours; `vec` is the same)
@@ -68,7 +69,7 @@ def main(argv=None) -> int:
     sub.add_parser("eval")
     sub.add_parser("app", add_help=False)           # own parser in icm.app
     hp = sub.add_parser("helper", add_help=False)   # own parser in icm.helper
-    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "model", "roots", "lex", "vec", "parts", "all"])
+    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "authors", "model", "roots", "lex", "vec", "parts", "all"])
     b.add_argument("--model", default="BAAI/bge-m3", help="build vec: the embedding model (Hugging Face name)")
     b.add_argument("--limit", type=int, help="build lex / vec: only the first N rows of each corpus (a trial)")
     b.add_argument("--out", help="build lex / vec / parts: another output path")
@@ -116,6 +117,10 @@ def main(argv=None) -> int:
         from .build import books_meta, hadithai, kg_extract, model_zip, noor_relations, termdf
         if a.what == "model":
             print(model_zip.build())
+            return 0
+        if a.what == "authors":
+            from .build import authors as build_authors
+            build_authors.run()
             return 0
         if a.what == "roots":
             from .build import roots
