@@ -158,6 +158,17 @@ def test_semantic_search_is_its_own_run_on_top_of_the_lexical_press(monkeypatch)
         assert project.decision(pid, "search").get("ret_sem") is None
         S2 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
         assert not any("q:sem" in x["signals"] for x in S2["candidates"] if x["wid"] != "v02:800316145") and by is not None
+        # the same press after the index was rebuilt is not the saved answer of the old index
+        calls = []
+        real = semantic.neighbours
+        monkeypatch.setattr(semantic, "neighbours", lambda *a, **kw: calls.append(1) or real(*a, **kw))
+        run(c, pid, "semantic", sem_min=0.6, sem_k=5)
+        c.get(f"/icm/api/project/{pid}/runs/current/search")
+        assert not calls                                                                  # the same index: the saved result
+        monkeypatch.setattr(semantic, "meta", lambda: {"model": "toy", "unit": "parts", "pca": {"to": 32}, "built": "2026-10-29 18:35", "n": 5})
+        run(c, pid, "semantic", sem_min=0.6, sem_k=5)
+        c.get(f"/icm/api/project/{pid}/runs/current/search")
+        assert calls                                                                      # another index: asked again
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

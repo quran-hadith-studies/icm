@@ -19,7 +19,7 @@ import traceback
 from typing import Callable, Dict, Optional, Tuple
 
 from . import STAGE_VERSIONS, align as align_mod, config, corpus, graph as graph_mod, identity, infer, jobs, narrator_versions, project, search as search_mod
-from . import suggest as suggest_mod
+from . import semantic, suggest as suggest_mod
 from .project import h
 
 
@@ -127,8 +127,9 @@ def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
         # two presses: the passages that resemble each part (nothing joins the candidates), then the hadiths of the passages the user ticked
         pmin = {int(c): v for c, v in (rs.get("part_min") or {}).items()}          # the least cosine of the parts that have their own
         rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"], sem_min_by=pmin)
+        ix = semantic.meta()                                   # the index asked: a rebuilt one (other texts, other vectors) is not the saved answer of the old
         k_base = h("sempassages", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), *([rs["unit"], rs.get("pca"), "tiers"] if rs.get("unit") else []),
-                   *([sorted(pmin.items())] if pmin else []), rs.get("at"), STAGE_VERSIONS["search"])
+                   *([sorted(pmin.items())] if pmin else []), rs.get("at"), STAGE_VERSIONS["search"], *([ix.get("built"), ix.get("n")] if ix.get("unit") == "parts" else []))
 
         def sem_cache(key, fn):                                # a part's passages are kept by what they were made from: a part asked again alone costs that part only
             got = project.stage_get(pid, "sempart", key)
