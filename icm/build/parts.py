@@ -252,6 +252,64 @@ def embed_parts(work: str, enc, n: int, mean: np.ndarray, W: np.ndarray) -> None
 
 
 # ---------------------------------------------------------------------------
+# 3b. a part's text trimmed after the fact (``vec.emb_text`` now trims punctuation at both ends)
+# ---------------------------------------------------------------------------
+def retrim(work: str, enc, mean: np.ndarray, W: np.ndarray) -> int:
+    """Bring a finished ``work`` folder (parts.sqlite + raw shards) up to the trimmed text: the parts whose ``vec.emb_text`` differs
+    from the stored text are embedded again (kept in ``retrim/`` shard by shard, so a stopped run goes on), their rows in the raw
+    shards are replaced, and the stored text is updated. Returns the number of parts changed; run ``build_index`` afterwards."""
+    done_mark = os.path.join(work, "retrim.done")
+    if os.path.exists(done_mark):
+        return int(open(done_mark).read() or 0)
+    db = os.path.join(work, "parts.sqlite")
+    con = sqlite3.connect(db)
+    changed = [(i, new) for i, t in con.execute("select id, text from part") for new in [vec.emb_text(t)] if new != t]
+    print(f"retrim: {len(changed)} of the parts have punctuation at an end", flush=True)
+    changed.sort(key=lambda r: (len(r[1]), r[0]))                    # same lengths together (fast batches), a fixed order (resumable)
+    rd = os.path.join(work, "retrim")
+    os.makedirs(rd, exist_ok=True)
+    t0 = time.time()
+    for k in range(0, len(changed), SHARD):
+        f = os.path.join(rd, f"{k // SHARD:05d}.npz")
+        if os.path.exists(f):
+            continue
+        rows = changed[k:k + SHARD]
+        out = np.zeros((len(rows), W.shape[0] if mean is not None else enc.m.config.hidden_size), dtype=np.float16)
+        s = 0
+        while s < len(rows):
+            bs = 256 if len(rows[s][1]) <= 60 else 128
+            v = enc.encode([r[1] for r in rows[s:s + bs]], enc.doc_prefix).astype(np.float32)
+            out[s:s + bs] = vec.project(v, mean, W)
+            s += bs
+        np.savez(f + ".part.npz", i=np.array([r[0] for r in rows], dtype=np.int64), v=out)
+        os.replace(f + ".part.npz", f)
+        el = time.time() - t0
+        print(f"  retrimmed {k + len(rows)}/{len(changed)} {el:.0f}s", flush=True)
+    new_v = {}
+    for f in sorted(os.listdir(rd)):
+        if f.endswith(".npz") and not f.endswith(".part.npz"):
+            z = np.load(os.path.join(rd, f))
+            new_v.update(zip(z["i"].tolist(), z["v"]))
+    raw = os.path.join(work, "raw")
+    for f in sorted(os.listdir(raw)):                                  # the rows in the shards: replaced (the same again if run twice)
+        if not f.endswith(".npz"):
+            continue
+        z = np.load(os.path.join(raw, f))
+        ids, v = z["i"], z["v"].copy()
+        hit = [j for j, i in enumerate(ids.tolist()) if i in new_v]
+        if hit:
+            for j in hit:
+                v[j] = new_v[int(ids[j])]
+            np.savez(os.path.join(raw, f + ".part.npz"), i=ids, v=v)
+            os.replace(os.path.join(raw, f + ".part.npz"), os.path.join(raw, f))
+    con.executemany("update part set text=? where id=?", [(t, i) for i, t in changed])
+    con.commit()
+    con.close()
+    open(done_mark, "w").write(str(len(changed)))
+    return len(changed)
+
+
+# ---------------------------------------------------------------------------
 # 4. the index (streams the shards: the vectors are never all in memory)
 # ---------------------------------------------------------------------------
 def build_index(work: str, out: str, n_lists: Optional[int] = None) -> dict:
@@ -337,6 +395,24 @@ def run(model: str, out: Optional[str] = None, limit: Optional[int] = None, work
     print(open(os.path.join(out, "meta.json")).read())
 
 
+def retrim_run(model: str, out: Optional[str], work: str, lists: Optional[int] = None, pca: int = 256) -> None:
+    """``retrim`` + ``build_index`` + the files of a finished index (``run`` without the cut and the embedding of everything)."""
+    enc = vec.TorchEncoder(model)
+    mean, W = fit_pca(work, enc, pca) if pca else (None, None)
+    n = retrim(work, enc, mean, W)
+    info = build_index(work, out, lists)
+    for f in ("parts.sqlite", "pca.f32"):
+        shutil.copy(os.path.join(work, f), os.path.join(out, f))
+    old = os.path.join(config.DATA_DIR, "vec")
+    if os.path.exists(os.path.join(old, "meta.json")):
+        m = json.load(open(os.path.join(old, "meta.json")))
+        if os.path.exists(os.path.join(old, "model")) and not os.path.exists(os.path.join(out, "model")):
+            os.symlink(os.path.abspath(os.path.join(old, "model")), os.path.join(out, "model"))
+        m.update(info, retrim=n, built=time.strftime("%Y-%m-%d %H:%M"))
+        json.dump(m, open(os.path.join(out, "meta.json"), "w"), indent=1)
+    print(open(os.path.join(out, "meta.json")).read())
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="BAAI/bge-m3")
@@ -346,5 +422,9 @@ if __name__ == "__main__":
     ap.add_argument("--lists", type=int)
     ap.add_argument("--pca", type=int, default=256)
     ap.add_argument("--pilot-only", action="store_true")
+    ap.add_argument("--retrim", action="store_true", help="the work folder is finished: embed again only the parts whose text now differs (trimmed), then build the index again")
     a = ap.parse_args()
-    run(a.model, a.out, a.limit, a.work, a.lists, a.pca, a.pilot_only)
+    if a.retrim:
+        retrim_run(a.model, a.out, a.work, a.lists, a.pca)
+    else:
+        run(a.model, a.out, a.limit, a.work, a.lists, a.pca, a.pilot_only)

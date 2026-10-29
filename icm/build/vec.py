@@ -16,13 +16,26 @@ from ..text import strip_tags
 MAX_LEN = 256                 # tokens
 BATCH = 64
 _HAR = re.compile("[ً-ٰٟـۖ-ۭ]")
+_PAIRS = (("(", ")"), ("[", "]"), ("{", "}"), ("«", "»"), ("﴿", "﴾"))
+_EDGE = re.compile(r"^[^\w]+|[^\w]+$")            # what is not a letter or digit at either end: «-», ««», «[», «:», «،», «.»
 
 
 def emb_text(raw: str) -> str:
-    """The text a model reads: tags, diacritics and tatweel removed, spaces collapsed; the letters stay as written (the
-    models were trained on ordinary Arabic, not on ``norm``'s Persian-letter spelling)."""
+    """The text a model reads: tags, diacritics and tatweel removed, spaces collapsed, punctuation at either end trimmed (a part
+    is cut out of a matn by words, so it carries the dash or the colon glued to its first or last word: that moved the vector by
+    cos 0.96 on average, 0.68 at worst, and which hadith's wording a part was kept from was accidental); the letters stay as
+    written (the models were trained on ordinary Arabic, not on ``norm``'s Persian-letter spelling) and so does the punctuation inside."""
     t = _HAR.sub("", strip_tags(raw or "")).replace("‌", " ")
-    return re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"\s+", " ", t).strip()
+    c = _EDGE.sub("", t)
+    if not c:
+        return t                                      # a text of nothing but punctuation stays as it is
+    for o, q in _PAIRS:                               # a bracket or a quote opened inside the text keeps its closing one («قال «لا» »)
+        if c.count(o) > c.count(q) and q in t[len(t.rstrip(q + "،.:؛!؟ ")):]:
+            c += q
+        elif c.count(q) > c.count(o) and o in t[:len(t) - len(t.lstrip(o + " "))]:
+            c = o + c
+    return c
 
 
 def project(V: np.ndarray, mean: np.ndarray, W: np.ndarray) -> np.ndarray:

@@ -109,3 +109,37 @@ def test_the_whole_build_finds_a_part_from_another_spelling(tmp_path, monkeypatc
     semantic._cache.clear()
     hits = semantic.hadith_hits(["اقيموا الصلاة واتوا الزكاة"], k=3)[0]
     assert hits and hits[0][0] == "v02:3" and hits[0][1] > 0.9
+
+
+def test_punctuation_at_the_ends_of_a_text_is_not_read_by_the_model():
+    assert vec.emb_text("-سبعة لعنتهم وكل نبي مجاب:") == "سبعة لعنتهم وكل نبي مجاب"
+    assert vec.emb_text("«قال: لا ضرر.»") == "قال: لا ضرر"                  # the ends only: the colon inside stays
+    assert vec.emb_text("  <b>(</b>ثم قال [1]،") == "ثم قال [1]"            # what is a letter or a digit is kept
+    assert vec.emb_text("قال «لا ضرر».") == "قال «لا ضرر»"                    # a quote opened inside keeps its closing one
+    assert vec.emb_text("؟") == "؟"                                          # nothing but punctuation: as it was
+
+
+def test_the_texts_of_an_old_index_are_trimmed_and_embedded_again(tmp_path):
+    work = str(tmp_path / "w")
+    os.makedirs(work)
+    n = parts.make_parts(work, None, procs=1, rows=[(1, A), (3, C), (-5, LONG)])
+    enc = FakeEnc()
+    mean, W = parts.fit_pca(work, enc, 16, n=1000)
+    parts.embed_parts(work, enc, n, mean, W)
+    import sqlite3
+    con = sqlite3.connect(os.path.join(work, "parts.sqlite"))
+    pid, text = con.execute("select id, text from part where text like 'اقيموا%'").fetchone()
+    con.execute("update part set text=? where id=?", ("-" + text + ":", pid))              # an index of before: the dash and the colon stored
+    con.commit()
+    raw = os.path.join(work, "raw", "00000.npz")
+    z = np.load(raw)
+    good = z["v"][list(z["i"]).index(pid)].copy()
+    v = z["v"].copy()
+    v[list(z["i"]).index(pid)] = 0                                                         # ... and a vector made from that text
+    np.savez(raw, i=z["i"], v=v)
+    assert parts.retrim(work, enc, mean, W) == 1                                           # that one part only
+    con2 = sqlite3.connect(os.path.join(work, "parts.sqlite"))
+    assert con2.execute("select text from part where id=?", (pid,)).fetchone()[0] == text
+    z = np.load(raw)
+    assert np.allclose(z["v"][list(z["i"]).index(pid)].astype(np.float32), good.astype(np.float32), atol=1e-2)
+    assert parts.retrim(work, enc, mean, W) == 1 and os.path.exists(os.path.join(work, "retrim.done"))      # done: not again

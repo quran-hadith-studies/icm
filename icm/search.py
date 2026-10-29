@@ -370,7 +370,7 @@ def _has_words(hay: Sequence[str], needles: Sequence[Sequence[str]]) -> bool:
     return False
 
 
-SEM_PART_VERSION = 1           # bump when what ``_sem_part`` returns changes: the per-part results kept by a project are keyed with it
+SEM_PART_VERSION = 2           # bump when what ``_sem_part`` returns changes: the per-part results kept by a project are keyed with it
 
 
 def _sem_part(c: int, texts: Sequence[str], mn: float, exclude: set, p: dict) -> dict:

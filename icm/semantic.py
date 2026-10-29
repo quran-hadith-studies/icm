@@ -147,7 +147,7 @@ def parts_of(ids: Sequence[int], exclude=(), occ_max: Optional[int] = None) -> D
         part = ids[s:s + 500]
         q = ",".join("?" * len(part))
         for pid, text, ntok in db.execute(f"select id, text, ntok from part where id in ({q})", part):
-            out[pid] = dict(text=text, ntok=ntok, n=0, occ=[])
+            out[pid] = dict(text=emb_text(text), ntok=ntok, n=0, occ=[])             # an index of before keeps the dash and the colon at the ends
         for pid, key, a, b, src in db.execute(f"select part, key, a, b, src from occ where part in ({q}) order by part, key", part):
             o = out.get(pid)
             if o is None:
