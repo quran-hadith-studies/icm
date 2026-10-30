@@ -71,7 +71,14 @@ from .common import DB_PATH, EXTERNAL, PROJECT, as_list, bare, norm_name
 
 EXPORT = os.environ.get("DIRAYAH_EXPORT", os.path.join(PROJECT, "dirayah3-data", "export"))
 OUT = os.path.join(EXTERNAL, "dirayah.sqlite")
-V02_DB = os.environ.get("ICM_V02_DB", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "workspace-data", "data", "v02", "hadith.sqlite"))
+def _v02_db() -> str:
+    """<ebadollah-data>/v02/hadith.sqlite; the server still has <root>/data/v02 until the cutover."""
+    root = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "ebadollah-data")
+    flat, legacy = os.path.join(root, "v02"), os.path.join(root, "data", "v02")
+    return os.path.join(legacy if os.path.isdir(legacy) and not os.path.isdir(flat) else flat, "hadith.sqlite")
+
+
+V02_DB = os.environ.get("ICM_V02_DB", _v02_db())
 NOOR_OFFSET = 800_000_000
 
 MIN_MATN = 3              # tokens of matn below which the written isnad decides

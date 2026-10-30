@@ -15,6 +15,7 @@
 set -euo pipefail
 HOST="${EBAD_DEPLOY_HOST:-ubuntu@132.145.99.75}"
 DEST="${EBAD_DEPLOY_DEST:-ebadollah}"
+# server still uses data/ until the cutover (ops/docs/CUTOVER.md, "flatten the data root")
 SRC="${ICM_DATA_SRC:-$HOME/Downloads/hadith-project/analysis/external/icm}"
 FILES=(narrators.sqlite kg.sqlite noor_relations.sqlite termdf.sqlite books_meta.json hadithai.sqlite lex.sqlite)
 for f in "${FILES[@]}"; do [ -f "$SRC/$f" ] || { echo "missing $SRC/$f" >&2; exit 2; }; done

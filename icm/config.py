@@ -22,14 +22,22 @@ def _project_dir(analysis: str) -> str:
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))          # the icm checkout
 PROJECT = _project_dir(HERE)                                                 # hadith-project/
-EBAD = os.environ.get("ICM_EBADOLLAH", os.path.join(os.path.dirname(HERE), "workspace-data"))   # the ebadollah data root (ebadollah-project/workspace-data)
+EBAD = os.environ.get("ICM_EBADOLLAH", os.path.join(os.path.dirname(HERE), "ebadollah-data"))   # the ebadollah data root (ebadollah-project/ebadollah-data)
+
+
+def _data(name: str) -> str:
+    """$EBAD_ROOT/<name>; the server still has $EBAD_ROOT/data/<name> until the cutover."""
+    flat, legacy = os.path.join(EBAD, name), os.path.join(EBAD, "data", name)
+    return legacy if os.path.isdir(legacy) and not os.path.isdir(flat) else flat
+
+
 
 DATA_DIR = os.environ.get("ICM_DATA_DIR", os.path.join(HERE, "external", "icm"))
 CACHE_DIR = os.environ.get("ICM_CACHE_DIR", os.path.join(PROJECT, "icm-cache"))
 
-V02_DB = os.environ.get("ICM_V02_DB", os.path.join(EBAD, "data", "v02", "hadith.sqlite"))
-CONSENSUS_DB = os.environ.get("ICM_CONSENSUS_DB", os.path.join(EBAD, "data", "quran-web", "hadith", "v02", "consensus.sqlite"))
-BOOKS_JSON = os.environ.get("ICM_V02_BOOKS", os.path.join(EBAD, "data", "quran-web", "hadith", "v02", "books.json"))
+V02_DB = os.environ.get("ICM_V02_DB", os.path.join(_data("v02"), "hadith.sqlite"))
+CONSENSUS_DB = os.environ.get("ICM_CONSENSUS_DB", os.path.join(_data("quran-web"), "hadith", "v02", "consensus.sqlite"))
+BOOKS_JSON = os.environ.get("ICM_V02_BOOKS", os.path.join(_data("quran-web"), "hadith", "v02", "books.json"))
 
 KG_SRC = os.environ.get("ICM_KG_SRC", os.path.join(HERE, "external", "hadith-kg.db"))   # builder input only
 KG_DB = os.environ.get("ICM_KG_DB", os.path.join(DATA_DIR, "kg.sqlite"))
