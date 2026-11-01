@@ -173,6 +173,58 @@ def test_semantic_search_is_its_own_run_on_top_of_the_lexical_press(monkeypatch)
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_boxes_of_parts_are_one_semantic_query_each(monkeypatch):
+    a, d = app()
+    try:
+        c = TestClient(a)
+        pid = c.post("/icm/api/project", json={"seed": W0}, headers=H("alice")).json()["pid"]
+        pipeline.advance(pid, want={"search"})
+        asked = []
+        monkeypatch.setattr(semantic, "available", lambda: True)
+        monkeypatch.setattr(semantic, "meta", lambda: {"model": "toy", "unit": "parts", "pca": {"to": 32}})
+        monkeypatch.setattr(semantic, "neighbours", lambda texts, k=40, min_cos=0.0, **kw: (asked.append(list(texts)), [[(7, 0.9)] for _ in texts])[1])
+        monkeypatch.setattr(semantic, "parts_of", lambda ids, exclude=(), occ_max=None: {i: dict(text="قال رسول الله", ntok=3, n=1, occ=[("v02:800316145", 0, 3, 1)]) for i in ids})
+        press_search(c, pid)
+        S0 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert len(S0["clauses"]) >= 2
+        for bad in ([], "x", [[]], [[0, 0]], [[0], [0]], [[-1]], [[True]], [["0"]]):                    # boxes: non-empty lists of part numbers, no part twice
+            assert run(c, pid, "semantic", 400, sem_min=0.6, sem_k=5, boxes=bad)
+        asked.clear()
+        run(c, pid, "semantic", sem_min=0.6, sem_k=5, boxes=[[1, 0]])
+        rs = project.decision(pid, "search")["ret_sem"]
+        assert rs["boxes"] == [[0, 1]]
+        S1 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        (q,) = S1["sem_parts"]
+        assert q["clause"] == 0 and q["parts"] == [0, 1] and len(asked) == 1 and len(asked[0]) == 1    # one query: the two parts' words together
+        assert asked[0][0].split()[:len(S0["clauses"][0]["text"].split())] != [] and len(asked[0][0].split()) >= len(S0["clauses"][1]["text"].split())
+        (rows,) = S1["sem_rows"]                                                                           # the hadiths, listed like step 3's candidates
+        assert rows["clause"] == 0 and rows["parts"] == [0, 1] and set(rows["groups"]) == {"other", "same"}
+        # one box's own threshold needs that box; a press without boxes keeps the last press's; other boxes drop what belonged to the old
+        assert run(c, pid, "semantic", 409, part=1, sem_min=0.5)
+        run(c, pid, "semantic", part=0, sem_min=0.5)
+        assert project.decision(pid, "search")["ret_sem"]["part_min"] == {"0": 0.5}
+        run(c, pid, "semantic", sem_min=0.7, sem_k=5)
+        r2 = project.decision(pid, "search")["ret_sem"]
+        assert r2["boxes"] == [[0, 1]] and r2["part_min"] == {"0": 0.5} and r2["sem_min"] == 0.7
+        run(c, pid, "semantic", sem_min=0.7, sem_k=5, boxes=[[1]])
+        r3 = project.decision(pid, "search")["ret_sem"]
+        assert r3["boxes"] == [[1]] and "part_min" not in r3 and "picks" not in r3
+        S3 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        assert [x["clause"] for x in S3["sem_parts"]] == [1]
+        # a ticked HADITH (not a text) joins the pool, with where its text stands, coloured by the box
+        run(c, pid, "sempick", picks=[["v02:800316145", 1]])
+        S4 = c.get(f"/icm/api/project/{pid}/runs/current/search").json()
+        row = next(x for x in S4["candidates"] if x["wid"] == "v02:800316145")
+        assert "q:sem" in row["signals"] and row["sem_hits"][0]["clause"] == 1 and row["sem_hits"][0]["span"] == [0, 3]
+        # the ticks of step 2 are not what the boxes ask: once step 2 has run on them, the semantic list is not made out of date by them
+        assert c.post(f"/icm/api/project/{pid}/decide/search", json={"payload": {"part_query": [0], "extra_ids": []}}, headers=H("alice")).status_code == 200
+        run(c, pid, "rescore")
+        by, w = _states(c, pid)
+        assert by["semantic"]["state"] == "done"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def test_a_run_records_the_decisions_it_was_built_from(monkeypatch):
     a, d = app()
     try:

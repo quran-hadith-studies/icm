@@ -79,9 +79,10 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
     ``prior`` (wid -> signals/round/via of an earlier search's candidates), the extras, kept and source hadiths are scored again,
     against the parts as they are now. ``texts``: wid -> the text the user edited, used instead of the corpus's.
     ``semantic_only``: with ``retrieve=False``, still ask the semantic index (step 4's own press) and add what it finds to ``prior``'s pool.
-    ``sem_passages``: step 4's first press: ask the semantic index for the passages of other hadiths that resemble each ticked part and
-    return them as ``sem_parts`` (no hadith joins the pool). ``sem_picks``: its second press: the passages the user ticked
-    (``[dict(wid, clause, cos, first, copies)]``); their hadiths join the pool with the signal ``q:sem``."""
+    ``sem_passages``: step 4's first press: ask the semantic index for the passages of other hadiths that resemble each box of parts
+    (``params["sem_boxes"]``, ``[[part, ...], ...]``; none: each ticked part is a box) and return them as ``sem_parts`` (no hadith
+    joins the pool). ``sem_picks``: its second press: what the user ticked (``resolve_picks``); their hadiths join the pool with the
+    signal ``q:sem``."""
     p = {**DEFAULTS, **(params or {})}
     t0 = time.time()
     texts = texts or {}
@@ -128,6 +129,8 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
 
     def own_parts(w):                             # the ticked parts a source hadith has, in its own words
         return [(q["i"], *q["members"][w]) for q in parts if w in q["members"] and q["i"] in q_clauses]
+    def all_parts(w):                             # every part a source hadith has (step 4's boxes may hold parts that were not ticked in step 2)
+        return [(q["i"], *q["members"][w]) for q in parts if w in q["members"]]
     sources = [(w, src[w]["tok"], own_parts(w)) for w in [seed, *seeds]] if retrieve else []
     for rnd in range(1, (int(p["rounds"]) if retrieve else 1) + 1):
         new_pool: Dict[str, dict] = {}
@@ -141,7 +144,7 @@ def run(seed: str, params: Optional[dict] = None, extra_ids: Sequence[str] = (),
         if (retrieve or semantic_only) and rnd == 1 and p.get("sem") and semantic.available():
             _semantic(src, own_parts, [seed, *seeds], p, new_pool, queries, flags)
         if rnd == 1 and sem_passages and semantic.available():
-            sem_parts = _sem_passages(src, own_parts, [seed, *seeds], p, queries, flags, sem_cache)
+            sem_parts = _sem_passages(src, all_parts if p.get("sem_boxes") else own_parts, [seed, *seeds], p, queries, flags, sem_cache)
         if rnd == 1 and sem_picks:
             _picked(src, sem_picks, new_pool, p, flags)
         for w in extra_ids:
@@ -418,12 +421,28 @@ def _sem_part(c: int, texts: Sequence[str], mn: float, exclude: set, p: dict) ->
     return dict(clause=c, variants=vs, same_words=dropped, n_same=ns, n_other=len(vs) - ns, sem_min=mn)
 
 
+def _boxes_of(boxes) -> Optional[Dict[int, List[int]]]:
+    """Step 4's boxes ``[[part, ...], ...]`` as ``{box: parts}``: a box is named by its least part (so a box of one part keeps the number
+    that part always had), a part stands in one box only (the first that names it). None when there are no boxes."""
+    if not boxes:
+        return None
+    used, out = set(), {}
+    for b in boxes:
+        ps = sorted({int(c) for c in b} - used)
+        if ps:
+            used.update(ps)
+            out[ps[0]] = ps
+    return out or None
+
+
 def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: List[dict], flags: List[dict], cache=None) -> List[dict]:
-    """The TEXTS of other hadiths' parts that resemble each ticked part: ``[dict(clause, variants=[...], sem_min, same_words, n_same,
-    n_other)]``, one entry per ticked part (also one that found nothing: its threshold can be lowered on its own), in the order of
-    the parts. The hadiths of step 1's list each ask with their own words of a part; a text found by several keeps its best cosine.
-    ``sem_min`` is the least cosine of that part: ``p["sem_min_by"][part]`` if the user set one, else ``p["sem_min"]``. A text that has
-    the words of the ticked part as they are (``same_words`` counts them) is left out: step 3's word search finds its hadiths. The
+    """The TEXTS of other hadiths' parts that resemble each box of parts: ``[dict(clause, parts, variants=[...], sem_min, same_words,
+    n_same, n_other)]``, one entry per box (also one that found nothing: its threshold can be lowered on its own), in the order of
+    the boxes. ``clause`` is the box's number (its least part) and ``parts`` its parts: what the box asks is its parts' words joined
+    (a hadith that has the parts in another order asks in its own order). Without ``p["sem_boxes"]`` every ticked part is a box.
+    The hadiths of step 1's list each ask with their own words of a box; a text found by several keeps its best cosine.
+    ``sem_min`` is the least cosine of that box: ``p["sem_min_by"][box]`` if the user set one, else ``p["sem_min"]``. A text that has
+    the words of the box as they are (``same_words`` counts them) is left out: step 3's word search finds its hadiths. The
     others come in two groups, each the nearest first and at most ``sem_k_part`` long, so the near-copies cannot fill the list before a
     text in other words: ``same`` (``cov`` >= ``SAME_COV``, ``cov`` the share of the part's words the text has) and the rest. A variant is
     one distinct part text: ``id`` (its row in the semantic index), ``text``, ``ntok``, ``cos``, ``cov``, ``same``, ``n`` (hadiths that
@@ -431,13 +450,21 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
     [a, b) in its words, ``src`` how the part was cut, book data). Nothing joins the pool: the user picks texts first.
     ``cache(key, fn)``: if given, a part's entry is kept under ``key`` (what it was made from), so asking again with another threshold
     for one part computes that part only."""
-    by: Dict[int, List[str]] = {}
+    boxes = _boxes_of(p.get("sem_boxes"))                        # {box: its parts}; none given: every part the sources have is a box of its own
+    by: Dict[int, list] = {}
+    members: Dict[int, List[int]] = {}
     for w in order:
         raw = src[w]["rec"]["matn"]
         offs, st = token_offsets(raw), strip_tags(raw)
-        for c, x, y in own_parts(w):
-            if 0 <= x < y <= len(offs):
-                by.setdefault(c, []).append(st[offs[x][0]:offs[y - 1][1]])
+        own = {c: (x, y) for c, x, y in own_parts(w) if 0 <= x < y <= len(offs)}
+        for bid, ps in (boxes or {c: [c] for c in own}).items():
+            got = sorted(own[c] for c in ps if c in own)           # this hadith's wording of the box: its parts that it has, in its own order
+            if got:
+                members[bid] = ps
+                by.setdefault(bid, []).append((len(got) == len(ps), " ".join(st[offs[x][0]:offs[y - 1][1]] for x, y in got)))
+    for bid in by:                                               # a hadith that has only some of a box's parts asks about another meaning: it asks only when no hadith has them all
+        full = [t for ok, t in by[bid] if ok]
+        by[bid] = full or [t for _, t in by[bid]]
     if not by:
         return []
     exclude = set(src)
@@ -448,7 +475,7 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
         mn = by_min.get(c, p["sem_min"])
         try:
             if cache:
-                key = hashlib.sha1(repr([SEM_PART_VERSION, SAME_COV, sorted(set(by[c])), mn, p["sem_k_part"], p["sem_items"], sorted(exclude),
+                key = hashlib.sha1(repr([SEM_PART_VERSION, SAME_COV, c, members[c], sorted(set(by[c])), mn, p["sem_k_part"], p["sem_items"], sorted(exclude),
                                          sig.get("built"), sig.get("n"), sig.get("model")]).encode()).hexdigest()[:20]
                 e = cache(key, lambda: _sem_part(c, by[c], mn, exclude, p))
             else:
@@ -456,6 +483,7 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
         except Exception as ex:                                  # a missing or broken index must not fail the run
             flags.append(dict(kind="semantic_unavailable", ref=None, message=f"semantic search failed: {ex}"))
             return []
+        e = dict(e, parts=list(members[c]))
         out.append(e)
         queries.append(dict(round=1, source=order[0], clause=c, kind="sem", corpus="v02+kg", expr="parts", hits=len(e["variants"]),
                             capped=e["n_same"] >= p["sem_k_part"] or e["n_other"] >= p["sem_k_part"], new=len(e["variants"])))
@@ -463,18 +491,26 @@ def _sem_passages(src: dict, own_parts, order: Sequence[str], p: dict, queries: 
 
 
 def resolve_picks(sem_parts: Sequence[dict], picks: Sequence) -> List[dict]:
-    """The texts the user ticked, ``[[part id, clause], ...]``, as ``_sem_passages`` found them (a pair it did not find is ignored).
+    """What the user ticked, ``[[id, box], ...]``, as ``_sem_passages`` found it (a pair it did not find is ignored). ``id`` is a
+    hadith that has a found text (that hadith only: ``wid``, ``span``) or the id of a found text (every hadith that has it: ``id``).
     Parts found by the first index (``items`` per hadith, picks ``[wid, clause]``) resolve as they did."""
-    by, old = {}, {}
+    by, byw, old = {}, {}, {}
     for q in sem_parts or ():
         for v in q.get("variants") or ():
             by[(str(v["id"]), q["clause"])] = v
+            for it in v.get("items") or ():
+                k = (it["wid"], q["clause"])
+                if k not in byw or v["cos"] > byw[k][0]["cos"]:
+                    byw[k] = (v, it)
         for it in q.get("items") or ():
             old[(it["wid"], q["clause"])] = it
     out = []
     for pid, c in picks or ():
         if (pid, c) in by:
             out.append(dict(id=int(pid), clause=c, cos=by[(pid, c)]["cos"]))
+        elif (pid, c) in byw:
+            v, it = byw[(pid, c)]
+            out.append(dict(wid=pid, clause=c, cos=v["cos"], span=list(it["span"]), copies=list(it.get("copies") or [])))
         elif (pid, c) in old:
             it = old[(pid, c)]
             out.append(dict(wid=pid, clause=c, cos=it["cos"], first=it["first"], copies=it.get("copies") or []))
@@ -500,6 +536,9 @@ def _picked(src: dict, picks: Sequence[dict], pool: Dict[str, dict], p: dict, fl
                                   message=f"a ticked text stands in {g['n']} hadiths; the first {p['sem_occ_max']} were taken"))
             for wid, a, b, _ in g["occ"]:
                 put(wid, pk["clause"], pk["cos"], [a, b])
+        elif "span" in pk:                                       # one hadith that has a found text, and where
+            for wid in [pk["wid"], *pk.get("copies", ())]:
+                put(wid, pk["clause"], pk["cos"], pk["span"])
         else:
             for wid in [pk["wid"], *pk.get("copies", ())]:
                 put(wid, pk["clause"], pk["cos"], pk["first"])
@@ -772,6 +811,58 @@ def sem_variants(S: dict) -> List[dict]:
             g["n"] = sum(1 + len(i["copies"]) for i in g["items"])
             vs.append(g)
         out.append(dict(clause=q["clause"], variants=sorted(vs, key=lambda g: -g["cos"])))
+    return out
+
+
+SEM_ROWS_MAX = 80              # hadiths listed per box and group («با واژه‌های دیگر» / «با بیشترِ همین واژه‌ها») in step 4
+
+
+def sem_rows(sem_parts: Sequence[dict]) -> List[dict]:
+    """``S["sem_parts"]`` as step 4 lists it, like step 3 lists candidates: per box, the HADITHS that have a found text (the nearest
+    first; a hadith that has several keeps its best), each with its text cut to where the match is and ``marks``
+    (``[start, end, box]``, see ``text.marks``) over the words that mean the same. ``[dict(clause, parts, sem_min, same_words, n_same,
+    n_other, groups=dict(other=dict(total, rows), same=dict(total, rows)))]``, a row: ``wid``, book data, ``id`` (its text's id in
+    the index), ``cos``, ``cov``, ``same``, ``n`` (hadiths that have the text), ``more`` (it stands in more hadiths than are
+    listed), ``spans``, ``matn``, ``matn_len``, ``marks``. At most ``SEM_ROWS_MAX`` rows per group; ``total`` is how many there were.
+    Not stored: the API adds it when serving the stage (it reads the texts)."""
+    boxes = [q for q in sem_parts or () if "variants" in q]
+    chosen: List[dict] = []                                      # [{q, other: {wid: row}, same: {wid: row}, total}]
+    for q in boxes:
+        g = {False: {}, True: {}}
+        seen = {False: set(), True: set()}
+        for v in sorted(q["variants"], key=lambda v: -v["cos"]):
+            same = bool(v.get("same", True))
+            for it in v["items"]:
+                seen[same].add(it["wid"])
+                r = g[same].get(it["wid"])
+                if r is None:
+                    if len(g[same]) >= SEM_ROWS_MAX:
+                        continue
+                    r = g[same][it["wid"]] = dict(wid=it["wid"], id=v["id"], cos=v["cos"], cov=v.get("cov"), same=same, n=v["n"],
+                                                  more=v["n"] > len(v["items"]), spans=[])
+                r["spans"].append(list(it["span"]))
+        chosen.append(dict(q=q, g=g, total={s: len(seen[s]) for s in seen}))
+    recs = corpus.get_many(sorted({w for c in chosen for s in c["g"].values() for w in s}))
+    out = []
+    for c in chosen:
+        q, groups = c["q"], {}
+        for name, same in (("other", False), ("same", True)):
+            rows = []
+            for r in c["g"][same].values():
+                rec = recs.get(r["wid"])
+                if rec is None:
+                    continue
+                full = strip_tags(rec["matn"])
+                lab = [-1] * len(token_offsets(full))
+                for a, b in r["spans"]:
+                    for j in range(a, min(b, len(lab))):
+                        lab[j] = q["clause"]
+                matn = full[:_shown(full, [dict(clause=q["clause"], span=s) for s in r["spans"]])]
+                rows.append(dict(r, book=rec["book"], title=rec["title"], author=rec["author"], tradition=rec["tradition"], vol=rec["vol"],
+                                 page=rec["page"], matn=matn, matn_len=len(full), marks=marks(matn, lab)))
+            groups[name] = dict(total=c["total"][same], rows=rows)
+        out.append(dict(clause=q["clause"], parts=q.get("parts") or [q["clause"]], sem_min=q.get("sem_min"), same_words=q.get("same_words"),
+                        n_same=q.get("n_same"), n_other=q.get("n_other"), groups=groups))
     return out
 
 

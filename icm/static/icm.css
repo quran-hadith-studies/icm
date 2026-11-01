@@ -9,7 +9,7 @@ h2{font-size:18px}h3{font-size:15px;margin-top:14px}
 .bar{height:6px;background:var(--line);border-radius:99px;overflow:hidden;min-width:60px}.bar>i{transition:width 300ms ease-out}.bar>i{display:block;height:100%;background:var(--accent)}
 /* clause colours: elements set --h (a hue) per part of the seed */
 .pv{background:hsl(var(--h) var(--hl-s) var(--hl-l));border-radius:4px;padding:1px 2px}
-.hl{background:hsl(var(--h) var(--hl-s) var(--hl-l));border-radius:4px;padding:1px 0;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.hl{background:var(--g,hsl(var(--h) var(--hl-s) var(--hl-l)));border-radius:4px;padding:1px 0;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .sw{display:inline-block;min-width:22px;border-radius:5px;background:hsl(var(--h) var(--k-s) var(--k-l));color:var(--on-sw,#fff);text-align:center;font-size:12px;font-weight:600}
 .strip{display:inline-flex;gap:2px;vertical-align:middle}
 .strip i{display:inline-block;width:12px;height:15px;border-radius:2px;border:1.5px solid hsl(var(--h) var(--k-s) var(--k-l))}
@@ -21,6 +21,18 @@ h2{font-size:18px}h3{font-size:15px;margin-top:14px}
 .sbar i{display:block;height:100%}.sbar i.present{background:hsl(var(--h) var(--k-s) var(--k-l))}
 .sbar i.partial,.sbar i.changed{background:hsl(var(--h) var(--k-s) var(--k-l));opacity:.45}.sbar i.absent{background:transparent}
 .seedtext{font-size:19px;line-height:2.3;margin:6px 0}
+/* step 4: the boxes of parts (a box = one semantic query); a part chip carries its colour */
+.bsw{display:inline-flex;gap:2px;vertical-align:middle}
+.bxs{display:grid;gap:10px;margin:8px 0}
+.bbox{border:1px solid var(--line-2);border-radius:var(--r-sm);padding:8px 10px;background:var(--card)}
+.bbox.pool{border-style:dashed;background:color-mix(in srgb,var(--line) 30%,var(--card))}
+.bbox.over{outline:2px dashed var(--accent);outline-offset:-2px}
+.bbox .bh{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.pchips{display:flex;flex-wrap:wrap;gap:6px;min-height:34px}
+.pchip{display:inline-flex;gap:6px;align-items:center;max-width:100%;padding:3px 8px;border:1.5px solid hsl(var(--h) var(--k-s) var(--k-l));border-radius:var(--r-sm);background:hsl(var(--h) var(--hl-s) var(--hl-l));color:var(--arabic,inherit);font:inherit;cursor:grab}
+.pchip.sel{box-shadow:0 0 0 2px var(--accent)}
+.pchip .t{max-width:36ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bpre{margin-top:6px;color:var(--muted)}
 /* a note inside a step: a quiet callout with a navy edge (amber for warnings) */
 .help{border:0;border-inline-start:3px solid var(--line-2);background:color-mix(in srgb,var(--accent-soft) 45%,var(--card));border-radius:var(--r-sm);border-start-start-radius:0;border-end-start-radius:0;padding:6px 12px;margin:10px 0;font-size:13px}
 .help summary{cursor:pointer;color:var(--accent);font-weight:700}.help p,.help ol{margin:6px 0}

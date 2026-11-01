@@ -290,3 +290,60 @@ def test_each_part_has_its_own_threshold_and_is_kept_by_itself(index, monkeypatc
     assert calls == [0, 1] and r1 == r2 == [a, b]
     r3 = search._sem_passages(src, own, ["v02:9"], dict(p, sem_min_by={1: 0.5}), [], [], cache)
     assert calls == [0, 1, 1] and r3[0] == a and r3[1]["sem_min"] == 0.5
+
+
+def test_a_box_asks_with_the_words_of_its_parts_together(index, monkeypatch):
+    asked = []
+    real = semantic.neighbours
+    monkeypatch.setattr(semantic, "neighbours", lambda texts, *a, **k: (asked.append(list(texts)), real(texts, *a, **k))[1])
+    monkeypatch.setattr(corpus, "get_many", lambda ws: {})
+    src = {"v02:9": dict(rec=dict(matn="اقیموا الصلاه وادوا یغفر الله ما دون ذلک لمن یشاء"))}
+    own = lambda w: [(0, 0, 3), (1, 3, 6), (2, 6, 10)]                 # three parts; the middle one means nothing for what is asked
+    p = dict(search.DEFAULTS, sem_min=0.0, sem_k_part=5, sem_boxes=[[2, 0]])
+    (q,) = search._sem_passages(src, own, ["v02:9"], p, [], [])
+    assert q["clause"] == 0 and q["parts"] == [0, 2]                    # a box is named by its least part
+    assert asked == [["اقیموا الصلاه وادوا دون ذلک لمن یشاء"]]          # one text: the two parts' words, the middle one left out
+    asked.clear()
+    a, b = search._sem_passages(src, own, ["v02:9"], dict(p, sem_boxes=[[0, 2], [1]]), [], [])
+    assert (a["clause"], a["parts"], b["clause"], b["parts"]) == (0, [0, 2], 1, [1]) and asked[1] == ["یغفر الله ما"]
+    assert search._boxes_of([[2, 0], [0], [1], []]) == {0: [0, 2], 1: [1]} and search._boxes_of([]) is None     # a part stands in one box only
+    # a hadith that has only some of the box's parts asks about another meaning: it asks only when no hadith has them all
+    src2 = {"v02:1": dict(rec=dict(matn="اقیموا الصلاه وادوا یغفر الله ما دون ذلک لمن یشاء")), "v02:2": dict(rec=dict(matn="اقیموا الصلاه وادوا"))}
+    parts_of = {"v02:1": [(0, 0, 3), (2, 6, 10)], "v02:2": [(0, 0, 3)]}
+    asked.clear()
+    search._sem_passages(src2, lambda w: parts_of[w], ["v02:1", "v02:2"], dict(p, sem_boxes=[[0, 2]]), [], [])
+    assert asked == [["اقیموا الصلاه وادوا دون ذلک لمن یشاء"]]
+    asked.clear()
+    search._sem_passages({"v02:2": src2["v02:2"]}, lambda w: parts_of[w], ["v02:2"], dict(p, sem_boxes=[[0, 2]]), [], [])
+    assert asked == [["اقیموا الصلاه وادوا"]]
+
+
+def test_a_ticked_hadith_joins_the_pool_alone_with_where_its_text_stands(index):
+    sem_parts = [dict(clause=0, parts=[0, 2], variants=[dict(id=0, cos=0.9, n=2, text="x", ntok=4, words=[],
+                                                            items=[dict(wid="v02:1", span=[0, 4], copies=[]), dict(wid="v02:6", span=[0, 4], copies=[])])])]
+    got = search.resolve_picks(sem_parts, [["v02:1", 0], ["v02:1", 5], ["nope", 0]])
+    assert got == [dict(wid="v02:1", clause=0, cos=0.9, span=[0, 4], copies=[])]
+    pool = {}
+    search._picked({}, got, pool, search.DEFAULTS, [])
+    assert set(pool) == {"v02:1"} and pool["v02:1"]["sem_hits"] == {0: (0.9, [0, 4])}          # not v02:6, which has the same text
+    assert search.resolve_picks(sem_parts, [["0", 0]]) == [dict(id=0, clause=0, cos=0.9)]       # the whole text still resolves (every hadith that has it)
+
+
+def test_the_found_texts_are_listed_hadith_by_hadith_with_the_match_coloured(monkeypatch):
+    long = " ".join(f"كلمة{i}" for i in range(8))
+    recs = {w: dict(wid=w, book="b", title="t", author="a", tradition="shia", vol=None, page=None, matn=m) for w, m in
+            [("v02:1", long), ("v02:2", long), ("v02:3", "س ص ع")]}
+    monkeypatch.setattr(corpus, "get_many", lambda ws: {w: recs[w] for w in ws if w in recs})
+    it = lambda w, a, b: dict(wid=w, span=[a, b], src=2, copies=[])
+    sem_parts = [dict(clause=1, parts=[1, 3], sem_min=0.6, same_words=0, n_same=1, n_other=1, variants=[
+        dict(id=7, text="t", ntok=3, cos=0.9, cov=0.2, same=False, n=5, words=[], items=[it("v02:1", 2, 5), it("v02:2", 0, 2), it("kg:9", 0, 1)]),
+        dict(id=8, text="u", ntok=2, cos=0.7, cov=0.8, same=True, n=2, words=[], items=[it("v02:1", 6, 8), it("v02:3", 0, 3)])])]
+    (b,) = search.sem_rows(sem_parts)
+    assert b["clause"] == 1 and b["parts"] == [1, 3] and b["sem_min"] == 0.6
+    other, same = b["groups"]["other"], b["groups"]["same"]
+    assert [r["wid"] for r in other["rows"]] == ["v02:1", "v02:2"] and other["total"] == 3                 # a hadith the corpus does not have is counted, not listed
+    r = other["rows"][0]
+    assert r["more"] is True and r["n"] == 5 and r["id"] == 7 and r["cos"] == 0.9 and r["same"] is False and r["matn"] == long
+    assert [(long[x:y], k) for x, y, k in r["marks"]] == [("كلمة2 كلمة3 كلمة4", 1)]                           # coloured by the box's number
+    assert [r["wid"] for r in same["rows"]] == ["v02:1", "v02:3"] and same["rows"][0]["more"] is False        # the one hadith is in both groups
+    assert [(long[x:y], k) for x, y, k in same["rows"][0]["marks"]] == [("كلمة6 كلمة7", 1)]

@@ -15,9 +15,9 @@ header.top.proj .brand .mark{font-size:17px}
 .pname{margin:0;font-size:14.5px;font-weight:700;max-width:min(30vw,380px);min-width:5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hmeta,.hnav{display:inline-flex;align-items:center;gap:6px}
 .hnav{gap:2px;padding-inline-start:12px;border-inline-start:1px solid var(--line-2)}
-.hstep,.hl{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border:0;border-radius:var(--r-sm);background:none;color:var(--muted);font:inherit;font-size:13px;line-height:1.6;text-decoration:none;cursor:pointer;white-space:nowrap;transition:background var(--t),color var(--t)}
-.hstep:hover,.hl:hover{background:var(--accent-soft);color:var(--fg);text-decoration:none}
-.hstep.on,.hl.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.hstep,.hlink{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border:0;border-radius:var(--r-sm);background:none;color:var(--muted);font:inherit;font-size:13px;line-height:1.6;text-decoration:none;cursor:pointer;white-space:nowrap;transition:background var(--t),color var(--t)}
+.hstep:hover,.hlink:hover{background:var(--accent-soft);color:var(--fg);text-decoration:none}
+.hstep.on,.hlink.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
 .hstep .ico{width:14px;height:14px}
 .hver{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;min-width:0}
 .hver select{min-width:0;max-width:12em}

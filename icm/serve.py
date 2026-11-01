@@ -3,8 +3,8 @@
 Stage files stay exactly as computed. What newer pages need from older runs is added here when a stage is
 served, never written back:
 
-* search: the clause marks of every text (``search.with_marks``), and the automatic parts for runs from before
-  the user could cut the seed;
+* search: the clause marks of every text (``search.with_marks``), the hadiths of step 4's found texts with their marks
+  (``search.sem_rows``), and the automatic parts for runs from before the user could cut the seed;
 * align: every part's ``key`` (``align.part_keys``) for runs from before the user could correct the parts;
 * identify: step-4 suggestions for runs from before them, and ``node_name`` on every place (merge/split);
 * viz: the maximum paths (``paths.max_paths``, the marginal estimate) for runs from before them.
@@ -58,7 +58,10 @@ def stage(pid: str, run: str, name: str) -> Optional[dict]:
             out = dict(out, seed_tokens=out["tokens"], cuts={w: sp}, auto_cuts={w: [list(x) for x in auto]}, cuts_by={w: by},
                        cut_tokens={w: len(out["tokens"])}, auto_by={w: out.get("auto_by") if isinstance(out.get("auto_by"), str) else "rules"},
                        join=dict(built=False, groups=[], fresh=[], stale=False), legacy=True)
-        return search_mod.with_marks(out)
+        out = search_mod.with_marks(out)
+        if any("variants" in q for q in out.get("sem_parts") or ()):
+            out["sem_rows"] = _cached(key + ("rows",), lambda: search_mod.sem_rows(out["sem_parts"])) if out.get("inputs_hash") else search_mod.sem_rows(out["sem_parts"])
+        return out
     if name == "align" and out["clauses"] and "key" not in out["clauses"][0]:
         for c, k in zip(out["clauses"], align_mod.part_keys(out["clauses"])):
             c["key"] = k

@@ -443,7 +443,7 @@ const panels = {
           const b0 = ev.currentTarget; if (!(await sure(`متن خودکار ${fa(auto.length)} حدیث ارجاعی، همان‌گونه که هست، تأیید شود؟`))) return; b0.disabled = true;
           const add = Object.fromEntries(auto.map(x => [x.wid, refEntry(x.ref, x.ref.text, x.ref.approx)]));
           await saveParts(c.pid, d => ({ refs: { ...d.refs, ...add } }), 'step 2: references confirmed as built');
-          Object.assign(refs, add); cache.clear(); draw(); } }, 'تأیید متن خودکار همه') : null] : [])); };
+          Object.assign(refs, add); cache.clear(); draw(); } }, 'تأیید متن خودکار همه') : null].filter(Boolean) : [])); };      // (a null child of replaceChildren would be written as the text «null»)
     const upd = () => { semCount.textContent = `${fa(semNom.filter(x => sel.has(x.wid)).length)} انتخاب‌شده از ${fa(semNom.length)} حدیث هم‌معنا`;
       count.textContent = `${fa(nominees.filter(x => sel.has(x.wid)).length)} انتخاب‌شده از ${fa(nominees.length)} نامزد` + (added.length ? `؛ ${fa(added.filter(x => sel.has(x.wid)).length)} از ${fa(added.length)} حدیث افزوده` : ''); coverage(); refsUpd();
       const h = hiddenSel();
@@ -505,45 +505,104 @@ const panels = {
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.add(x.wid)); draw(); } }, 'تیک همه‌ی نمایش‌داده‌ها') : null,
           c.can ? el('button', { class: 'small', onclick: () => { shown().forEach(x => sel.delete(x.wid)); draw(); } }, 'برداشتن تیک نمایش‌داده‌ها') : null),
         hidNote, refNote, list);
-    /* step 4, first press: for each ticked part the passages of other hadiths that mean the same; the user ticks some and presses «جستجو» */
+    /* step 4. First the BOXES: the parts of the hadiths put into boxes; a box is one query (its parts' words together), a part outside every box is not asked.
+       «جستجو» asks the semantic index once per box; the hadiths that have a text of that meaning are listed like step 3's candidates (the whole text, the
+       matching words coloured), the user ticks some and presses the second button, which brings those hadiths to the list below. */
+    const edit4 = c.can && !STATIC, noSem = !!(P && P.semantic_available === false);
+    const SP = S.sem_parts && S.sem_parts.some(q => q.variants) ? S.sem_parts : null, ROWS = S.sem_rows || [];        // what the list shows: one entry per box
+    const lastBoxes = SP ? SP.map(q => q.parts || [q.clause]) : null;
+    const allParts = S.clauses.map(x => x.i);
+    const norm4 = bs => bs.map(b => [...new Set(b)].sort((x, y) => x - y)).filter(b => b.length).sort((x, y) => x[0] - y[0]);
+    let boxes = norm4((rsem.boxes || lastBoxes || (sdec.part_query || allParts).map(i => [i])).map(b => [...b]));
+    const chosen = new Set();                                            // parts ticked in the editor, waiting to be moved
+    const boxKey = bs => JSON.stringify(norm4(bs)), preview = ps => ps.map(i => clauseRaw(S, i)).join(' … ');
+    const boxArea = el('div', { class: 'bxs' }), boxNote = el('div', { class: 'small warn' }), boxErr = el('div', { class: 'small', role: 'alert', style: 'color:var(--bad)' });
+    const boxBtn = el('button', { class: 'primary', onclick: async ev => {
+      const b0 = ev.currentTarget; b0.disabled = true; boxErr.textContent = '';
+      try { await post(`/project/${c.pid}/run/semantic`, { ...(c.semArgs ? c.semArgs() : {}), boxes: norm4(boxes) }); reload(c.pid); }
+      catch (e) { boxErr.textContent = e.message; b0.disabled = false; }
+    } }, SP ? 'جستجوی دوباره' : 'جستجو');
+    const partChip = i => el('button', { type: 'button', class: 'pchip' + (chosen.has(i) ? ' sel' : ''), draggable: edit4 ? 'true' : false, style: `--h:${hue(i)}`, title: clauseRaw(S, i), 'aria-pressed': chosen.has(i) ? 'true' : 'false',
+      onclick: () => { if (!edit4) return; chosen.has(i) ? chosen.delete(i) : chosen.add(i); drawBoxes(); },
+      ondragstart: ev => { ev.dataTransfer.setData('text/plain', JSON.stringify(chosen.has(i) ? [...chosen] : [i])); ev.dataTransfer.effectAllowed = 'move'; } },
+      swatch(i), el('span', { class: 'ar t' }, clauseRaw(S, i)));
+    const move = (ps, to) => {                                           // to: a box's index, 'pool' (out of every box) or 'new'
+      const bs = boxes.map(b => b.filter(p => !ps.includes(p)));
+      if (to === 'new') bs.push([...ps]); else if (to !== 'pool') bs[to] = [...bs[to], ...ps];
+      boxes = norm4(bs); chosen.clear(); drawBoxes();
+    };
+    const dropOn = (to, node) => {
+      if (!edit4) return node;
+      node.addEventListener('dragover', ev => { ev.preventDefault(); node.classList.add('over'); });
+      node.addEventListener('dragleave', () => node.classList.remove('over'));
+      node.addEventListener('drop', ev => {
+        ev.preventDefault(); node.classList.remove('over');
+        try { const ps = JSON.parse(ev.dataTransfer.getData('text/plain')).filter(p => allParts.includes(p)); if (ps.length) move(ps, to); } catch (_) {}
+      });
+      return node;
+    };
+    const drawBoxes = () => {
+      const used = new Set(boxes.flat()), pool = allParts.filter(i => !used.has(i)), n = chosen.size;
+      const none = 'بخشی را با کلیک انتخاب کنید (یا بکشید)';
+      boxArea.replaceChildren(
+        dropOn('pool', el('div', { class: 'bbox pool' }, el('div', { class: 'bh' }, el('b', {}, 'بیرون از جعبه‌ها'), el('span', { class: 'small muted' }, 'پرسیده نمی‌شوند'),
+          edit4 ? el('button', { class: 'small', disabled: !n, title: n ? '' : none, onclick: () => move([...chosen], 'new') }, 'جعبه‌ی تازه از بخش‌های انتخاب‌شده') : null,
+          edit4 && boxes.length ? el('button', { class: 'small', disabled: !n, title: n ? '' : none, onclick: () => move([...chosen], 'pool') }, 'بیرون بردن انتخاب‌شده‌ها') : null),
+          el('div', { class: 'pchips' }, pool.length ? pool.map(partChip) : el('span', { class: 'small muted' }, 'همه‌ی بخش‌ها در جعبه‌اند.')))),
+        ...boxes.map((b, k) => dropOn(k, el('div', { class: 'bbox' }, el('div', { class: 'bh' }, el('b', {}, 'جعبه ' + fa(k + 1)), boxSw(b),
+          el('span', { class: 'small muted' }, b.length > 1 ? 'معنای این بخش‌ها با هم پرسیده می‌شود' : 'یک بخش'),
+          edit4 ? [el('button', { class: 'small', disabled: !n, title: n ? '' : none, onclick: () => move([...chosen], k) }, 'افزودن انتخاب‌شده‌ها به این جعبه'),
+            el('button', { class: 'small', title: 'بخش‌های این جعبه بیرون می‌روند', onclick: () => move(b, 'pool') }, 'برداشتن جعبه')] : null),
+          el('div', { class: 'pchips' }, b.map(partChip)), el('div', { class: 'ar small bpre' }, preview(b))))));
+      boxNote.textContent = SP && boxKey(boxes) !== boxKey(lastBoxes) ? 'جعبه‌ها از آخرین جستجو عوض شده‌اند؛ فهرست زیر از جعبه‌های پیشین است تا دوباره جستجو کنید.' : '';
+      boxBtn.disabled = !boxes.length || !!(c.busy && c.busy()) || noSem;
+      boxBtn.title = noSem ? 'جستجوی معنایی در این سرور آماده نیست' : !boxes.length ? 'دست‌کم یک بخش را در جعبه‌ای بگذارید' : '';
+    };
+    if (edit4) c.runExtra = () => boxes.length ? { boxes: norm4(boxes) } : {};            // the bar's «اجرا» asks the same boxes
+    const resetBtn = el('button', { class: 'small', title: 'هر یک از بخش‌های مرحله‌ی ۲ جعبه‌ای جدا', onclick: () => { boxes = allParts.map(i => [i]); chosen.clear(); drawBoxes(); } }, 'هر بخش یک جعبه');
+    const backBtn = lastBoxes ? el('button', { class: 'small', onclick: () => { boxes = norm4(lastBoxes.map(b => [...b])); chosen.clear(); drawBoxes(); } }, 'بازگرداندن جعبه‌های آخرین جستجو') : null;
+
+    /* the hadiths found, one row each (like step 3): ticking a row takes that hadith; «همه‌ی n حدیث این متن» takes every hadith that has its text */
     const picked = new Set((rsem.picks || []).map(([w, i]) => w + '|' + i)), pressed = [...picked].sort().join();
     const pk = (w, i) => w + '|' + i, passBox = el('div'), passCount = el('span', { class: 'muted' }), pickErr = el('div', { class: 'small', role: 'alert', style: 'color:var(--bad)' });
     const lexical = new Set(S.candidates.filter(x => x.signals.some(g => g !== 'q:sem')).flatMap(x => [x.wid, ...(x.copies || [])]));
+    let filter4 = '';
     const pickBtn = el('button', { class: 'primary', onclick: async ev => {
       const b0 = ev.currentTarget; b0.disabled = true; pickErr.textContent = '';
       try { await post(`/project/${c.pid}/run/sempick`, { picks: [...picked].map(k => { const j = k.lastIndexOf('|'); return [k.slice(0, j), Number(k.slice(j + 1))]; }) }); reload(c.pid); }
       catch (e) { pickErr.textContent = e.message; b0.disabled = false; }
     } });
-    /* the passages as distinct TEXTS: one row per wording (words the part has are coloured), the hadiths that have it folded under it */
-    const SP = S.sem_variants;
-    const wids = v => v.id != null ? [String(v.id)] : v.items.map(i => i.wid);      // what a pick of this text is made of (a part of the index: its id; a window of the first index: its hadiths)
-    const SRCS = ['hadith.ai', 'قاعده', 'تمام متن', 'ترکیب'];
-    const passRow = (q, v) => {
-      const on = wids(v).every(w => picked.has(pk(w, q.clause)));
+    const PASS_HEAD = ['', 'کتاب و راه یافتن', 'شباهت', 'بخش‌ها', 'متن (رنگ = بخش‌های جعبه)'];
+    const semRow = (q, r) => {
+      const byText = picked.has(pk(String(r.id), q.clause)), on = byText || picked.has(pk(r.wid, q.clause));
       return el('tr', { class: on ? 'on' : '' },
-        el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این متن', checked: on, disabled: !(c.can && !STATIC),
-          onchange: ev => { wids(v).forEach(w => ev.target.checked ? picked.add(pk(w, q.clause)) : picked.delete(pk(w, q.clause))); ev.target.closest('tr').classList.toggle('on', ev.target.checked); updPass(); } })),
-        el('td', { class: 'small', title: 'شباهت معنایی (کسینوس) با این بخش؛ بهترین میان حدیث‌های این متن' + (v.cov != null ? ` · ${fa(Math.round(100 * v.cov))}٪ واژه‌های بخش را دارد` : '') }, fa(v.cos.toFixed(2))),
-        el('td', { class: 'txt' }, el('div', { class: 'ar matn' }, v.cut_before ? '… ' : '', ...v.words.map(([w, sh], k) => [k ? ' ' : '', sh ? el('span', { class: 'pv', style: `--h:${hue(q.clause)}`, title: 'این واژه در بخش هم هست' }, w) : w]).flat(), v.cut_after ? ' …' : ''),
-          el('details', { class: 'fullt' }, el('summary', { class: 'small' }, `در ${fa(v.n)} حدیث` + (v.n > v.items.length ? ` (${fa(v.items.length)} نخست)` : '') + (v.items.some(i => lexical.has(i.wid)) ? (v.items.length > 1 ? ' (برخی در نامزدهای مرحله‌ی ۳ هم هستند)' : ' (در نامزدهای مرحله‌ی ۳ هم هست)') : '')),
-            v.items.map(i => el('div', { style: 'margin:6px 0' }, el('b', {}, i.title || i.book), ' ', el('span', { class: 'small muted' }, [i.author, i.tradition === 'sunni' ? 'سنی' : 'شیعه', i.vol ? 'ج ' + fa(i.vol) : '', i.page ? 'ص ' + fa(i.page) : ''].filter(Boolean).join(' · ')),
-              i.src != null ? el('span', { class: 'chip', title: 'این بخش را چه چیزی بریده است' }, SRCS[i.src] || '') : null,
-              (i.copies || []).length ? el('span', { class: 'small muted', title: i.copies.join(' ') }, ` +${fa(i.copies.length)} نسخه‌ی یکسان`) : null,
-              el('div', { class: 'small muted', dir: 'ltr' }, i.wid), fullDetails(i.wid, v.id != null ? v.text : null, 'سند و متن کامل'))))));
+        el('td', {}, el('input', { type: 'checkbox', 'aria-label': 'انتخاب این حدیث: ' + (r.title || r.book || r.wid), checked: on, disabled: !edit4 || byText, title: byText ? 'با «همه‌ی حدیث‌های این متن» تیک خورده است' : '',
+          onchange: ev => { ev.target.checked ? picked.add(pk(r.wid, q.clause)) : picked.delete(pk(r.wid, q.clause)); ev.target.closest('tr').classList.toggle('on', ev.target.checked); updPass(); } })),
+        el('td', {}, el('b', {}, r.title || r.book), el('div', { class: 'small muted' }, [r.author, r.tradition === 'sunni' ? 'سنی' : 'شیعه', r.vol ? 'ج ' + fa(r.vol) : '', r.page ? 'ص ' + fa(r.page) : ''].filter(Boolean).join(' · ')),
+          el('div', { class: 'small muted', dir: 'ltr' }, r.wid),
+          lexical.has(r.wid) ? el('div', { class: 'small muted' }, 'در نامزدهای مرحله‌ی ۳ هم هست') : null,
+          r.n > 1 ? el('div', { class: 'small muted', title: 'حدیث‌هایی که همین قطعه را دارند' }, `این قطعه در ${fa(r.n)} حدیث آمده است`) : null,
+          r.more && edit4 ? el('label', { class: 'small' }, el('input', { type: 'checkbox', checked: byText, onchange: ev => { ev.target.checked ? picked.add(pk(String(r.id), q.clause)) : picked.delete(pk(String(r.id), q.clause)); drawPass(); } }), ` همه‌ی ${fa(r.n)} حدیث این قطعه`) : null),
+        el('td', {}, el('div', { class: 'small', title: 'شباهت معنایی (کسینوس) قطعه‌ی رنگی با جعبه' }, 'هم‌معنایی ', fa(r.cos.toFixed(2))), el('div', { class: 'bar' }, el('i', { style: `width:${100 * r.cos}%` })),
+          r.cov != null ? el('div', { class: 'small', title: 'چند درصد واژه‌های جعبه در این قطعه هست' }, 'واژه‌های مشترک ', pct(r.cov)) : null,
+          el('div', { class: 'small muted' }, r.same ? 'با بیشترِ همین واژه‌ها' : 'با واژه‌های دیگر')),
+        el('td', {}, boxSw(q.parts)),
+        el('td', { class: 'txt' }, marked(r.matn, r.marks, 'ar matn', S, q.parts), r.matn_len > r.matn.length ? el('div', { class: 'small muted' }, `… (${fa(r.matn_len)} نویسه، ${fa(r.matn.length)} نخست نمایش داده شد)`) : null,
+          fullDetails(r.wid, null, 'سند و متن کامل')));
     };
     const updPass = () => {
-      const all = (SP || []).flatMap(q => q.variants.map(v => [q, v])), n = all.filter(([q, v]) => wids(v).every(w => picked.has(pk(w, q.clause)))).length, now = [...picked].sort().join();
-      passCount.textContent = SP ? `${fa(n)} متن تیک خورده از ${fa(all.length)} متنِ دیگر` : '';
+      const ks = [...picked], nText = ks.filter(k => /^\d+\|/.test(k)).length, now = [...picked].sort().join();
+      passCount.textContent = SP ? `${fa(ks.length - nText)} حدیث تیک خورده` + (nText ? ` و همه‌ی حدیث‌های ${fa(nText)} قطعه` : '') : '';
       pickBtn.disabled = !picked.size || now === pressed && !!(rsem.picks || []).length || !!(c.busy && c.busy());
-      pickBtn.textContent = (rsem.picks || []).length ? 'جستجوی دوباره‌ی حدیث‌های تیک‌خورده' : 'جستجو';
-      pickBtn.title = !picked.size ? 'دست‌کم یک متن را تیک بزنید' : now === pressed ? 'این متن‌ها را همین حالا جستجو کرده‌اید' : '';
+      pickBtn.textContent = (rsem.picks || []).length ? 'به‌روزرسانی فهرست تیک‌خورده‌ها' : 'افزودن تیک‌خورده‌ها به فهرست';
+      pickBtn.title = !picked.size ? 'دست‌کم یک حدیث را تیک بزنید' : now === pressed ? 'همین حدیث‌ها را همین حالا آورده‌اید' : '';
     };
-    /* a threshold of its own for each part: its field and button ask the semantic index about that part alone (the bar's «اجرا» asks about all of them with its own number for the parts that have none) */
+    /* a threshold of its own for each box: its field and button ask the semantic index about that box alone (the bar's «اجرا» asks about all of them with its own number for the boxes that have none) */
     const partInp = {};
     const partCtl = q => {
       const own = (rsem.part_min || {})[String(q.clause)] != null, used = q.sem_min != null ? q.sem_min : rsem.sem_min;
-      if (!(c.can && !STATIC)) return el('div', { class: 'small muted' }, `کمترین هم‌معنایی این بخش: ${fa(used)}` + (own ? ' (ویژه‌ی این بخش)' : ''));
-      const inp = partInp[q.clause] || (partInp[q.clause] = el('input', { class: 'w5', type: 'number', min: '0.4', max: '0.95', step: '0.01', 'aria-label': 'کمترین هم‌معنایی این بخش' }));
+      if (!edit4) return el('div', { class: 'small muted' }, `کمترین هم‌معنایی این جعبه: ${fa(used)}` + (own ? ' (ویژه‌ی این جعبه)' : ''));
+      const inp = partInp[q.clause] || (partInp[q.clause] = el('input', { class: 'w5', type: 'number', min: '0.4', max: '0.95', step: '0.01', 'aria-label': 'کمترین هم‌معنایی این جعبه' }));
       if (inp.dataset.used !== String(used)) { inp.value = String(used); inp.dataset.used = String(used); }
       const ask = async (ev, v) => {
         const b0 = ev.currentTarget; b0.disabled = true; pickErr.textContent = '';
@@ -551,41 +610,46 @@ const panels = {
         catch (e) { pickErr.textContent = e.message; b0.disabled = false; }
       };
       return el('div', { class: 'small', style: 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 4px' },
-        'کمترین هم‌معنایی این بخش', inp, own ? el('span', { class: 'chip', title: 'اجرای کل (نوار بالا) این عدد را عوض نمی‌کند' }, 'ویژه‌ی این بخش') : el('span', { class: 'muted' }, '(همان عدد نوار بالا)'),
-        el('button', { class: 'small', title: 'فقط متن‌های هم‌معنای این بخش را با این عدد دوباره بیابید؛ بخش‌های دیگر دست نمی‌خورند و تیک‌های همین بخش برداشته می‌شود', disabled: !!(c.busy && c.busy()), onclick: ev => ask(ev, Number(inp.value)) }, 'جستجوی این بخش'),
-        own ? el('button', { class: 'small', title: 'این بخش دوباره عدد نوار بالا را بگیرد', disabled: !!(c.busy && c.busy()), onclick: ev => ask(ev, null) }, 'حد ویژه را بردار') : null);
+        'کمترین هم‌معنایی این جعبه', inp, own ? el('span', { class: 'chip', title: 'اجرای کل (نوار بالا) این عدد را عوض نمی‌کند' }, 'ویژه‌ی این جعبه') : el('span', { class: 'muted' }, '(همان عدد نوار بالا)'),
+        el('button', { class: 'small', title: 'فقط حدیث‌های هم‌معنای این جعبه را با این عدد دوباره بیابید؛ جعبه‌های دیگر دست نمی‌خورند و تیک‌های همین جعبه برداشته می‌شود', disabled: !!(c.busy && c.busy()), onclick: ev => ask(ev, Number(inp.value)) }, 'جستجوی این جعبه'),
+        own ? el('button', { class: 'small', title: 'این جعبه دوباره عدد نوار بالا را بگیرد', disabled: !!(c.busy && c.busy()), onclick: ev => ask(ev, null) }, 'حد ویژه را بردار') : null);
     };
     const drawPass = () => {
-      /* per part two groups: the texts with OTHER words (what this step is for) first, then those that have most of the part's words; an old result has no `same`: all in the second */
-      const group = (q, vs, title, none) => {
-        const tick = on => () => { vs.forEach(v => wids(v).forEach(w => on ? picked.add(pk(w, q.clause)) : picked.delete(pk(w, q.clause)))); drawPass(); };
-        return [el('div', { style: 'margin-top:8px' }, el('b', { class: 'small' }, `${title} (${fa(vs.length)})`),
-            c.can && !STATIC && vs.length ? [' ', el('button', { class: 'small', onclick: tick(true) }, 'تیک همه'), ' ', el('button', { class: 'small', onclick: tick(false) }, 'برداشتن تیک')] : null),
-          vs.length ? el('div', { class: 'grid-wrap', style: 'max-height:50vh' }, el('table', { class: 'cands' }, vs.map(v => passRow(q, v)))) : el('p', { class: 'muted small' }, none)];
+      const f = filter4.trim(), keep = r => !f || (r.title || '').includes(f) || (r.book || '').includes(f) || r.matn.includes(f);
+      /* per box two groups: the texts with OTHER words (what this step is for) first, then those that have most of the box's words */
+      const group = (q, g, title, none) => {
+        const rows = g.rows.filter(keep);
+        const tick = on => () => { rows.forEach(r => on ? picked.add(pk(r.wid, q.clause)) : picked.delete(pk(r.wid, q.clause))); drawPass(); };
+        return [el('div', { style: 'margin-top:8px' }, el('b', { class: 'small' }, `${title} (${fa(g.total)} حدیث)`),
+            g.total > g.rows.length ? el('span', { class: 'small muted' }, ` — ${fa(g.rows.length)} نزدیک‌ترین نمایش داده شد`) : null,
+            edit4 && rows.length ? [' ', el('button', { class: 'small', onclick: tick(true) }, 'تیک همه'), ' ', el('button', { class: 'small', onclick: tick(false) }, 'برداشتن تیک')] : null),
+          rows.length ? el('div', { class: 'grid-wrap', style: 'max-height:60vh' }, el('table', { class: 'cands' }, el('tr', {}, ...PASS_HEAD.map(t => el('th', {}, t))), rows.map(r => semRow(q, r)))) : el('p', { class: 'muted small' }, none)];
       };
-      passBox.replaceChildren(...(SP || []).map(q => {
-        const other = q.variants.filter(v => v.same === false), same = q.variants.filter(v => v.same !== false);
-        return el('div', { style: 'margin-top:14px' },
-          el('div', { class: 'small muted' }, 'متن این بخش در حدیث‌های فهرست مرحله‌ی ۱ (با اعراب خودِ حدیث؛ در مرحله‌ی ۲ بی‌اعراب و رنگی می‌بینید):'),
-          el('h3', { style: 'margin-top:2px' }, swatch(q.clause), ' ', el('span', { class: 'ar' }, clauseRaw(S, q.clause)), ' ', el('span', { class: 'small muted' }, `${fa(q.variants.length)} متنِ دیگر`),
-            q.same_words ? el('span', { class: 'small muted', title: 'متن‌هایی که خودِ واژه‌های این بخش را دارند در جستجوی لفظی مرحله‌ی ۳ آمده‌اند' }, ` (${fa(q.same_words)} متن که همین واژه‌ها را دارد، در مرحله‌ی ۳ هست)`) : null),
-          partCtl(q),
-          ...group(q, other, 'با واژه‌های دیگر', 'متنی با واژه‌های دیگر و این هم‌معنایی نیامد (کمترین هم‌معنایی را در نوار «اجرا» کم کنید).'),
-          ...group(q, same, 'با بیشترِ همین واژه‌ها', 'متنی با بیشترِ همین واژه‌ها نیامد.'));
-      }));
+      passBox.replaceChildren(...ROWS.map(q => el('div', { style: 'margin-top:14px' },
+        el('h3', { style: 'margin-top:2px' }, boxSw(q.parts), ' ', el('span', { class: 'ar' }, preview(q.parts)),
+          q.same_words ? el('span', { class: 'small muted', title: 'حدیث‌هایی که خودِ واژه‌های این جعبه را دارند در جستجوی لفظی مرحله‌ی ۳ آمده‌اند' }, ` (${fa(q.same_words)} قطعه که همین واژه‌ها را دارد، در مرحله‌ی ۳ هست)`) : null),
+        partCtl(q),
+        ...group(q, q.groups.other, 'با واژه‌های دیگر', 'حدیثی با واژه‌های دیگر و این هم‌معنایی نیامد (کمترین هم‌معنایی را در نوار «اجرا» کم کنید).'),
+        ...group(q, q.groups.same, 'با بیشترِ همین واژه‌ها', 'حدیثی با بیشترِ همین واژه‌ها نیامد.'))));
       updPass();
     };
     const legacyPress = !semParts && !!(rsem.n || (sdec.ret && sdec.ret.sem));      // a semantic list made by the one-press way
-    K.semPass = card(['بخش‌های هم‌معنا'], help('step2.semantic'),
-      el('p', { class: 'muted small' }, 'برای هر بخشی که در مرحله‌ی ۲ تیک خورده، متن‌های دیگری که معنایشان به آن نزدیک است. متن‌ها دو دسته‌اند: نخست آن‌هایی که با واژه‌های دیگر همان معنا را دارند، سپس آن‌هایی که بیشترِ واژه‌های بخش را دارند. هر متن یک بار آمده، هرچند حدیث‌های بسیار آن را بیاورند («در n حدیث» را باز کنید تا ببینید کدام‌ها)؛ واژه‌های رنگی را خود بخش هم دارد. متنی که خودِ واژه‌های بخش را (همان‌گونه) دارد نیامده، چون جستجوی لفظی مرحله‌ی ۳ حدیث‌هایش را می‌آورد. هر متنی را که واقعاً هم‌معنای آن بخش می‌دانید تیک بزنید و «جستجو» را بزنید؛ آنگاه حدیث‌هایی که آن متن‌ها را دارند در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
-      semParts && SP ? el('div', { class: 'toolbar' }, passCount, c.can && !STATIC ? pickBtn : null)
-        : el('p', { class: 'empty-state' }, semParts ? 'متن‌های هم‌معنا هنوز آماده نیست (محاسبه در جریان است).'
-          : 'هنوز متن هم‌معنایی یافته نشده است. «اجرا» را در نوار بالای صفحه بزنید' + (legacyPress ? ' (فهرست پایین از شیوه‌ی پیشین است و با اجرای تازه جایش را به متن‌ها می‌دهد).' : '.')),
-      pickErr, semParts ? passBox : null);
+    K.semBoxes = card(['جعبه‌های جستجوی هم‌معنا'], help('step2.semantic'),
+      el('p', { class: 'muted small' }, 'هر جعبه یک پرسش است: معنای بخش‌های همان جعبه با هم جستجو می‌شود، نه هر بخش جدا. مثلاً اگر معنای مهم حدیث را بخش ۱ و ۳ با هم می‌دهند و بخش ۲ میانشان مهم نیست، ۱ و ۳ را در یک جعبه بگذارید و ۲ را بیرون. '
+        + 'بخشی که در هیچ جعبه‌ای نیست پرسیده نمی‌شود. رنگ هر بخش همان رنگ مرحله‌ی ۲ است و در متن حدیث‌های یافته‌شده هم می‌آید.'),
+      edit4 ? el('p', { class: 'small muted' }, 'روش کار: بخش‌ها را با کلیک انتخاب کنید و «افزودن انتخاب‌شده‌ها به این جعبه» یا «جعبه‌ی تازه» را بزنید؛ یا بخش‌ها را بکشید و در جعبه رها کنید. هر جعبه را می‌توانید ویرایش کنید (بخشی را بیرون ببرید یا بخش دیگری بیفزایید). سپس «جستجو».') : null,
+      boxArea, el('div', { class: 'toolbar' }, edit4 ? [boxBtn, resetBtn, backBtn] : null, noSem ? el('span', { class: 'small warn' }, 'جستجوی معنایی در این سرور آماده نیست.') : null), boxNote, boxErr);
+    K.semPass = card(['حدیث‌های هم‌معنا با هر جعبه'],
+      el('p', { class: 'muted small' }, 'برای هر جعبه، حدیث‌هایی که قطعه‌ای از آن‌ها هم‌معنای بخش‌های جعبه است، با متن حدیث و جای قطعه‌ی هم‌معنا به رنگ بخش‌ها. دو دسته‌اند: نخست آن‌هایی که با واژه‌های دیگر همان معنا را دارند، سپس آن‌هایی که بیشترِ واژه‌های جعبه را دارند. '
+        + 'حدیثی که خودِ واژه‌های جعبه را (همان‌گونه) دارد نیامده، چون جستجوی لفظی مرحله‌ی ۳ آن را می‌آورد. هر حدیثی را که واقعاً هم‌معنای جعبه می‌دانید تیک بزنید و «افزودن تیک‌خورده‌ها به فهرست» را بزنید؛ آنگاه در فهرست پایین می‌آیند تا شاهدها را از میانشان برگزینید.'),
+      semParts && SP ? el('div', { class: 'toolbar' }, el('input', { type: 'text', placeholder: 'پالایش با نام کتاب یا کلمه', oninput: ev => { filter4 = ev.target.value; drawPass(); } }), passCount, edit4 ? pickBtn : null)
+        : el('p', { class: 'empty-state' }, semParts ? 'حدیث‌های هم‌معنا هنوز آماده نیست (محاسبه در جریان است).'
+          : 'هنوز جستجوی معنایی نشده است. جعبه‌ها را بسازید و «جستجو» را بزنید' + (legacyPress ? ' (فهرست پایین از شیوه‌ی پیشین است و با جستجوی تازه جایش را به این فهرست می‌دهد).' : '.')),
+      pickErr, semParts && SP ? passBox : null);
     if (semParts) {
-      K.semantic = card(['حدیث‌های متن‌های تیک‌خورده'], rsem.picks && rsem.picks.length ? [
-        el('p', { class: 'muted small' }, 'حدیث‌هایی که متن‌های تیک‌خورده‌ی بالا را دارند، با بخش‌های حدیث‌ها سنجیده شده‌اند. از پیش تیک نخورده‌اند؛ هرچه را شاهد می‌دانید تیک بزنید، مثل نامزدهای دیگر در هم‌ترازی و مرحله‌های بعد می‌آید.'),
-        el('div', { class: 'toolbar' }, semCount), semList] : [el('p', { class: 'muted small' }, 'پس از تیک‌زدن متن‌ها و زدن «جستجو»، حدیث‌هایشان اینجا می‌آید.')]);
+      K.semantic = card(['حدیث‌های تیک‌خورده‌ی هم‌معنا'], rsem.picks && rsem.picks.length ? [
+        el('p', { class: 'muted small' }, 'حدیث‌هایی که در فهرست بالا تیک زده‌اید، با بخش‌های حدیث‌ها سنجیده شده‌اند. از پیش تیک نخورده‌اند؛ هرچه را شاهد می‌دانید تیک بزنید، مثل نامزدهای دیگر در هم‌ترازی و مرحله‌های بعد می‌آید.'),
+        el('div', { class: 'toolbar' }, semCount), semList] : [el('p', { class: 'muted small' }, 'پس از تیک‌زدن حدیث‌ها در فهرست بالا و زدن «افزودن تیک‌خورده‌ها به فهرست»، اینجا می‌آیند.')]);
     } else if (legacyPress) {
       K.semantic = card(['هم‌معنا با واژگان دیگر (جستجوی پیشین)'],
         el('p', { class: 'muted small' }, 'حدیث‌هایی که با واژه‌های دیگر همان معنای بخش‌های حدیث‌ها را دارند و جستجوی لفظی آن‌ها را نیاورد؛ با شیوه‌ی پیشین ساخته شده‌اند. هرچه را شاهد می‌دانید تیک بزنید. «اجرا» (نوار بالا) به‌جای این، متن‌های هم‌معنا را نشان می‌دهد تا خودتان برگزینید.'),
@@ -594,9 +658,10 @@ const panels = {
     K.added = card(['حدیث‌های افزوده‌ی شما'], help('step2.added'),
         el('p', { class: 'muted small' }, 'حدیثی را که جستجو پیدا نکرد، بیابید و بیفزایید. هر حدیث افزوده مثل نامزدها با بخش‌های حدیث‌ها بخش‌به‌بخش سنجیده می‌شود و ردیفش (نوار بخش‌ها و متن رنگی) همین‌جا می‌آید. با «ویرایش متن» می‌توانید متن آن را (یا هر نامزد دیگر را) درست کنید؛ پس از ذخیره دوباره سنجیده می‌شود. حدیث‌های افزوده با جستجوی دوباره از میان نمی‌روند. مبدأهای دیگر را در مرحله‌ی ۱ می‌افزایید؛ پس از افزودن، در همین مرحله «اجرا» را بزنید تا سنجیده شوند.'),
         edit ? hadithAdder(c, sdec, 'extra_ids', S) : null, addedList);
-    fill(main, only === 'semantic' ? [K.semPass, K.semantic] : only ? [K[only]] : [K.parts, K.candidates, K.semantic, K.added]);
+    fill(main, only === 'semantic' ? [K.semBoxes, K.semPass, K.semantic] : only ? [K[only]] : [K.parts, K.candidates, K.semantic, K.added]);
     draw();
-    if (semParts) drawPass();
+    if (only === 'semantic') drawBoxes();
+    if (semParts && SP) drawPass();
     /* what the page keeps when «ذخیره» is pressed (the wizard's bar): the ticked parts of step 2, the ticked witnesses of steps 3 to 5 */
     if (c.register && c.can && !STATIC) {
       if (only === 'parts') {
@@ -1956,13 +2021,18 @@ function hadithBlock(h, colored) {
 const HUES = [210, 28, 140, 330, 48, 268, 178, 0, 95, 300, 235, 15];
 const hue = i => HUES[i % HUES.length];
 const swatch = i => el('span', { class: 'sw', style: `--h:${hue(i)}`, title: 'بخش ' + fa(i + 1) }, fa(i + 1));
-function marked(text, marks, cls, S) {
-  const cp = Array.from(text), out = el('div', { class: cls });
+const boxSw = ps => el('span', { class: 'bsw' }, ps.map(swatch));                       // the swatches of a step-4 box's parts, side by side
+const boxPartsOf = (S, k) => { const q = (S.sem_parts || []).find(x => x.clause === k); return (q && q.parts) || [k]; };       // a step-4 box (named by its least part): its parts
+/* the colour of a box that has several parts: a band of each part's tint, one under the other (every line of the text shows them all) */
+const bandBg = ps => `linear-gradient(to bottom,${ps.map((p, i) => `hsl(${hue(p)} var(--hl-s) var(--hl-l)) ${Math.round(100 * i / ps.length)}% ${Math.round(100 * (i + 1) / ps.length)}%`).join(',')})`;
+function marked(text, marks, cls, S, boxParts) {          // boxParts (step 4): the parts of the box all the marks belong to; several parts: every part's tint in bands
+  const cp = Array.from(text), out = el('div', { class: cls }), band = boxParts && boxParts.length > 1 ? boxParts : null;
   let at = 0;
   for (const [a, b, k] of marks) {
     if (a < at) continue;
     if (a > at) out.append(cp.slice(at, a).join(''));
-    out.append(el('span', { class: 'hl', style: `--h:${hue(k)}`, title: 'بخش ' + fa(k + 1) + (S ? ': ' + S.clauses[k].text : '') }, cp.slice(a, b).join('')));
+    out.append(el('span', { class: 'hl', style: `--h:${hue(k)}` + (band ? `;--g:${bandBg(band)}` : ''),
+      title: band ? 'جعبه‌ی بخش‌های ' + band.map(p => fa(p + 1)).join(' و ') : 'بخش ' + fa(k + 1) + (S ? ': ' + S.clauses[k].text : '') }, cp.slice(a, b).join('')));
     at = b;
   }
   if (at < cp.length) out.append(cp.slice(at).join(''));
@@ -2623,8 +2693,8 @@ function rowActs(c, sdec, x, kind) {
 /* a hadith found by meaning: for each part of the sources the cosine of its closest passage here (the passage is coloured in the text) */
 function semParts(x, S) {
   const known = new Set(S.clauses.map(cl => cl.i));
-  return el('div', {}, x.sem_hits.filter(h => h.clause < 0 || known.has(h.clause)).map(h => el('div', { class: 'small', title: h.clause < 0 ? 'همه‌ی بخش‌های تیک‌خورده با هم' : h.span ? 'بخشی از این حدیث که هم‌معنای این بخش است (در متن رنگی شده)' : 'نزدیک‌ترین قطعه‌ی این حدیث به این بخش' },
-    h.clause < 0 ? 'همه‌ی بخش‌ها' : swatch(h.clause), ' ', fa(h.cos.toFixed(2)))));
+  return el('div', {}, x.sem_hits.filter(h => h.clause < 0 || known.has(h.clause)).map(h => el('div', { class: 'small', title: h.clause < 0 ? 'همه‌ی بخش‌های تیک‌خورده با هم' : h.span ? 'بخشی از این حدیث که هم‌معنای این جعبه (بخش یا بخش‌ها) است (در متن رنگی شده)' : 'نزدیک‌ترین قطعه‌ی این حدیث به این بخش' },
+    h.clause < 0 ? 'همه‌ی بخش‌ها' : boxSw(boxPartsOf(S, h.clause)), ' ', fa(h.cos.toFixed(2)))));
 }
 
 function candRow(x, S, sel, can, upd, refs, openRef, acts) {

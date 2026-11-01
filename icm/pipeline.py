@@ -87,6 +87,15 @@ def sem_at(p: dict, sdec: dict, pdec: dict) -> dict:
     return dict(anchor=seed, seeds=sorted(set(sdec.get("seeds") or []) - {seed}), clauses=project.cuts_of(pdec), join=pdec.get("join"), part_query=sdec.get("part_query"))
 
 
+def sem_changed(rs: dict, now: dict) -> bool:
+    """Whether the hadiths or parts differ from those the semantic search ``rs`` was pressed on. With boxes the ticks of step 2 («در جستجو»)
+    do not matter: the boxes say which parts are asked."""
+    then = rs.get("at")
+    if rs.get("boxes") and isinstance(then, dict):
+        return {k: v for k, v in then.items() if k != "part_query"} != {k: v for k, v in now.items() if k != "part_query"}
+    return then != now
+
+
 def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
     """The search stage of the current decisions. Corpora are asked only when the user pressed «جستجو» (``sdec.ret``, the
     parameters of that press); the semantic index only when they pressed «جستجوی معنایی» (``sdec.ret_sem``, on top of that
@@ -126,10 +135,11 @@ def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
     if rs and rs.get("mode") == "parts":
         # two presses: the passages that resemble each part (nothing joins the candidates), then the hadiths of the passages the user ticked
         pmin = {int(c): v for c, v in (rs.get("part_min") or {}).items()}          # the least cosine of the parts that have their own
-        rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"], sem_min_by=pmin)
+        rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"], sem_min_by=pmin,
+                       **({"sem_boxes": rs["boxes"]} if rs.get("boxes") else {}))
         ix = semantic.meta()                                   # the index asked: a rebuilt one (other texts, other vectors) is not the saved answer of the old
         k_base = h("sempassages", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), *([rs["unit"], rs.get("pca"), "tiers"] if rs.get("unit") else []),
-                   *([sorted(pmin.items())] if pmin else []), rs.get("at"), STAGE_VERSIONS["search"], *([ix.get("built"), ix.get("n")] if ix.get("unit") == "parts" else []))
+                   *([sorted(pmin.items())] if pmin else []), *([rs["boxes"]] if rs.get("boxes") else []), rs.get("at"), STAGE_VERSIONS["search"], *([ix.get("built"), ix.get("n")] if ix.get("unit") == "parts" else []))
 
         def sem_cache(key, fn):                                # a part's passages are kept by what they were made from: a part asked again alone costs that part only
             got = project.stage_get(pid, "sempart", key)
@@ -156,7 +166,7 @@ def _search(pid: str, p: dict, D: dict, use, info: dict) -> dict:
                             flags=R["flags"] + out["flags"], sem_n=rs.get("n"), sem_parts=parts_found, sem_pn=rs.get("pn"))
             R = use("search", k_pick, picked)
             k_base = k_pick
-        info["sem_stale"] = rs.get("at") != sem_at(p, sdec, pdec)
+        info["sem_stale"] = sem_changed(rs, sem_at(p, sdec, pdec))
     elif rs:
         k_base = h("semsearch", k_ret, rs["sem_min"], rs["sem_k"], rs.get("model"), rs.get("at"), STAGE_VERSIONS["search"])
         rsp_sem = dict(rsp, sem=rs.get("model") or True, sem_min=rs["sem_min"], sem_k_part=rs["sem_k"], sem_k_all=2 * rs["sem_k"])
