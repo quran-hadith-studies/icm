@@ -1,7 +1,7 @@
 'use strict';
-/* the wizard's own accounts (the server's icm/users.py, on when ME.accounts): sign-in, sign-up confirmed through the
-   Bale bot, the account page, the admin's users menu, and the account's part of the header menu. Loaded before icm.js and uses its
-   helpers (el, api, post, go, fa, ME, popover…) only when called. */
+/* accounts from the central users service (on when ME.accounts; ME.central holds its login / sign-up / account pages): the sign-in link,
+   the admin's users menu, and the account's part of the header menu. Sign-in, sign-up and the account page are the service's own pages.
+   Loaded before icm.js and uses its helpers (el, api, post, go, fa, ME, popover…) only when called. */
 window.ICMUsers = (() => {
   const ROLE = { admin: 'مدیر', editor: 'ویرایشگر', viewer: 'خواننده' };
   const ROLE_HELP = { admin: 'همه‌ی کارها و مدیریت کاربران', editor: 'پروژه می‌سازد و پروژه‌های خودش را تغییر می‌دهد', viewer: 'فقط می‌خواند' };
@@ -25,11 +25,18 @@ window.ICMUsers = (() => {
   }
 
   /* ---------- the header: the sign-in link, and the account's entries for the top bar's menu ---------- */
+  const MEMBER_NOTE = { pending: 'حساب شما منتظر تأیید مدیر است', rejected: 'درخواست دسترسی شما رد شد', blocked: 'دسترسی حساب شما بسته است' };
   function loginLink() {
+    if (ME.central && ME.membership) return el('span', { class: 'small', role: 'status' }, MEMBER_NOTE[ME.membership] || 'دسترسی ندارید', ' · ', el('a', { href: ME.central.account }, 'حساب من'));
+    if (ME.central) return el('a', { href: ME.central.login }, 'ورود');
     return el('a', { href: `${BASE}/login?next=${encodeURIComponent(location.pathname)}`, onclick: ev => { ev.preventDefault(); go('/login?next=' + encodeURIComponent(location.pathname)); } }, 'ورود');
   }
   const badge = () => (ME.pending ? el('span', { class: 'ubadge', title: 'کاربران منتظر تأیید' }, fa(ME.pending)) : null);
   function items() {
+    if (ME.central) return [
+      el('a', { class: 'uitem', role: 'menuitem', href: ME.central.account }, 'حساب من'),
+      ME.admin ? el('a', { class: 'uitem', role: 'menuitem', href: BASE + '/users', onclick: ev => { ev.preventDefault(); closePop(); go('/users'); } }, 'مدیریت کاربران', ME.pending ? el('span', { class: 'ubadge' }, fa(ME.pending)) : null) : null,
+      el('button', { class: 'uitem lnk', role: 'menuitem', onclick: async () => { closePop(); await post('/auth/logout', {}); location.href = BASE || '/'; } }, 'خروج')].filter(Boolean);
     const item = (path, text, extra) => el('a', { class: 'uitem', role: 'menuitem', href: BASE + path, onclick: ev => { ev.preventDefault(); closePop(); go(path); } }, text, extra || null);
     return [
       item('/account', 'حساب من'),
@@ -38,6 +45,10 @@ window.ICMUsers = (() => {
   }
 
   async function page(kind) {
+    if (ME.central && ['login', 'register', 'account'].includes(kind)) {
+      location.href = kind === 'register' ? (ME.central.signup || ME.central.login) : kind === 'account' ? ME.central.account : ME.central.login;
+      return;
+    }
     if (kind === 'login') return login();
     if (kind === 'register') return register();
     if (!ME.user) return go('/login?next=' + encodeURIComponent(BASE + '/' + kind));

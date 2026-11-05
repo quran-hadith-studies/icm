@@ -34,6 +34,10 @@ from icm.api import make_router  # noqa: E402
 
 def _user(request):
     u = getattr(request.state, "user", None)
+    if os.environ.get("ICM_AUTH", "open").strip().lower() == "central":
+        # needs EBAD_AUTH_BACKEND=central on the site: request.state.user then carries the `icm` membership
+        from icm import central
+        return central.user_from_state(u)
     if not u or not u.get("username"):
         return None
     return {"username": u["username"], "is_admin": bool(u.get("is_admin"))}
