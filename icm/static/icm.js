@@ -158,6 +158,7 @@ const flagText = (f, S) => {
   return FLAG_FA[f.kind] ? (f.kind === 'chronology' ? FLAG_FA[f.kind] + ' — ' + f.message : FLAG_FA[f.kind]) : f.message;
 };
 let ME = { user: null, admin: false }, timer = null;
+const nm = id => (ME.names && ME.names[id]) || id;      // the app's data holds user ids; people are shown by name
 const canMake = () => !!ME.user && ME.role !== 'viewer';      // a viewer account (users.js) only reads
 let pageDirty = null;      // a step with unsaved work sets it (() => true while unsaved): the page is then not redrawn under it
 const SITE_TITLE = 'تحلیل منبع حدیث';
@@ -212,7 +213,7 @@ async function home() {
         el('button', { class: 'primary', disabled: !canMake(), title: canMake() ? '' : ME.user ? 'حساب شما فقط خواندنی است' : 'برای ساخت پروژه وارد شوید', onclick: () => go('/new') }, 'پروژه‌ی تازه')),
       idx.projects.length ? el('div', { class: 'tscroll' }, el('table', { class: 'plist' }, el('thead', {}, el('tr', {}, ...HEADS.map(t => el('th', {}, t)))), el('tbody', {},
         idx.projects.map(p => el('tr', {}, el('td', { 'data-th': HEADS[0] }, el('a', { href: `${BASE}/p/${p.pid}`, onclick: ev => { ev.preventDefault(); go('/p/' + p.pid); } }, p.title), ICMWizard.busyDot(p.busy)),
-          el('td', { dir: 'ltr', class: 'small', 'data-th': HEADS[1] }, p.seed), el('td', { 'data-th': HEADS[2] }, p.owner),
+          el('td', { dir: 'ltr', class: 'small', 'data-th': HEADS[1] }, p.seed), el('td', { 'data-th': HEADS[2] }, nm(p.owner)),
           el('td', { 'data-th': HEADS[3] }, el('span', { class: 'chip ' + p.status }, STATUS[p.status] || p.status), p.stale ? el('span', { class: 'chip partial ms4', title: 'یکی از مرحله‌ها پس از تغییرهای تازه هنوز اجرا نشده است' }, 'نیازمند اجرا') : null),
           el('td', { 'data-th': HEADS[4] }, stepName(p.step)), el('td', { class: 'small muted', dir: 'ltr', 'data-th': HEADS[5] }, p.updated.replace('T', ' ').slice(0, 16)),
           el('td', {}, STATIC ? null : el('button', { class: 'small', title: 'اطلاعات پروژه: سازنده، دانلود، تصمیم‌ها، گزارش و حذف', 'aria-label': 'اطلاعات پروژه', onclick: () => ICMSettings.projectMenu(p) }, icon('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M12 16v-4', 'M12 8h.01'))))))))
@@ -269,11 +270,11 @@ async function deleteProject(pid, title, after) {
 }
 /* behind the project's (i): its owner, the downloads, and every decision and the run log */
 function projInfo(p, exportSel, PP = P) {
-  return [el('h3', {}, 'پروژه'), el('p', {}, 'سازنده: ', el('b', {}, p.owner)),
+  return [el('h3', {}, 'پروژه'), el('p', {}, 'سازنده: ', el('b', {}, nm(p.owner))),
     ...(exportSel ? [el('h3', {}, 'دانلود'), exportSel, help('export', true)] : []),
     ...(ME.user && (ME.user === p.owner || ME.admin) && !STATIC ? [el('h3', {}, 'حذف'), el('button', { class: 'small', onclick: () => { closeModal(); deleteProject(p.pid, p.label || p.title, () => go('/')); } }, '× حذف این پروژه با همه‌ی داده‌هایش')] : []),
     el('h3', {}, `تصمیم‌های نسخه‌ی «${(PP.branches && (PP.branches.versions.find(b => b.id === PP.branches.active) || {}).name) || ''}» و گزارش اجرا`),
-    ...Object.entries(PP.decisions).map(([s, list]) => el('div', { class: 'small' }, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی', narrators: 'پایگاه راویان', go: 'درخواست مرحله‌ها' }[s] + ': ', list.length ? list.map(d => `#${fa(d.version)} (${d.user})`).join('، ') : '—')),
+    ...Object.entries(PP.decisions).map(([s, list]) => el('div', { class: 'small' }, { search: 'جستجو', selection: 'انتخاب شاهدها', identities: 'راویان', phylogeny: 'شجره', parts: 'فرازبندی', narrators: 'پایگاه راویان', go: 'درخواست مرحله‌ها' }[s] + ': ', list.length ? list.map(d => `#${fa(d.version)} (${nm(d.user)})`).join('، ') : '—')),
     el('div', { class: 'log' }, PP.log.slice().reverse().map(l => el('div', {}, `${l.ts.slice(11, 19)} ${l.stage}: ${l.msg}`)))];
 }
 /* a version picked in the project bar: the active one is the live page; another becomes active (owner, admin), or is shown read-only */
@@ -311,7 +312,7 @@ function versionsModal(pid, step, host) {
       };
       return el('tr', isA ? { style: 'background:color-mix(in srgb,var(--accent) 7%,transparent)' } : {}, nameCell,
         el('td', { class: 'small' }, b.base ? (byId[b.base] ? `از «${byId[b.base].name}»` : 'از نسخه‌ای حذف‌شده') : '—'),
-        el('td', { class: 'small muted' }, el('span', { style: 'white-space:nowrap' }, when(b.created)), b.user ? ' ' + b.user : ''),
+        el('td', { class: 'small muted' }, el('span', { style: 'white-space:nowrap' }, when(b.created)), b.user ? ' ' + nm(b.user) : ''),
         el('td', { class: 'small muted', style: 'white-space:nowrap' }, when(b.changed)),
         el('td', { class: 'small' }, b.step ? ICMWizard.stepTitle(b.step) : '—'),
         el('td', {}, el('span', { class: 'toolbar tight' },

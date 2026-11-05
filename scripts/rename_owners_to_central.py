@@ -4,7 +4,7 @@
     python3 scripts/rename_owners_to_central.py --mapping m.json [--guest-to <username>] --apply
 
 Rewrites project.json (`owner`, each version's `user`) and every decision's `user`. `m.json` is the mapping
-`python -m ebad_users.importer users` writes: `<source>:<old username>` entries with the new `username`. Work done as `guest`
+`python -m ebad_users.importer users` writes: `<source>:<old username>` entries with the new `username`, or with `key` (the central user id) when `ebad-users key-map` made it. Work done as `guest`
 (open mode) belongs to no account: with --guest-to it goes to that person, and project.json keeps `migrated_from: guest`."""
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from icm import project  # noqa: E402
 
 
 def renames_from(mapping: dict, guest_to: str | None) -> dict[str, str]:
-    out = {k.split(":", 1)[1]: v["username"] for k, v in mapping.items() if ":" in k and v.get("username")}
+    out = {k.split(":", 1)[1]: v.get("key") or v["username"] for k, v in mapping.items() if ":" in k and (v.get("key") or v.get("username"))}
     if guest_to:
         out["guest"] = guest_to
     return {old: new for old, new in out.items() if old != new}

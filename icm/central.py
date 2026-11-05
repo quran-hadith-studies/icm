@@ -48,7 +48,7 @@ def user_from_state(state_user: Optional[dict]) -> Optional[dict]:
     if not m:
         return None
     role = role_of(m.get("roles", []))
-    return dict(username=state_user["username"].lower(), id=state_user["id"], name=(state_user.get("profile") or {}).get("display_name"),
+    return dict(username=state_user["id"], handle=state_user["username"].lower(), id=state_user["id"], name=(state_user.get("profile") or {}).get("display_name"),
                 role=role, is_admin=bool(state_user.get("is_site_admin")) or role == "admin", quota=(m.get("data") or {}).get("quota"),
                 status=m.get("status", "pending"))
 
@@ -60,6 +60,32 @@ def _epoch(iso: Optional[str]) -> Optional[float]:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return None
+
+
+def _row(key: str) -> Optional[dict]:
+    text = (key or "").strip().lower()
+    if not text:
+        return None
+    if text.startswith("usr_"):
+        return client().users_by_ids(APP, [text]).get(text)
+    return client().users_by_usernames(APP, [text]).get(text)
+
+
+_names_memo: tuple[float, dict] = (0.0, {})
+
+
+def names() -> dict:
+    """id -> display name of the app's members, for showing who made what (the app's data holds ids only)."""
+    global _names_memo
+    now = time.time()
+    if now - _names_memo[0] < 30:
+        return _names_memo[1]
+    try:
+        rows = client().members(APP)["members"]
+        _names_memo = (now, {r["id"]: r.get("display_name") or r["username"] for r in rows})
+    except Exception:
+        pass
+    return _names_memo[1]
 
 
 def _status(row: dict) -> str:
@@ -78,10 +104,10 @@ def list_users(projects: list) -> list:
     for r in rows:
         bale = next((m for m in r.get("messengers", []) if m["platform"] == "bale"), None)
         role = role_of(r.get("roles", []))
-        out.append(dict(username=r["username"], name=r["display_name"], role=role, status=_status(r), is_admin=role == "admin" and r["status"] == "active",
+        out.append(dict(username=r["id"], handle=r["username"], name=r["display_name"], role=role, status=_status(r), is_admin=role == "admin" and r["status"] == "active",
                         quota=(r.get("data") or {}).get("quota"), bale=bool(bale), bale_handle=bale and bale.get("handle"),
                         created=_epoch(r.get("requested_at")), approved=_epoch(r.get("approved_at")), approved_by=None, last_login=None, last_seen=None,
-                        projects=n.get(r["username"], 0), open_projects=n_open.get(r["username"], 0), sessions=0))
+                        projects=n.get(r["id"], 0), open_projects=n_open.get(r["id"], 0), sessions=0))
     order = {"pending": 0, "active": 1, "blocked": 2}
     out.sort(key=lambda u: (order.get(u["status"], 3), -(u["created"] or 0)))
     return out
@@ -101,10 +127,10 @@ def admin_action(actor: dict, username: str, action: str, value: Any = None) -> 
     """approve | block | unblock | role (value: a role) | quota (value: int or None) | delete."""
     from ebad_users.client import UsersError, UsersUnavailable
     global _pending_memo
-    row = client().users_by_usernames(APP, [username]).get(username.lower())
+    row = _row(username)
     if not row:
         raise CentralError("چنین کاربری نیست.", 404)
-    if username.lower() == actor["username"] and action in ("block", "role", "delete"):
+    if row["id"] == actor["id"] and action in ("block", "role", "delete"):
         raise CentralError("نقش یا وضعیت حساب خودتان را از این‌جا نمی‌توانید تغییر دهید.", 409)
     c, uid, by = client(), row["id"], actor["id"]
     try:
@@ -136,5 +162,5 @@ def admin_action(actor: dict, username: str, action: str, value: Any = None) -> 
     except UsersUnavailable:
         raise CentralError("سامانهٔ کاربران در دسترس نیست.", 503)
     _pending_memo = (0.0, 0)
-    c.forget(APP, username=username, user_id=uid)
+    c.forget(APP, username=row["username"], user_id=uid)
     return dict(ok=True)

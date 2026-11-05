@@ -28,7 +28,7 @@ window.ICMSettings = (() => {
           try { await post(`/project/${pid}/rename`, { title: title.value }); cache.clear(); render(); } catch (e) { err.textContent = e.message; } } }, 'ذخیره‌ی نام') : null, err),
         can ? null : readOnly(),
         el('table', { class: 'kv' }, el('tbody', {},
-          [['حدیث آغازین', el('span', { dir: 'ltr' }, p.seed)], ['سازنده', p.owner], ['ساخته‌شده', el('span', { dir: 'ltr' }, (p.created || '').replace('T', ' ').slice(0, 16))],
+          [['حدیث آغازین', el('span', { dir: 'ltr' }, p.seed)], ['سازنده', nm(p.owner)], ['ساخته‌شده', el('span', { dir: 'ltr' }, (p.created || '').replace('T', ' ').slice(0, 16))],
             ['شناسه‌ی پروژه', el('span', { dir: 'ltr' }, pid)], ['وضعیت', STATUS[p.status] || p.status]].map(([k, v]) => el('tr', {}, el('th', {}, k), el('td', {}, v)))))));
     } else if (section === 'narrators') {
       const VERS = await narratorVersions();

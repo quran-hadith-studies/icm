@@ -191,6 +191,8 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
         u = get_user(request)
         out = dict(user=u["username"] if u else None, admin=bool(u and u.get("is_admin")), presets=list(config.PRESETS))
         if config.AUTH == "central":
+            out["handle"] = u and u.get("handle")
+            out["names"] = central.names() if u else {}
             seen = raw_user(request)
             out.update(accounts=True, central=central.urls(request.query_params.get("next", "")), name=u and u.get("name"), role=u and u["role"],
                        quota=u and (u["quota"] if u.get("quota") is not None else MAX_OPEN))

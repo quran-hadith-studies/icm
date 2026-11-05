@@ -160,13 +160,13 @@ window.ICMUsers = (() => {
       onclick: () => { filt = s; usersPage(); } }, (s === 'all' ? 'همه' : STAT[s]) + ' ' + fa(count(s))));
     const rows = d.users.filter(u => filt === 'all' || u.status === filt).map(u => {
       const me = u.username === ME.user;
-      const role = el('select', { 'aria-label': 'نقش ' + u.username, disabled: me, onchange: ev => act(u, 'role', ev.target.value) },
+      const role = el('select', { 'aria-label': 'نقش ' + (u.handle || u.username), disabled: me, onchange: ev => act(u, 'role', ev.target.value) },
         d.roles.map(r => el('option', { value: r, selected: r === u.role, title: ROLE_HELP[r] }, ROLE[r])));
-      const quota = input('number', { min: 0, max: 1000, value: u.quota ?? '', placeholder: fa(d.default_quota), 'aria-label': 'سقف پروژه‌های ' + u.username, class: 'uquota',
+      const quota = input('number', { min: 0, max: 1000, value: u.quota ?? '', placeholder: fa(d.default_quota), 'aria-label': 'سقف پروژه‌های ' + (u.handle || u.username), class: 'uquota',
         title: 'سقف پروژه‌های ناتمام؛ خالی = پیش‌فرض (' + fa(d.default_quota) + '). مدیران بی‌سقف‌اند.',
         onchange: ev => act(u, 'quota', ev.target.value === '' ? null : parseInt(ev.target.value, 10)) });
       return el('tr', { class: 'u-' + u.status },
-        el('td', {}, el('b', {}, u.name), el('div', { class: 'small muted', dir: 'ltr' }, u.username)),
+        el('td', {}, el('b', {}, u.name), el('div', { class: 'small muted', dir: 'ltr' }, u.handle || u.username)),
         el('td', {}, el('span', { class: 'chip ' + STAT_CLS[u.status] }, STAT[u.status])),
         el('td', {}, role),
         el('td', {}, u.role === 'admin' ? el('span', { class: 'small muted' }, 'بی‌سقف') : quota),
@@ -176,9 +176,9 @@ window.ICMUsers = (() => {
           el('div', { class: 'muted' }, 'عضویت: ', when(u.created), u.approved_by ? ` (تأیید: ${u.approved_by})` : '')),
         el('td', { class: 'uacts' },
           u.status === 'pending' ? el('button', { class: 'primary small', onclick: () => act(u, 'approve') }, 'تأیید') : null,
-          u.status === 'active' && !me ? el('button', { class: 'small', onclick: () => act(u, 'block', null, `حساب «${u.username}» بسته شود؟ از همه‌جا خارج می‌شود.`) }, 'بستن') : null,
+          u.status === 'active' && !me ? el('button', { class: 'small', onclick: () => act(u, 'block', null, `حساب «${u.handle || u.username}» بسته شود؟ از همه‌جا خارج می‌شود.`) }, 'بستن') : null,
           u.status === 'blocked' ? el('button', { class: 'small', onclick: () => act(u, 'unblock') }, 'بازکردن') : null,
-          !me ? el('button', { class: 'small danger', onclick: () => act(u, 'delete', null, `حساب «${u.username}» برای همیشه پاک شود؟ پروژه‌هایش می‌مانند.`) }, 'حذف') : null));
+          !me ? el('button', { class: 'small danger', onclick: () => act(u, 'delete', null, `حساب «${u.handle || u.username}» برای همیشه پاک شود؟ پروژه‌هایش می‌مانند.`) }, 'حذف') : null));
     });
     $app.replaceChildren(el('div', { class: 'card' },
       el('div', { class: 'toolbar utools m0' }, el('h2', { class: 'm0' }, 'مدیریت کاربران'), el('span', { class: 'grow' }), ...chips),

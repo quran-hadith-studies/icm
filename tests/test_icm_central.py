@@ -59,9 +59,9 @@ def test_me_for_every_kind_of_visitor(monkeypatch):
     assert anon["user"] is None and anon["accounts"] and anon["central"]["login"].startswith("https://ebadollah.ir/user/login")
     assert anon["central"]["signup"] == "https://ebadollah.ir/user/signup?app=icm&k=KEY1&next=/icm"
     root = as_user(fake, a, "root").get("/icm/api/me").json()
-    assert root["user"] == "root" and root["admin"] and root["role"] == "admin" and root["pending"] == 1 and root["quota"] == 20
+    assert root["user"] == fake.uid("root") and root["handle"] == "root" and root["admin"] and root["role"] == "admin" and root["pending"] == 1 and root["quota"] == 20
     alice = as_user(fake, a, "alice").get("/icm/api/me").json()
-    assert alice["user"] == "alice" and not alice["admin"] and alice["role"] == "editor" and "pending" not in alice
+    assert alice["user"] == fake.uid("alice") and alice["names"][fake.uid("alice")] == "Alice" and not alice["admin"] and alice["role"] == "editor" and "pending" not in alice
     new = as_user(fake, a, "newbie").get("/icm/api/me").json()
     assert new["user"] is None and new["membership"] == "pending"
     out = as_user(fake, a, "outsider").get("/icm/api/me").json()
@@ -83,12 +83,13 @@ def test_users_menu_through_the_service(monkeypatch):
     fake, a = world(monkeypatch)
     root, alice = as_user(fake, a, "root"), as_user(fake, a, "alice")
     assert alice.get("/icm/api/users").status_code == 403 and as_user(fake, a).get("/icm/api/users").status_code == 401
-    project.create("v02:1", "alice")
+    project.create("v02:1", fake.uid("alice"))
     body = root.get("/icm/api/users").json()
     assert body["roles"] == ["admin", "editor", "viewer"] and body["default_quota"] == 20
-    names = [u["username"] for u in body["users"]]
+    names = [u["handle"] for u in body["users"]]
     assert names[0] == "newbie" and set(names) == {"root", "alice", "vera", "newbie"}
-    al = next(u for u in body["users"] if u["username"] == "alice")
+    assert all(u["username"] == fake.uid(u["handle"]) for u in body["users"])
+    al = next(u for u in body["users"] if u["handle"] == "alice")
     assert al["role"] == "editor" and al["status"] == "active" and al["projects"] == 1 and al["open_projects"] == 1 and al["name"] == "Alice"
     assert root.post("/icm/api/users/newbie", json={"action": "approve"}).status_code == 403                  # X-ICM
     assert root.post("/icm/api/users/newbie", json={"action": "approve"}, headers=X).json() == {"ok": True}

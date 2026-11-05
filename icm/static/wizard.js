@@ -400,7 +400,7 @@ window.ICMWizard = (() => {
     const words = Object.values(pdec.words || {}).reduce((t, v) => t + cnt(v), 0);
     switch (slug) {
       case 'hadiths':
-        add('پروژه', c.p.label || c.p.title); add('سازنده', c.p.owner); add('حدیث‌های فهرست', N(hadiths));
+        add('پروژه', c.p.label || c.p.title); add('سازنده', nm(c.p.owner)); add('حدیث‌های فهرست', N(hadiths));
         if (cnt(sdec.edits)) add('متن‌های ویرایش‌شده', N(cnt(sdec.edits)));
         break;
       case 'parts': hadithsItem(); partsItem(); if (S && S.join) add('بخش‌های مشترک حدیث‌ها', S.join.built ? (S.join.stale ? 'یکی‌شده، قدیمی' : 'یکی‌شده') : 'یکی نشده'); break;
