@@ -66,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         if n:
             print(f"{pid}: {n} file(s)")
         total += n
+    if args.apply and total:
+        project.refresh_indexes()
     print(("rewrote" if args.apply else "dry run, would rewrite") + f" {total} file(s) for {len(renames)} name(s)")
     return 0
 
