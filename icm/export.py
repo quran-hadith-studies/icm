@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Dict, List
 
@@ -104,6 +105,7 @@ def collect(pid: str, run: str, what: str) -> dict:
 def render(pid: str, run: str, what: str) -> str:
     data = json.dumps(collect(pid, run, what), ensure_ascii=False).replace("</", "<\\/")
     page = _asset("icm.html").replace("__BASE__", "").replace("?v=__V__", "")
+    page = re.sub(r'<script src="/portal/eb-shell\.js[^"]*"></script>\n', "", page)  # a saved page is never inside the ebadollah.ir shell
     for css in ("base.css", "icm.css", "tree.css", "results.css", "users.css", "wizard.css"):
         page = page.replace(f'<link rel="stylesheet" href="/static/{css}">', f"<style>\n{_asset(css)}\n</style>")
     scripts = "".join(f'<script src="/static/{js}"></script>\n' for js in ("help_fa.js", "tree.js", "recon.js", "results.js", "users.js", "wizard.js", "settings.js", "icm.js", "base.js"))
