@@ -52,6 +52,7 @@ header.top .wrap{display:flex;align-items:center;gap:8px 14px;min-height:54px;pa
 .sub{color:var(--muted);font-size:12.5px;padding-inline-start:12px;border-inline-start:1px solid var(--line-2)}.grow{flex:1}
 .navs{display:flex;gap:2px;flex-wrap:wrap}
 .nav{font-size:13px;color:var(--muted);text-decoration:none;border:0;border-radius:var(--r-sm);padding:5px 11px;display:inline-block;transition:background var(--t),color var(--t)}
+.nav .ic{width:15px;height:15px;vertical-align:-3px;margin-inline-end:5px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 a.nav:hover{background:var(--accent-soft);color:var(--fg);text-decoration:none}
 .nav.on{color:var(--accent);background:var(--accent-soft);font-weight:700}
 #who.nav{padding-inline:10px 0;border-inline-start:1px solid var(--line);border-radius:0}
