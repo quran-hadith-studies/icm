@@ -19,7 +19,7 @@ import traceback
 from typing import Callable, Dict, Optional, Tuple
 
 from . import STAGE_VERSIONS, align as align_mod, config, corpus, graph as graph_mod, identity, infer, jobs, narrator_versions, project, search as search_mod
-from . import semantic, suggest as suggest_mod
+from . import names as names_mod, semantic, suggest as suggest_mod
 from .project import h
 
 
@@ -259,7 +259,7 @@ def _walk(pid: str, p: dict, D: dict, use, info: dict, say, dry: bool = False) -
     ced = pdec.get("chain") or None                           # step 7: places added, removed or re-bounded in the text
     iddec = D["identities"]
     idrops = sorted(set((iddec or {}).get("drops") or [])) or None   # step 7: places removed on the main page leave the chain too
-    k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([ren] if ren else []),
+    k_ident = h("identify", k_search, selected, STAGE_VERSIONS["identify"], config.DATA_VERSION, V.key, *([{"names": names_mod.key()}] if names_mod.key() else []), *([ren] if ren else []),
                 *([ced] if ced else []), *([{"drops": idrops}] if idrops else []))
     I = use("identify", k_ident, lambda: _identify(S, A, V, ren, ced, idrops), need=False)
     if not iddec:
@@ -275,6 +275,9 @@ def _walk(pid: str, p: dict, D: dict, use, info: dict, say, dry: bool = False) -
         iddec_in["drops"] = iddec["drops"]
     if iddec.get("splits"):                                   # likewise: people the user split off an identity
         iddec_in["splits"] = iddec["splits"]
+    pins = identity.approved_pins(I or {}, iddec.get("approved"))   # an approved automatic link is the tree's own choice: only another person counts
+    if pins:
+        iddec_in["approved"] = pins
     k_graph = info["k_graph"] = h("graph", k_align, k_ident, iddec_in, ph_in, STAGE_VERSIONS["graph"])
     info["keys"]["graph"] = k_graph
     gone = phdec.get("deleted") == k_graph                    # step 8 «حذف شجره»: the cached tree stays on disk but is not shown until it is ordered again

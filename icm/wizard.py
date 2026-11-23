@@ -17,7 +17,7 @@ import os
 import time
 from typing import Dict, List, Optional
 
-from . import config, narrator_versions, pipeline, project
+from . import config, names, narrator_versions, pipeline, project
 
 WIZARD = ("hadiths", "parts", "candidates", "semantic", "added", "alignment", "narrators", "graph", "run")
 STAGE_OF = ("search", "search", "search", "search", "search", "align", "identify", "graph", "infer")
@@ -53,7 +53,7 @@ def slug(n: int) -> str:
 
 def _plan(pid: str, p: dict, vers: dict, D: dict) -> dict:
     """``pipeline.plan`` remembered for these decisions and this run (the page asks every few seconds)."""
-    key = (pid, p.get("current_run"), tuple(sorted(vers.items())), narrator_versions.default_name(), config.DATA_VERSION)
+    key = (pid, p.get("current_run"), tuple(sorted(vers.items())), narrator_versions.default_name(), config.DATA_VERSION, names.key())
     got = _PLANS.get(key)
     if got is None or time.time() - got[0] > _TTL:
         if len(_PLANS) > 64:

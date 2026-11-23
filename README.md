@@ -963,6 +963,76 @@ token), make `~/ebadollah/data/icm/cache` a clone of `icm-cache`, and remove `IC
 * Pyodide is loaded from `cdn.jsdelivr.net` (version pinned in `model_worker.js`); hosting it on the site would remove that dependency.
 * The server run of the model takes about an hour for ~230 narrators; the model code is pure Python loops.
 
+### The middle level of certainty: written names (`icm/names.py`, 2026-11-23)
+
+Chains that come as raw text (Rezwan: 232k hadiths with a sanad and no narrator ids; hadith.ai's sunnah.com and Dorar) have
+only *written* names. Step «راویان» now has three levels: **exact** (the databases give the id), **automatic, waiting for
+approval** (`e["auto"]`: a person used at once and marked until the user approves it) and plain candidates.
+
+Where an automatic link comes from (`identity.auto_links`, between `attach_candidates` and `_collapse_chains`; two sources that
+disagree give nothing; the person is put first among the candidates with tier `auto` and the evidence as `reason`):
+
+1. `family`: the same written name with the same neighbour(s) in an exact chain of the same project (a KG witness's written names
+   come from `names.kg_written`, since `kg_chains` carries the database's names);
+2. `twin`: the same hadith in a v02 consensus-set member that has Noor's linked isnad, aligned with this chain's names in order
+   (`SequenceMatcher`);
+3. the model: `names.sqlite` (`python3 -m icm build names`, 80 s) counts, over Noor's slots (1.44M names) and the KG's tagged isnads
+   (`hadith_rawis`, 3.12M names), which person a written name stood for in which company: `ctx3` (both neighbours, ≥2 hadiths),
+   `prev` / `next` (one neighbour, ≥3), `*_major` (one person has ≥95% of ≥20 hadiths of an ambiguous context), `name` (alone,
+   ≥5, always one person), `pprev` / `pnext` (next to a person the chain already knows). Support is per hadith; the collector and
+   the Prophet are not in the key space. Every rule is measured leave-book-out when the file is built (`meta.eval`) and switched
+   off, or given a higher support, when it is not 98% right: Noor 84% of names decided, KG 76%, at 99.5% (ctx3), 99% (prev/next).
+   `evaluate.names_twins` measures the real procedure on Rezwan against twin-derived persons (≈98–100% per rule, a lower bound).
+
+`resolve` order: overrides[place] > exact > anon > `approved[place]` > derived relative > `choices[card]` > `auto` > card default >
+name only. The tier stays `default` (tree.js, results.js, infer.py know only that); the output element carries `auto=<rule>`.
+`identities.approved = {"<aid>|<i>": person}` is the user's confirmation; only an approval that names another person than the place's
+automatic link goes into the graph's key (`identity.approved_pins`), so approving does not make the tree stale. A card default is
+taken back (`_veto_defaults`) when one of its places has an automatic link to another person or the written name is, in ≥20
+hadiths and 80%, someone else («ابن عمر» is عبد الله بن عمر, not عمر بن الخطاب). `_cov` treats «ابن X» as a patronymic;
+an Imam's laqab written alone («الصادق») in an Imami chain is a `laqab` candidate (tier high).
+
+The narrator wiki (`/narrator/names`, `narwiki/names.py`) reviews the same readings over the whole corpus
+(`python3 -m narwiki names build`: `name_patterns.sqlite`, patterns per (written name, person) and the frequent names no database
+has). A reviewer approves (the name is this person anywhere: as sure as a database), rejects (ICM never links the name to him
+automatically) or makes a new wiki person for an unknown name; «انتشار» writes `names_wiki.sqlite` (`ICM_NAMES_WIKI_DB`), which
+`names.wiki()` reads and `names.key()` includes, so every project recomputes identify at its next run. A person's wiki page lists the
+names he is written under (`names.sqlite` `form`). Data to ship: `deploy/sync-icm-data.sh` (names.sqlite, name_patterns.sqlite).
+
+#### What is still open, and what reads it (`icm/neighbours.py`, stage 13)
+
+An open-place analysis of 1,200 Rezwan hadiths and 300 from sunnah.com (6,472 places, 33% still without a person after the middle
+level) found four causes: 43% were not one narrator (isnad wording, sentences of commentary or matn glued into the isnad, two names
+in one place), 38% were real names with several candidates, 9% relatives («عن أبيه»), 8% bare nisbas or kunyas with no candidate.
+
+- **Cleaning before looking up.** `sanad_parse.strip_nonname` also cuts leading verbs and sigla («قلت لـ», «نبا», «ونا», «خ»), a
+  leading «وبالاسناد الی», and the words that end a name («… انه», «… ببغداد»); `not_a_name` knows more wording and book names
+  (`sanad_terms.json`: `lead_words`, `cut_after`, `junk_alone`). `identity.clean_parts` splits a place at «و» (and at a «و» glued to
+  a name, «وزکریا», when the word is in no name and what follows is one) and looks up the first part (`e["clean"]`, the others in
+  `e["parts"]`: the chain editor splits them; places and decisions keyed `aid|i` are untouched, `parse()` is unchanged). A place with no
+  candidate at all whose words are in no narrator's name (`names.fragment`: two or more words absent from the names file) is `e["frag"]`
+  and a «not a name» drop suggestion (0 of 130 well-matched places and 1 of 768 weak ones are flagged).
+- **Written forms as candidates** (`names.persons_written`): «الثوري», «الشيباني» are nobody's *name* but isnads write them for one
+  person; they are `low` candidates (never a default) when the name matching found nothing close.
+- **`father_of_prev`** (middle level): «عن أبيه» after a narrator we know (exact, or an automatic link) is the person whose first name
+  is the father's in the narrator's name («محمد بن **يعقوب** بن …») and who is most often *his teacher* in the databases' chains
+  (`adjacency`, `kg_adjacency`; a son narrates from his father, and the narrator's own son has the same names); three times the
+  runner-up's hadiths. Leave-book-out on Noor's «ابيه» slots (`evaluate.neighbours`): **99.8% right on 93%** of them (counting either
+  side as a neighbour: 99.6% on 86%). An Imam's father comes from the table of Imams. «عن جده» after «عن أبيه» is the same rule from the father. A lead of any size (≥2 pairs) is only a suggestion (97.6%).
+- **`name_major_adj`** (middle level): a name one person has ≥99% of ≥20 hadiths of, *and* in every group of books that has it often
+  (`names.sqlite` tier `namem`; «الشيخ», Mufid or Tusi by author, is not), is that person when he stands next to a known neighbour
+  in ≥3 hadiths: 98.0% (Noor) / 99.1% (KG), leave-book-out, on ≈1% of places. Without a neighbour, `name_major` alone is 96% (Noor and KG, 2.5% / 1.9% of places): a suggestion.
+- **The suggestion tier** (`e["sugg"]`, tier `sugg`, step-4 group «پیشنهادها»): below the middle level. It is **used nowhere until
+  the user approves it** (resolve ignores it; an approval writes `approved[place]` as for the middle level, but, since the tree then
+  changes, `approved_pins` puts every such approval into the graph's key). Rules and measured precision: `father_of_prev` with a weak
+  lead 97.6%; `name_major` 96%; `adj` (an ambiguous name: candidates ranked by (pairs with the neighbours + 1) × how often the name is
+  written for them, twenty times ahead) 82% Noor / 95% KG; `adj_one` (both neighbours known and only one candidate was ever next to
+  them, ≥3 hadiths) 99% Noor / 96% KG. The UI marks a row's precision; «accept all» takes only those ≥93%.
+
+All figures: `python3 -c "from icm import evaluate; print(evaluate.neighbours('noor'), evaluate.neighbours('kg'))"` (leave-book-out, one fold of
+three held out; person ids that two databases give one person count as errors, so they are lower bounds). `evaluate.names_twins` reports
+the same rules end to end against twin-derived persons, the suggestions as `sugg:<rule>`.
+
 ## The HTML viewer
 
 

@@ -827,6 +827,12 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/i
             if not (isinstance(dismissed, list) and len(dismissed) <= 3000 and all(isinstance(x, str) and len(x) <= 300 for x in dismissed)):
                 raise HTTPException(400, "dismissed must be suggestion ids")
             out = dict(choices=ch, overrides=ov, merges=merges, drops=sorted(set(drops)), dismissed=sorted(set(dismissed)), dates=dates)
+            ap = pl.get("approved", {}) or {}
+            if not (isinstance(ap, dict) and len(ap) <= 6000 and all(isinstance(k, str) and PLACE_RE.match(k) and isinstance(v, str) and ID_RE.match(v)
+                                                                   for k, v in ap.items())):
+                raise HTTPException(400, "approved must map places to noor:<id> or kg:<id>")
+            if ap:
+                out["approved"] = ap
             if splits:
                 out["splits"] = splits
             return out

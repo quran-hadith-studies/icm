@@ -9,6 +9,9 @@
   version build POLICY [--db PATH] [--out DIR]   write a narrator-database version (policies/POLICY.json or «raw») and evaluate it
   version list [--out DIR]              the meta of each built version
   version eval FILE                     (re)compute a built version's precision figures
+  names build [--books LIKE] [--limit N]   which person the names model reads each written name of the text isnads as, and the frequent names
+                                        no database knows: name_patterns.sqlite (laptop; the wiki's «نام‌ها در سندها» reads it)
+  names publish [--db PATH]             the reviewers' decisions as names_wiki.sqlite, which ICM reads
   serve [--port 8098]                   the development server (uvicorn narwiki.devserver:app)
 
 The database is NARWIKI_DB (default <hadith-project>/narwiki-data/wiki.sqlite). Versions go to
@@ -44,6 +47,9 @@ def main(argv=None) -> int:
     v = vs.add_parser("build"); v.add_argument("policy"); v.add_argument("--db"); v.add_argument("--out", default=VERSIONS_DIR)
     v = vs.add_parser("list"); v.add_argument("--out", default=VERSIONS_DIR)
     v = vs.add_parser("eval"); v.add_argument("file")
+    s = sub.add_parser("names"); ns = s.add_subparsers(dest="ncmd", required=True)
+    v = ns.add_parser("build"); v.add_argument("--books", default="rezwan%"); v.add_argument("--limit", type=int); v.add_argument("--out")
+    v = ns.add_parser("publish"); v.add_argument("--db"); v.add_argument("--out")
     s = sub.add_parser("serve"); s.add_argument("--port", type=int, default=8098); s.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args(argv)
     db = getattr(a, "db", None) or config.DB
@@ -94,6 +100,13 @@ def main(argv=None) -> int:
                                  ensure_ascii=False))
         else:
             print(json.dumps(_evaluate(a.file), ensure_ascii=False, indent=1))
+    elif a.cmd == "names":
+        from . import names as names_mod
+        if a.ncmd == "build":
+            names_mod.build_patterns(a.out, a.books, a.limit, log=lambda m: print(m, file=sys.stderr))
+        else:
+            from . import store
+            print(json.dumps(names_mod.publish(store.name_decisions(store.connect(db, readonly=True)), a.out), ensure_ascii=False))
     elif a.cmd == "serve":
         import uvicorn
         os.environ.setdefault("NARWIKI_DB", db)

@@ -89,8 +89,8 @@ td{font-variant-numeric:tabular-nums}
 .chip{display:inline-block;border-radius:99px;padding:0 9px;font-size:11.5px;font-weight:700;line-height:1.75;color:var(--chip-fg);background:var(--muted);white-space:nowrap;margin:1px 2px;vertical-align:middle}
 .chip.witness{background:var(--c-witness)}.chip.variant{background:var(--c-variant)}.chip.extended{background:var(--c-extended)}
 .chip.abridged{background:var(--c-abridged)}.chip.partial{background:var(--c-partial)}.chip.different{background:var(--c-different)}.chip.semantic{background:var(--c-semantic)}
-.chip.high,.chip.exact,.chip.derived,.chip.approved,.chip.accepted,.chip.finalized,.chip.auto{background:var(--good-bg)}
-.chip.medium,.chip.unreviewed,.chip.proposed,.chip.draft,.chip.awaiting,.chip.und,.chip.sg{background:var(--warn-bg)}
+.chip.high,.chip.exact,.chip.ok,.chip.derived,.chip.approved,.chip.accepted,.chip.finalized,.chip.auto{background:var(--good-bg)}
+.chip.medium,.chip.mid,.chip.hint,.chip.unreviewed,.chip.proposed,.chip.draft,.chip.awaiting,.chip.und,.chip.sg{background:var(--warn-bg)}
 .chip.low,.chip.rejected,.chip.failed{background:var(--bad-bg)}
 .chip.running,.chip.user,.chip.wiki{background:var(--accent)}
 .chip.running{color:var(--on-accent)}

@@ -32,7 +32,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import config, store, version
+from . import config, names as names_mod, store, version
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 ASSETS = ("narwiki.js", "narwiki.css", "narwiki.html")
@@ -66,6 +66,25 @@ def _open(path: str) -> sqlite3.Connection:
     c = sqlite3.connect(path, timeout=30, check_same_thread=False)
     c.row_factory = sqlite3.Row
     return c
+
+
+def config_overlay() -> str:
+    return names_mod.wiki_overlay()
+
+
+def published_count() -> int:
+    """How many decisions the published overlay holds (to tell the reviewers there are unpublished ones)."""
+    p = config_overlay()
+    if not os.path.exists(p):
+        return 0
+    try:
+        c = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        try:
+            return c.execute("select count(*) from decided").fetchone()[0]
+        finally:
+            c.close()
+    except sqlite3.Error:
+        return 0
 
 
 def _src(kind: str) -> sqlite3.Connection:
@@ -469,6 +488,7 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
     @r.get("/queue", response_class=HTMLResponse)
     @r.get("/suggestions", response_class=HTMLResponse)
     @r.get("/new", response_class=HTMLResponse)
+    @r.get("/names", response_class=HTMLResponse)
     def index_page(pid: str = "", view: str = ""):
         return page()
 
@@ -600,6 +620,36 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
             raise HTTPException(400, "bad status")
         with _db() as c:
             return store.suggestions(c, kind, status, person, max(1, min(limit, 100)), max(0, offset))
+
+    @r.get("/api/person/{pid}/names")
+    def person_names(pid: int):
+        """The written names of this person in the isnads the databases link (Noor's slots, the KG's tagged isnads)."""
+        with _db() as c:
+            p = store.summary(c, pid)
+        return names_mod.person_forms(p["ext"])
+
+    @r.get("/api/names")
+    def names_list(status: str = "proposed", q: str = "", clear: int = 0, limit: int = 30, offset: int = 0):
+        if status not in ("proposed", "approve", "reject", "all"):
+            raise HTTPException(400, "bad status")
+        with _db() as c:
+            dec = store.name_decisions(c)
+            out = names_mod.list_patterns(dec, status, q[:100], max(0, offset), max(1, min(limit, 100)), bool(clear))
+            out["labels"] = {}
+            for it in out["items"]:
+                kind, _, i = it["id"].partition(":")
+                row = c.execute("select p.id, p.display_name from person_ext e join person p on p.id=e.person_id where e.kind=? and e.ext_id=?", (kind, i)).fetchone()
+                if row:
+                    it["person"], it["label"] = row[0], row[1]
+            out["published"] = os.path.exists(config_overlay())
+            out["pending"] = sum(1 for d in dec.values() if d["decision"] in ("approve", "reject")) != published_count()
+            return out
+
+    @r.get("/api/names/unknown")
+    def names_unknown(q: str = "", limit: int = 30, offset: int = 0):
+        with _db() as c:
+            created = {k: i for (k, i), d in store.name_decisions(c).items() if d["decision"] == "approve" and i.startswith("wiki:")}
+            return names_mod.list_unknown(created, q[:100], max(0, offset), max(1, min(limit, 100)))
 
     @r.get("/api/versions")
     def versions():
@@ -744,6 +794,47 @@ def make_router(get_user: Callable[[Request], Optional[dict]], prefix: str = "/n
                         return dict(ok=True, version=name, pair=list(key), decision=decision, state_before=before["state"],
                                     state_after=after["state"], conflict=after["conflict"], warning=warn,
                                     group=g["members"] if g else [], built=view.meta.get("built"))
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+        return await run_in_threadpool(work)
+
+    @r.post("/api/names/decide")
+    async def names_decide(request: Request):
+        u = need_user(request)
+        b = await body(request)
+        k, ext, decision = b.get("k"), b.get("id"), b.get("decision")
+        if not (isinstance(k, str) and isinstance(ext, str) and EXT_RE.match(ext) and decision in ("approve", "reject", "clear")):
+            raise HTTPException(400, "k (the written name), id (noor:<n>, kg:<n> or wiki:<token>) and decision (approve, reject, clear) are required")
+        with _db(True) as c:
+            store.set_name_decision(c, k, ext, decision, u["username"], str(b.get("note", "")))
+            return dict(ok=True, pending=True)
+
+    @r.post("/api/names/create")
+    async def names_create(request: Request):
+        """A person for a written name no database knows: made in the wiki and approved for that name."""
+        u = need_user(request)
+        b = await body(request)
+        k, display = b.get("k"), str(b.get("name", "")).strip()
+        if not isinstance(k, str) or not k.strip():
+            raise HTTPException(400, "k (the written name) is required")
+        with _db(True) as c:
+            pid = store.add_person(c, display or k, [("alias", k)], u["username"], "ساخته‌شده از یک نام نانیافته در سندها")
+            tok = store.wiki_token_of(c, pid)
+            store.set_name_decision(c, k, f"wiki:{tok}", "approve", u["username"], "شخص تازه")
+            return dict(ok=True, person=pid, id=f"wiki:{tok}")
+
+    @r.post("/api/names/publish")
+    async def names_publish(request: Request):
+        """Write the approved / rejected readings where ICM reads them: each project uses them at its next run of the narrators step."""
+        need_user(request, admin=True)
+
+        def work():
+            with _db() as c:
+                dec = store.name_decisions(c)
+            with open(os.path.join(os.path.dirname(os.path.abspath(config_overlay())), ".names.lock"), "a+") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                try:
+                    return names_mod.publish(dec)
                 finally:
                     fcntl.flock(lock, fcntl.LOCK_UN)
         return await run_in_threadpool(work)

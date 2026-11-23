@@ -127,7 +127,7 @@ const srcChip = s => el('span', { class: 'chip ' + (s || '').split('/')[0], titl
 const deathText = p => p.death_lo ? (p.death_hi && p.death_hi !== p.death_lo ? `د. ${fa(p.death_lo)}–${fa(p.death_hi)}` : `د. ${fa(p.death_lo)}`) : '';
 const SITE_TITLE = 'ویکی راویان';
 const setTitle = (...parts) => { document.title = [...parts.filter(Boolean), SITE_TITLE].join(' — '); };
-const PAGE_TITLE = { home: 'جستجوی راویان', suggestions: 'پیشنهادهای ادغام', queue: 'صف بازبینی', merge: 'ادغام دستی', new: 'راوی تازه' };
+const PAGE_TITLE = { home: 'جستجوی راویان', suggestions: 'پیشنهادهای ادغام', queue: 'صف بازبینی', merge: 'ادغام دستی', new: 'راوی تازه', names: 'نام‌ها در سندها' };
 const fmtTs = t => t ? fa(t.replace('T', ' ').replace('Z', '')) : '';
 
 
@@ -191,7 +191,7 @@ async function render() {
   fill($app, el('p', { class: 'muted' }, 'در حال بارگذاری…'));
   try {
     if (!STATIC && ME.installed === false) throw new Error('پایگاه داده‌ی ویکی هنوز روی کارگزار نصب نشده است.');
-    const pages = { home, person, edit, history: historyPage, split: splitPage, merge: mergePage, queue: queuePage, suggestions: suggestionsPage, new: newPage };
+    const pages = { home, person, edit, history: historyPage, split: splitPage, merge: mergePage, queue: queuePage, suggestions: suggestionsPage, new: newPage, names: namesPage };
     const f = pages[r.page];
     if (!f) throw new Error('این صفحه وجود ندارد');
     await f(r.id);
@@ -304,6 +304,7 @@ async function person(id) {
     card('پیشنهادهای ادغام', d.suggestions.length ? d.suggestions.map(s => sugBox(s, () => render(), p.id)) : el('p', { class: 'muted' }, 'پیشنهادی نیست.')),
     card('پروژه‌های ICM', d.projects.length ? el('ul', {}, d.projects.map(x => el('li', {}, el('a', { href: ORIGIN + '/icm/p/' + x.pid }, x.title || x.pid), ' ', x.status ? el('span', { class: 'chip ghost' }, x.status) : null, ' ', el('span', { class: 'small muted' }, x.via))))
       : el('p', { class: 'muted small' }, 'این راوی در هیچ پروژه‌ی تحلیل منبع (ICM) نیامده است (یا فهرست پروژه‌ها هنوز ساخته نشده).')),
+    namesCard(p),
     hadithCard(p, d.counts));
 }
 function provCell(f) {
@@ -936,3 +937,80 @@ async function queuePage() {
 }
 
 render();
+
+
+/* ---------- written names read as persons (icm.names; the step «راویان» of ICM uses what is decided here) ---------- */
+const NRULE_FA = { ctx3: 'نام با راوی پیش و پس از آن', prev: 'نام با راوی پیش از آن', next: 'نام با راوی پس از آن', name: 'نام به‌تنهایی', pprev: 'پس از راوی شناخته‌شده', pnext: 'پیش از راوی شناخته‌شده',
+  ctx3_major: 'نام با راوی پیش و پس از آن (غالب)', prev_major: 'نام با راوی پیش از آن (غالب)', next_major: 'نام با راوی پس از آن (غالب)' };
+const pctf = x => fa(Math.round(100 * x)) + '٪';
+const NAMES_HELP = () => help(
+  P('در سندهای کتاب‌هایی که پایگاه‌های راویان آن‌ها را پیوند نزده‌اند (مثلاً رضوان) فقط نام نوشته‌شده هست. ICM از روی سندهای پیونددار (نور و گراف دانش) یاد گرفته که یک «نام نوشته‌شده» در کنار چه همسایه‌هایی کدام راوی است، و آن را در پروژه‌ها «خودکار، در انتظار تأیید» به کار می‌برد.'),
+  P('این صفحه همان خواندن‌ها را بر سراسر سندهای متنی جمع می‌کند و از شما می‌خواهد یکی‌یکی داوری کنید:'),
+  UL('«تأیید»: این نام در هر جای سند همین راوی است؛ پس از «انتشار»، ICM آن را مثل پایگاه‌ها قطعی می‌گیرد و دیگر در انتظار تأیید نمی‌ماند.',
+    '«رد»: این خواندن غلط است؛ ICM دیگر این نام را به این راوی خودکار نمی‌بندد.',
+    'اگر یک نام به چند راوی خوانده شده (ستون «به چند راوی»)، تأیید همه‌جایی نباید داد؛ همان‌جا که پروژه آن را خودکار بسته، در ICM تأیید کنید.',
+    'تب «نام‌های نایافته»: نام‌هایی که در هیچ پایگاهی نیستند و بارها در سندها آمده‌اند؛ می‌توانید برایشان راوی تازه بسازید.'),
+  P('تصمیم‌ها همین‌جا ثبت می‌شوند و تا «انتشار» در پروژه‌ها اثری ندارند؛ پس از انتشار هر پروژه در نخستین اجرای بعدی مرحله‌ی «راویان» آن‌ها را به کار می‌برد.'));
+
+async function namesPage() {
+  const qs = new URLSearchParams(location.search);
+  let tab = qs.get('tab') === 'unknown' ? 'unknown' : 'patterns', offset = 0;
+  const canWrite = !!(ME && (ME.user || ME.open));
+  const status = el('select', { 'aria-label': 'وضعیت' }, [['proposed', 'در انتظار داوری'], ['approve', 'تأییدشده'], ['reject', 'ردشده'], ['all', 'همه']].map(([v, t]) => el('option', { value: v }, t)));
+  status.value = qs.get('status') || 'proposed';
+  const q = el('input', { type: 'search', placeholder: 'بخشی از نام نوشته‌شده', value: qs.get('q') || '', 'aria-label': 'جستجوی نام' });
+  const clear = el('input', { type: 'checkbox', checked: qs.get('clear') === '1' });
+  const out = el('div'), info = el('div', { class: 'small muted' }), tabs = el('div', { class: 'toolbar' });
+  const draw = () => fill(tabs, [['patterns', 'خواندن‌های نام'], ['unknown', 'نام‌های نایافته']].map(([v, t]) => el('button', { class: 'btn' + (tab === v ? ' primary' : ''), onclick: () => { tab = v; offset = 0; run(); } }, t)),
+    tab === 'patterns' ? [status, q, el('label', { class: 'small' }, clear, ' فقط نام‌های بی‌ابهام (یک راوی، بالای ۹۵٪)')] : [q],
+    el('span', { class: 'grow' }),
+    ME && ME.admin ? el('button', { class: 'btn', title: 'تصمیم‌های تأییدشده و ردشده را برای ICM منتشر کنید', onclick: publish }, 'انتشار برای ICM') : null);
+  const publish = async ev => { const b = ev.target; b.disabled = true; try { const r = await post('/names/publish'); toast(`منتشر شد: ${fa(r.approved)} تأیید، ${fa(r.rejected)} رد`); await run(); } catch (e) { alert('خطا: ' + e.message); } finally { b.disabled = false; } };
+  const decide = async (it, decision, row) => { try { await post('/names/decide', { k: it.k, id: it.id, decision }); await run(); } catch (e) { alert('خطا: ' + e.message); } };
+  const patRow = it => el('div', { class: 'card nrow' },
+    el('div', { class: 'toolbar' }, el('b', { class: 'ar' }, it.k), ' ← ', it.person ? link(`/p/${it.person}`, el('span', { class: 'ar' }, it.label || it.id)) : el('span', {}, it.id), ' ', extChip(it.id),
+      el('span', { class: 'grow' }),
+      it.decision ? el('span', { class: 'chip ' + (it.decision === 'approve' ? 'approved' : 'rejected') }, it.decision === 'approve' ? 'تأییدشده' : 'ردشده') : null,
+      canWrite && !it.decision ? [el('button', { class: 'btn primary', onclick: () => decide(it, 'approve') }, 'تأیید'), el('button', { class: 'btn', onclick: () => decide(it, 'reject') }, 'رد')] : null,
+      canWrite && it.decision ? el('button', { class: 'btn', onclick: () => decide(it, 'clear') }, 'بازگرداندن') : null),
+    el('div', { class: 'small' }, `${fa(it.places)} جا در ${fa(it.books)} کتاب · ${pctf(it.share)} از خواندن‌های این نام`, it.n_ids > 1 ? el('span', { class: 'chip medium', title: 'این نام در جاهای دیگر به راویان دیگری هم خوانده شده؛ تأیید همه‌جایی احتیاط می‌خواهد' }, `به ${fa(it.n_ids)} راوی خوانده شده`) : null),
+    el('div', { class: 'small muted' }, Object.entries(it.rules).sort((a, b) => b[1] - a[1]).map(([r, n]) => `${NRULE_FA[r] || r}: ${fa(n)}`).join(' · ')),
+    it.ctx.length ? el('div', { class: 'small muted' }, 'نمونه‌ی همسایه‌ها: ', it.ctx.map(([p, n, c]) => el('span', { class: 'ctxn' }, `${p === '^' ? 'آغاز' : p} ‹ ${fa(c)} › ${n === '$' ? 'پایان' : n}`))) : null,
+    it.decision ? el('div', { class: 'small muted' }, `${it.by || ''} · ${fmtTs(it.ts)}`) : null);
+  const make = async it => {
+    const name = prompt('نام راوی تازه در ویکی:', it.k);
+    if (name == null) return;
+    try { const r = await post('/names/create', { k: it.k, name }); toast('راوی ساخته و برای این نام تأیید شد'); go(`/p/${r.person}`); } catch (e) { alert('خطا: ' + e.message); }
+  };
+  const unkRow = it => el('div', { class: 'card nrow' },
+    el('div', { class: 'toolbar' }, el('b', { class: 'ar' }, it.k), el('span', { class: 'small muted' }, `${fa(it.places)} جا در ${fa(it.books)} کتاب`), el('span', { class: 'grow' }),
+      canWrite ? el('button', { class: 'btn primary', onclick: () => make(it) }, 'ساخت راوی تازه') : null),
+    it.examples.length ? el('div', { class: 'small muted' }, 'نمونه: ', it.examples.map(x => el('bdi', { dir: 'ltr', class: 'ctxn' }, x))) : null);
+  async function run() {
+    draw();
+    history.replaceState({}, '', url(`/names?tab=${tab}&status=${status.value}&q=${encodeURIComponent(q.value)}&clear=${clear.checked ? 1 : 0}`));
+    fill(out, el('p', { class: 'muted' }, 'خواندن…'));
+    try {
+      const r = tab === 'patterns' ? await api(`/names?status=${status.value}&q=${encodeURIComponent(q.value)}&clear=${clear.checked ? 1 : 0}&offset=${offset}&limit=30`)
+        : await api(`/names/unknown?q=${encodeURIComponent(q.value)}&offset=${offset}&limit=30`);
+      if (!r.available) return fill(out, el('p', { class: 'muted' }, 'فایل «name_patterns.sqlite» هنوز ساخته یا نصب نشده است (python3 -m narwiki names build).'));
+      fill(info, tab === 'patterns' ? `${fa(r.total)} خواندن · در انتظار ${fa((r.counts || {}).proposed || 0)}، تأییدشده ${fa((r.counts || {}).approve || 0)}، ردشده ${fa((r.counts || {}).reject || 0)}${r.pending ? ' · تصمیم منتشرنشده دارید' : ''}`
+        : `${fa(r.total)} نام نایافته`);
+      fill(out, r.items.length ? r.items.map(tab === 'patterns' ? patRow : unkRow) : el('p', { class: 'muted' }, 'موردی نیست.'), pager(r.total, offset, 30, o => { offset = o; run(); window.scrollTo(0, 0); }));
+    } catch (e) { fill(out, errBox(e)); }
+  }
+  status.onchange = clear.onchange = () => { offset = 0; run(); };
+  q.onkeydown = ev => { if (ev.key === 'Enter') { offset = 0; run(); } };
+  fill($app, el('h1', {}, 'نام‌ها در سندها'), NAMES_HELP(), card(null, tabs, info), out);
+  await run();
+}
+
+/* the names a person is written under in isnads (names.sqlite, form) */
+function namesCard(p) {
+  const body = el('div', { class: 'small muted' }, 'خواندن…');
+  api(`/person/${p.id}/names`).then(r => {
+    if (!r.available) return fill(body, 'فایل نام‌ها (names.sqlite) نصب نیست.');
+    fill(body, r.items.length ? el('div', {}, r.items.flatMap(x => [el('span', { class: 'chip ghost ar', title: x.db.join('، ') }, `${x.k} · ${fa(x.n)}`), ' '])) : 'در سندهای پیونددار نامی از او با بیش از یک حدیث نیست.');
+  }).catch(e => fill(body, errBox(e)));
+  return card('نام‌هایی که در سندها برای او نوشته‌اند', el('p', { class: 'small muted' }, 'از سندهای پیونددار نور و گراف دانش؛ عدد = شمار حدیث‌ها. ICM همین نام‌ها را برای شناختن او در سندهای بی‌پیوند (مثلاً رضوان) به کار می‌برد.'), body);
+}

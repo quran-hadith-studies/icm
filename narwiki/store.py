@@ -112,6 +112,14 @@ create table if not exists version_decision(
   status   text not null default 'current');       -- current | retired
 create index if not exists vd_version on version_decision(version, status);
 create unique index if not exists vd_current on version_decision(version, a, b) where status='current';
+create table if not exists name_decision(
+  k        text not null,                          -- a name as written in isnads (icm.names.written_key)
+  id       text not null,                          -- the person it is read as: noor:<n> | kg:<n> | wiki:<token>
+  decision text not null,                          -- approve (the name is this person, anywhere) | reject (the model's reading is refused)
+  note     text,
+  user     text,
+  ts       text,
+  primary key (k, id));
 """
 
 
@@ -982,3 +990,30 @@ def stats(c) -> dict:
         revisions={f"{r[0]}|{r[1]}": r[2] for r in q("select kind, review_status, count(*) from revision group by kind, review_status")},
         suggestions={f"{r[0]}|{r[1]}": r[2] for r in q("select kind, status, count(*) from merge_suggestion group by kind, status")},
         meta={r[0]: r[1] for r in q("select k, v from meta")})
+
+
+# ---------------------------------------------------------------------------
+# written names read as persons (narwiki/names.py)
+# ---------------------------------------------------------------------------
+def name_decisions(c) -> dict:
+    """{(name, person id): {decision, user, ts, note}}"""
+    return {(r["k"], r["id"]): dict(decision=r["decision"], user=r["user"], ts=r["ts"], note=r["note"])
+            for r in c.execute("select k, id, decision, user, ts, note from name_decision")}
+
+
+def set_name_decision(c, k: str, ext: str, decision: str, user: str, note: str = "") -> None:
+    if decision not in ("approve", "reject", "clear"):
+        raise WikiError("decision must be approve, reject or clear")
+    k = " ".join((k or "").split())
+    if not k or len(k) > 200:
+        raise WikiError("a written name is required")
+    with c:
+        if decision == "clear":
+            c.execute("delete from name_decision where k=? and id=?", (k, ext))
+        else:
+            c.execute("insert or replace into name_decision(k, id, decision, note, user, ts) values (?,?,?,?,?,?)", (k, ext, decision, note[:1000], user, now()))
+
+
+def wiki_token_of(c, pid: int) -> Optional[str]:
+    r = c.execute("select ext_id from person_ext where kind='wiki' and person_id=?", (pid,)).fetchone()
+    return r[0] if r else None

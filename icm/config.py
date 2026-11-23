@@ -45,6 +45,8 @@ TERMDF_DB = os.environ.get("ICM_TERMDF_DB", os.path.join(DATA_DIR, "termdf.sqlit
 NOOR_REL_DB = os.environ.get("ICM_NOOR_REL_DB", os.path.join(DATA_DIR, "noor_relations.sqlite"))
 BOOKS_META = os.environ.get("ICM_BOOKS_META", os.path.join(DATA_DIR, "books_meta.json"))
 HADITHAI_DB = os.environ.get("ICM_HADITHAI_DB", os.path.join(DATA_DIR, "hadithai.sqlite"))   # hadith.ai v2 segments + narrator tags
+NAMES_DB = os.environ.get("ICM_NAMES_DB", os.path.join(DATA_DIR, "names.sqlite"))   # written names in chains that carry ids -> persons (``python -m icm build names``), see icm/names.py
+NAMES_WIKI_DB = os.environ.get("ICM_NAMES_WIKI_DB", os.path.join(DATA_DIR, "names_wiki.sqlite"))   # the narrator wiki's decisions on written names, published (narwiki/names.py): approved / rejected name -> person
 NARRATORS_DB = os.environ.get("ICM_NARRATORS_DB", os.path.join(HERE, "external", "narrators.sqlite"))
 HUB_BOOKS = os.environ.get("ICM_HUB_BOOKS", os.path.join(PROJECT, "hadith-hub", "books"))
 # narrator database versions (built by ``python3 -m narwiki version build``): one read-only SQLite per merged version; "raw" needs no file

@@ -27,9 +27,14 @@ HONORIFIC = {norm(x) for x in _DATA["honorific_start"]}
 RELATIVES = {norm(x) for x in _DATA["relatives"]}
 ANON = [norm(x) for x in _DATA["anonymous"]]
 GAPS = [norm(x) for x in _DATA["gap_markers"]]
+GAPS_STRIP = GAPS + ["و" + g for g in GAPS]             # «وبهذا الاسناد», «وباسناده»: the same markers after a «و» (only strip_nonname reads them: parse() stays as it was)
 PROPHET = [norm(x) for x in _DATA["prophet"]]
 IMAM_KUNYA = [norm(x) for x in _DATA["imam_kunya"]]
 NON_NAME = {norm(x) for x in _DATA.get("non_name", [])}
+LEAD = {norm(x) for x in _DATA.get("lead_words", [])}                  # «قلت», «نبا»: glued before a name, not part of it
+LEAD_LAM = {norm(x) for x in _DATA.get("lead_lam", [])}                # «قلت لابی عبد الله»: the «ل» is the preposition
+CUT_AFTER = {norm(x) for x in _DATA.get("cut_after", [])}              # «… انه», «… ببغداد»: the name ends before them
+JUNK_ALONE = {norm(x) for x in _DATA.get("junk_alone", [])}            # not a name when it is all there is («الله», «الفقیه والتهذیب»)
 _PROCLITIC = {p + t for p in ("و", "ف") for t in TRANSMIT}
 # «قرأت على X», «سمعت من X», «كتب إلي X»: the preposition belongs to the transmission phrase, not to the name
 PREP = {norm(k): {norm(x) for x in v} for k, v in _DATA.get("transmit_prep", {}).items()}
@@ -203,9 +208,26 @@ def strip_nonname(name: str) -> dict:
     toks = norm(name).split()
     stripped: List[str] = []
     reasons: List[str] = []
-    while toks and (toks[0] in _PROCLITIC or toks[0] in TRANSMIT or toks[0] in ("و", "ف", "ثم")):
+    lam = False
+    while toks and (toks[0] in _PROCLITIC or toks[0] in TRANSMIT or toks[0] in LEAD or toks[0] in ("و", "ف", "ثم")
+                    or (len(toks) > 1 and len(toks[0]) <= 2 and toks[0] in NON_NAME)):          # (a siglum: «خ ونا موسی …»)
+        lam = toks[0] in LEAD_LAM
         stripped.append(toks.pop(0))
         reasons.append("connective")
+    if toks and _starts_with(toks, GAPS_STRIP) and "الی" in toks[:6] and toks.index("الی") + 1 < len(toks):
+        j = toks.index("الی") + 1                                       # «وبالاسناد الی ابی عبد الله»: the isnad of the one named
+        stripped += toks[:j]
+        reasons.append("gap")
+        toks = toks[j:]
+    if lam and toks and toks[0][:2] == "لا" and len(toks[0]) > 3:              # «قلت لابی عبد الله» -> «ابی عبد الله»
+        stripped.append("ل")
+        toks[0] = toks[0][1:]
+    for i in range(1, len(toks)):                                        # words that end the name: «محمد بن علی انه …»
+        if toks[i] in CUT_AFTER:
+            stripped += toks[i:]
+            reasons.append("connective")
+            toks = toks[:i]
+            break
     for i in range(len(toks)):
         rest = toks[i:]
         lead = 1 if rest[0] in ("ان", "انه", "قال", "عن") and len(rest) > 1 else 0
@@ -214,7 +236,7 @@ def strip_nonname(name: str) -> dict:
             reasons.append("prophet")
             toks = toks[:i]
             break
-        if i and _starts_with(rest, GAPS):
+        if i and _starts_with(rest, GAPS_STRIP):
             stripped += rest
             reasons.append("gap")
             toks = toks[:i]
@@ -234,5 +256,7 @@ def not_a_name(name: str) -> bool:
         return True
     if _starts_with(toks, PROPHET) or (toks[0] in ("النبی", "رسول") and "الله" in toks[:3]):
         return False                                       # the speaker, handled by parse()
-    words = NON_NAME | TRANSMIT | _PROCLITIC | HONORIFIC | {"و", "ف", "ثم"}
-    return all(t in words for t in toks) or not strip_nonname(name)["core"]
+    words = NON_NAME | TRANSMIT | _PROCLITIC | HONORIFIC | LEAD | {"و", "ف", "ثم"}
+    if " ".join(toks) in JUNK_ALONE or all(t in words or t in JUNK_ALONE for t in toks):
+        return True
+    return not strip_nonname(name)["core"]

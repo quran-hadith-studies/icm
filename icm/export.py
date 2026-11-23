@@ -45,6 +45,7 @@ def _ids_of_identities(I: dict, dec: dict, G: dict = None) -> List[str]:
         ids += [c["id"] for c in cd.get("candidates", [])[:3]]
     ids += [v for v in list((dec.get("choices") or {}).values()) + list((dec.get("overrides") or {}).values()) if isinstance(v, str)]
     ids += [x for m in dec.get("merges", []) for x in m]
+    ids += [v for v in (dec.get("approved") or {}).values() if isinstance(v, str)]
     if G:
         ids += list(G.get("nodes", {}))
     seen, out = set(), []

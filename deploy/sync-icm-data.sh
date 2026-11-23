@@ -11,6 +11,9 @@
 #   python3 -m icm build roots (conda env dev3: camel-tools) then  build lex      (lex.sqlite: words, roots, sanad, books of both corpora)
 #   python3 -m icm build vec --model BAAI/bge-m3    (vec/: the semantic index; hours on a GPU; needs torch)
 #   python3 -m narwiki version build v1m   (narrators_versions/v1m.sqlite; the server may build its own, see README)
+#   python3 -m icm build names             (names.sqlite: written names -> persons, the middle level of step «راویان»; ship it BEFORE the code, or every
+#                                           project recomputes identify twice)
+#   python3 -m narwiki names build         (name_patterns.sqlite: what the wiki's «نام‌ها در سندها» page reviews)
 # narrators.sqlite there is a standalone copy:  VACUUM INTO 'external/icm/narrators.sqlite'  (no WAL files).
 set -euo pipefail
 HOST="${EBAD_DEPLOY_HOST:-ubuntu@132.145.99.75}"
@@ -28,6 +31,10 @@ if [ -d "$SRC/narrators_versions" ]; then
 else
   echo "==> no $SRC/narrators_versions/ (build one with: python3 -m narwiki version build v1m); ICM on the server uses raw until it has a version file"
 fi
+# the written-names model (identity.auto_links) and the wiki's review queue; names_wiki.sqlite is written ON the server by the wiki's «انتشار», never shipped
+for f in names.sqlite name_patterns.sqlite; do
+  if [ -f "$SRC/$f" ]; then rsync "${FLAGS[@]}" "$f" "$HOST:$DEST/data/icm/"; else echo "==> no $SRC/$f (python3 -m icm build names / python3 -m narwiki names build): step «راویان» then finds no automatic links by written names"; fi
+done
 # the semantic index (python3 -m icm build vec): vectors, lists and the model's weights; not the chunk texts or raw vectors it is built from
 if [ -d "$SRC/vec" ]; then
   rsync "${FLAGS[@]}" vec "$HOST:$DEST/data/icm/"

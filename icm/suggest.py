@@ -4,7 +4,8 @@ Every item is a proposal the user accepts or dismisses in step 4; nothing here c
 
   title_match            Noor's linked isnads write exactly this name for one narrator («ابن عباس» -> عبد الله بن العباس)
   strip_words            isnad words are glued to the name («عایشه ان رسول الله»); what is left matches a narrator
-  not_a_name             the "name" is isnad wording («لما ثقل», «وقال رسول الله», «اقول»): drop it from the chain
+  not_a_name             the "name" is isnad wording («لما ثقل», «وقال رسول الله», «اقول»), or a sentence that no narrator's name resembles
+                         (two or more words in no written name, no candidate): drop it from the chain
   hidden_junk            the same, for words re-read from Noor's connectives («فقد», «به», «کلهم»)
   relative               «أبيه», «جده»: whom Noor names for the narrator before it, valid while that narrator is who we think
   same_person            a Noor id and a KG id of this family that the narrator database (or name and death year) link
@@ -102,6 +103,12 @@ def suggest(I: dict, version=None) -> List[dict]:
                       else f"«{e['name']}» نام کسی نیست، واژه‌ی سند یا آغاز متن است")
                 add(id=f"{kind}:{occ}", kind=kind, **base, proposal=dict(op="drop"), evidence=ev + "؛ از سند حذف می‌شود.",
                     confidence="high")
+                continue
+            if e.get("frag"):
+                short = e["name"] if len(e["name"]) <= 70 else e["name"][:70] + "…"
+                add(id=f"not_a_name:{occ}", kind="not_a_name", **base, proposal=dict(op="drop"),
+                    evidence=f"«{short}» شبیه نام هیچ راوی نیست (دست‌کم دو واژه‌اش در هیچ نامی از پایگاه‌ها نیامده): جمله‌ی شرح یا متنِ چسبیده به سند؛ از سند حذف می‌شود.",
+                    confidence="medium")
                 continue
             default = cd["default"] if cd else None
             s = strip_nonname(e["name"])

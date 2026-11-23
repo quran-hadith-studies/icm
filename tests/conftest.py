@@ -8,4 +8,5 @@ import os
 
 os.environ.setdefault("ICM_LEX_DB", "/nonexistent/lex.sqlite")
 os.environ.setdefault("ICM_VEC_DIR", "/nonexistent/vec")
+os.environ.setdefault("ICM_NAMES_DB", "/nonexistent/names.sqlite")      # the automatic links of the names file would change with whatever is built on the machine
 os.environ.setdefault("ICM_OPEN", "0")

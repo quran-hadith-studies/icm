@@ -65,3 +65,5 @@ table.list{min-width:640px}
   .vsel{flex-basis:100%;order:2}.vsel select{width:100%}
   .toolbar .btn,.toolbar button{flex:1 1 auto;text-align:center}
 }
+
+.nrow{padding:8px 12px;margin:6px 0}.ctxn{display:inline-block;margin-inline-end:10px;border:1px solid var(--line);border-radius:6px;padding:0 6px}

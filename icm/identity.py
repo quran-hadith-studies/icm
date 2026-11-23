@@ -28,7 +28,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from narrators.common import STOP, bare, name_tokens
-from . import authors, config, corpus, hadithai, narrator_versions, sanad_parse
+from . import authors, config, corpus, hadithai, names, narrator_versions, neighbours, sanad_parse
 from .text import norm, strip_tags, token_offsets, tokens
 
 _IMAMS = json.load(open(config.HERE + "/narrators/data/imam_reigns.json", encoding="utf-8"))["imams"]
@@ -147,8 +147,9 @@ def noor_relatives() -> Dict[Tuple[int, str], Dict[int, int]]:
     return _noor_rel
 
 
-def _cov(q: List[str], c: List[str]) -> float:
-    """Share of the query's name tokens found in the candidate, with the father/son guard."""
+def _cov(q: List[str], c: List[str], patro: bool = False) -> float:
+    """Share of the query's name tokens found in the candidate, with the father/son guard. ``patro``: the query is written
+    «ابن X» (son of X): X is the candidate's father, so a candidate named X himself is the wrong generation."""
     if not q or not c:
         return 0.0
     cs = set(c)
@@ -156,16 +157,22 @@ def _cov(q: List[str], c: List[str]) -> float:
     cov = len(inter) / len(q)
     if q[0] not in cs:
         return 0.0
-    if c[0] != q[0]:
+    if (c[0] == q[0]) if patro else (c[0] != q[0]):
         cov *= 0.4                                  # the query's first name is only the candidate's father etc.
     cov -= 0.01 * len(cs - set(q))
     return max(cov, 0.0)
+
+
+def _patronymic(name: str) -> bool:
+    toks, _ = sanad_parse._strip_honorific(norm(name or "").split())
+    return len(toks) > 1 and toks[0] in ("ابن", "بن")
 
 
 def noor_candidates(name: str, imam_hint: bool = False, k: int = 10) -> List[dict]:
     q = name_tokens(name)
     if not q:
         return []
+    patro = _patronymic(name)
     idx = noor_index()
     rare = sorted(set(q), key=lambda t: len(idx["post"].get(t, ())))[:2]
     ids = set()
@@ -174,7 +181,7 @@ def noor_candidates(name: str, imam_hint: bool = False, k: int = 10) -> List[dic
     out = []
     for rid in ids:
         r = idx["ravis"][rid]
-        cov = max([_cov(q, r["toks"])] + [_cov(q, a) for a in r["alts"]])
+        cov = max([_cov(q, r["toks"], patro)] + [_cov(q, a) for a in r["alts"]])      # (a title the narrator is often written under is his, not his father's)
         if cov < 0.5:
             continue
         inf = rid in INFALLIBLE_IDS
@@ -196,6 +203,7 @@ def kg_candidates(name: str, death: Optional[int] = None, k: int = 10) -> List[d
     q = _ntoks(name)
     if not q:
         return []
+    patro = _patronymic(name)
     c = corpus.conn("kg")
     cnt = {}
     for t in set(q):
@@ -213,7 +221,7 @@ def kg_candidates(name: str, death: Optional[int] = None, k: int = 10) -> List[d
         q_ = "select id,name,nickname,death_year,riwaya_qty,tabaka,rank from rawis where id in (%s)" % ",".join("?" * len(chunk))
         for r in c.execute(q_, chunk):
             toks = _ntoks(r["name"] or "")
-            cov = _cov(q, toks)
+            cov = _cov(q, toks, patro)
             if r["nickname"]:
                 cov = max(cov, _cov(q, _ntoks(r["nickname"])))
             if cov < 0.5:
@@ -414,11 +422,62 @@ def attach_candidates(chains: List[dict], tradition_of: Dict[str, str]) -> None:
             elif e["kind"] == "collector":
                 _collector(e, trad)
             else:
-                e["cands"] = match(e["name"], trad, e["imam_hint"], e.get("death"))
+                core = _clean(e)
+                e["cands"] = match(core, trad, e["imam_hint"], e.get("death")) if core else []
+                _form_cands(e, core, trad)
+                if not e["cands"] and names.fragment(core or e["name"]):
+                    e["frag"] = True                      # no narrator's name looks like this: a sentence of commentary, matn glued to the isnad
         _derive_relatives(ch)
         for e in ch["elems"]:
             _hai_candidate(e)
         _add_context(ch)
+
+
+def clean_parts(name: str) -> List[str]:
+    """The names a reading holds, cleaned of the isnad words glued to it («قلت لابی عبد الله», «نبا عمرو بن خالد», «… انه»): split at
+    a «و» (also glued to the next name, «وزکریا», when the word is no name but what follows it is one). [] when nothing is left."""
+    core = sanad_parse.strip_nonname(name)["core"]
+    v = names.vocab()
+    parts: List[List[str]] = [[]]
+    for t in core.split():
+        if t == "و":
+            parts.append([])
+        elif v and t[0] == "و" and len(t) > 3 and v.get(t, 0) <= 2 and v.get(names.written_key(t[1:]), 0) >= 20 and parts[-1]:
+            parts.append([t[1:]])
+        else:
+            parts[-1].append(t)
+    out = [" ".join(p) for p in parts if p]
+    return [p for p in out if not sanad_parse.not_a_name(p)] or out[:1]
+
+
+def _clean(e: dict) -> str:
+    """The name to look up for a place: the first of its cleaned parts (``e["clean"]``; the other names of a place that holds several
+    are in ``e["parts"]``: the chain editor splits them)."""
+    parts = clean_parts(e["name"])
+    core = parts[0] if parts else ""
+    if core and core != " ".join(norm(e["name"]).split()):
+        e["clean"] = core
+    if len(parts) > 1:
+        e["parts"] = parts
+    return core
+
+
+def _form_cands(e: dict, core: str, trad: str) -> None:
+    """Persons the name has been written for in the databases' isnads, when the name matching found no one close: «الثوري», «الشيباني»
+    are nobody's *name*, but isnads write them for one person (at least 3 hadiths). They are ``low`` candidates, never a default."""
+    if not core or any(c.get("cov", 0) >= 0.72 for c in e["cands"]) or not names.available():
+        return
+    k = names.written_key(core)
+    have = {c["id"] for c in e["cands"]}
+    for db in (("noor", "kg") if trad != "sunni" else ("kg", "noor")):
+        for pid, n in names.persons_written(db, k, 3):
+            cid = f"{db}:{pid}"
+            if n >= 3 and cid not in have:
+                have.add(cid)
+                e["cands"].append(dict(id=cid, label=_label(cid), cov=0.5, score=round(0.5 + 0.03 * math.log10(1 + n), 3), n=n, form=True,
+                                       reason=f"«{core}» در {n} حدیث برای او نوشته شده"))
+    e["cands"].sort(key=lambda d: -d["score"])
+    e["cands"] = e["cands"][:10]
 
 
 def _collector(e: dict, trad: str) -> None:
@@ -476,6 +535,354 @@ def _hai_candidate(e: dict) -> None:
     e["cands"].sort(key=lambda d: -d["score"])
 
 
+# ---------------------------------------------------------------------------
+# the middle level: a person used automatically, to be approved by the user (``e["auto"]``)
+# ---------------------------------------------------------------------------
+AUTO_SRC_FA = dict(family="در سندی دیگر از همین پروژه، همین نام کنار همین همسایه‌ها این راوی است",
+                   twin="همین حدیث در منبعی که راویانش پیوند خورده، با همین نام‌ها در همین ترتیب")
+AUTO_RULE_FA = dict(ctx3="همین نام با همان راوی پیش و پس از آن", prev="همین نام با همان راوی پیش از آن", next="همین نام با همان راوی پس از آن",
+                    name="این نام همیشه همین راوی است", pprev="پس از راوی شناخته‌شده‌ی پیشین", pnext="پیش از راوی شناخته‌شده‌ی پسین",
+                    name_adj="تقریباً همیشه همین راوی است (در هر دسته از کتاب‌ها) و در سندهای پایگاه کنار همسایه‌های این سند آمده")
+AUTO_SRC_FA["imams"] = "پدرِ امام، از جدول امامان"
+AUTO_SRC_FA["father"] = "پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه (با فاصله‌ی روشن از نامزد بعدی)"
+SUGG_FA = dict(father_of_prev="پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه",
+               name_major="«{name}» در {n} از {tot} حدیثِ پایگاه این راوی است (در هر دسته از کتاب‌ها)",
+               adj="از میان نامزدهای این نام، بیشترین هم‌نشینی با راویان پیش و پس از آن در سندهای پایگاه و بیشترین نوشته‌شدن این نام برای او",
+               adj_one="تنها نامزدی که در سندهای پایگاه کنار هر دو همسایه‌ی این جا آمده")
+TRUSTED_NEIGHBOUR = ("family", "twin", "ctx3")             # an automatic link that may vouch for its neighbour's pprev / pnext
+
+
+def _written(e: dict) -> str:
+    raw = e.get("raw") or e["name"]
+    parts = clean_parts(raw)
+    return names.written_key(parts[0] if parts else raw)
+
+
+def _auto_places(ch: dict, kgw: Optional[dict] = None) -> Tuple[List[dict], List[str]]:
+    """The places of a chain that stand for names (not the collector, not isnad wording) and their written keys.
+    A KG chain names its narrators by the database's name; the words the hadith wrote come from ``names.kg_written``."""
+    places, ks, used = [], [], {}
+    for e in ch["elems"]:
+        if e.get("role") == "collector" or e["kind"] == "collector" or sanad_parse.not_a_name(e["name"]):
+            continue
+        k = None
+        ex = e.get("exact") or ""
+        if kgw and ex.startswith("kg:"):
+            rid = int(ex[3:])
+            got = kgw.get(rid) or []
+            j = used.get(rid, 0)
+            used[rid] = j + 1
+            k = got[j] if j < len(got) else (got[-1] if got else None)
+        places.append(e)
+        ks.append(k or _written(e))
+    return places, ks
+
+
+def _family_index(rows) -> dict:
+    """(written name, neighbours) -> {person: n} over the places of this project the databases already settled."""
+    idx: Dict[tuple, Dict[str, int]] = defaultdict(dict)
+    for places, ks in rows:
+        for i, e in enumerate(places):
+            ex = e.get("exact")
+            if not ex or e["kind"] == "anon":
+                continue
+            p, n = (ks[i - 1] if i else "^"), (ks[i + 1] if i + 1 < len(ks) else "$")
+            for key in (("3", ks[i], p, n), ("p", ks[i], p), ("n", ks[i], n)):
+                idx[key][ex] = idx[key].get(ex, 0) + 1
+    return idx
+
+
+def _family(idx: dict, k: str, p: str, n: str) -> Optional[dict]:
+    one = lambda key: next(iter(idx[key])) if key in idx and len(idx[key]) == 1 else (False if key in idx else None)
+    a = one(("3", k, p, n))
+    if a:
+        return dict(id=a, rule="family", n=idx[("3", k, p, n)][a], tot=idx[("3", k, p, n)][a], src="family")
+    b, c = one(("p", k, p)), one(("n", k, n))
+    if b is False or c is False or (b and c and b != c):
+        return None
+    got = b or c
+    key = ("p", k, p) if b else ("n", k, n)
+    return dict(id=got, rule="family", n=idx[key][got], tot=idx[key][got], src="family") if got else None
+
+
+def _noor_twin(hid: int) -> Optional[int]:
+    o = config.NOOR_OFFSET
+    return hid - o if o <= hid < o + 100_000_000 else hid if hid < 600_000_000 else None
+
+
+def _twins(rec: dict, ks: List[str], limit: int = 8) -> Dict[int, set]:
+    """place index -> {noor ids} the same hadith in another v02 book says for it: the other book's Noor isnad (linked by Noor), aligned
+    with this chain's written names in order."""
+    if rec.get("corpus") != "v02":
+        return {}
+    from . import relations
+    from difflib import SequenceMatcher
+    out: Dict[int, set] = defaultdict(set)
+    c = _nconn()
+    try:
+        done = 0
+        for t in sorted(relations.consensus_set(int(rec["hid"]))):
+            nid = _noor_twin(t)
+            if nid is None or done >= limit:
+                continue
+            chains: Dict[int, list] = defaultdict(list)
+            for r in c.execute("select sanad_idx, title, ravi_id, type from slot where hadith_id=? order by sanad_idx, pos", (nid,)):
+                if r["type"] != 4 and r["ravi_id"] != PROPHET_ID:
+                    chains[r["sanad_idx"]].append((names.written_key(r["title"] or ""), r["ravi_id"]))
+            if not chains:
+                continue
+            done += 1
+            for sl in chains.values():
+                blocks = [b for b in SequenceMatcher(None, ks, [x[0] for x in sl], autojunk=False).get_matching_blocks() if b.size]
+                if sum(b.size for b in blocks) < min(2, len(ks)):
+                    continue                                   # another isnad of the hadith, or another hadith
+                for b in blocks:
+                    for d in range(b.size):
+                        if sl[b.b + d][1]:
+                            out[b.a + d].add(f"noor:{sl[b.b + d][1]}")
+    finally:
+        c.close()
+    return out
+
+
+def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], twins: bool = True) -> int:
+    """Give every place the databases did not settle a person from what the chains that carry ids say (the middle level of certainty):
+    the project's own settled chains (``family``), the same hadith in a book with linked isnads (``twin``), and the written name in
+    company (``icm.names``: Noor's slots and the KG's tagged isnads, measured leave-book-out). ``e["auto"] = {id, rule, n, tot, src, prec}``
+    and the person is put first among the place's candidates. Two sources that disagree give nothing. Returns the number of links."""
+    recs = {w["wid"]: w for w in wits}
+    kgw_of: Dict[str, dict] = {}
+    rows = []
+    for ch in chains:
+        rec = recs.get(ch["wid"])
+        kgw = None
+        if ch["source"] == "kg" and rec is not None:
+            kgw = kgw_of.get(ch["wid"])
+            if kgw is None:
+                kgw = kgw_of[ch["wid"]] = names.kg_written(rec["hid"])
+        rows.append((ch, rec) + _auto_places(ch, kgw))
+    wk = names.wiki()
+    for ch, rec, places, ks in rows:                           # what the narrator wiki approved for a written name is as sure as the databases
+        for e, k in zip(places, ks):
+            i = wk["approved"].get(k)
+            if i and not e.get("exact") and e["kind"] == "name":
+                e["exact"], e["by"] = i, "wiki"
+                e["cands"] = [dict(id=i, label=_label(i), score=9.0, cov=1.0, exact=True, tier="exact", reason="تأییدشده در ویکی راویان")]
+    fam = _family_index([(pl, ks) for _, _, pl, ks in rows])
+    gs = {db: (names._getter(db), names.cfg(db)) for db in ("noor", "kg")} if names.available() else {}
+    todo = lambda e: not e.get("exact") and e["kind"] == "name" and not e.get("auto")
+    n_auto = 0
+
+    def known(e: Optional[dict], db: str) -> Optional[int]:
+        """The database id of a neighbour the chain knows for sure enough to vouch for a place next to it."""
+        if e is None:
+            return None
+        a = e.get("auto")
+        i = e.get("exact") or (a["id"] if a and (a["src"] in ("family", "twin") or a["rule"] == "ctx3") else None)
+        return int(i.split(":")[1]) if i and i.startswith(db + ":") and i.split(":")[1].isdigit() else None
+    skip = set()                                              # places whose sources disagreed
+    for rounds in range(2):                                   # the second round knows the persons the first one found next to a place
+        for ch, rec, places, ks in rows:
+            tw = None
+            for i, e in enumerate(places):
+                if not todo(e) or id(e) in skip:
+                    continue
+                p, n = (ks[i - 1] if i else "^"), (ks[i + 1] if i + 1 < len(ks) else "$")
+                f = _family(fam, ks[i], p, n) if rounds == 0 else None
+                t = None
+                if rounds == 0 and rec is not None and twins:
+                    tw = _twins(rec, ks) if tw is None else tw
+                    ids = tw.get(i) or set()
+                    t = dict(id=next(iter(ids)), rule="twin", n=1, tot=1, src="twin") if len(ids) == 1 else None
+                    if len(ids) > 1:
+                        t = False
+                got = None
+                if f and t is not None and (t is False or f["id"] != t["id"]):
+                    got = None                                   # the sources disagree: leave it to the user
+                    skip.add(id(e))
+                elif f or t:
+                    got = f or t
+                elif t is None and gs:
+                    dbs = ("noor", "kg") if (trad.get(ch["wid"]) or ch.get("tradition") or "shia") == "shia" else ("kg", "noor")
+                    for db in dbs:
+                        g, cf = gs[db]
+                        r, seen = names.decide(g, ks[i], p, n, known(places[i - 1] if i else None, db), known(places[i + 1] if i + 1 < len(places) else None, db), cf)
+                        if r and (ks[i], f"{db}:{r['id']}") in wk["rejected"]:
+                            r, seen = None, True                 # the wiki refused this reading of the name
+                        if r:
+                            rl = ((names.meta().get("eval") or {}).get(db) or {}).get("rules", {}).get(r["rule"], {})
+                            got = dict(id=f"{db}:{r['id']}", rule=r["rule"], n=r["n"], tot=r["tot"], src=db,
+                                       prec=rl.get("precision_at_need", rl.get("precision")))
+                            break
+                        if seen:
+                            break
+                if got and (not e.get("amb") or got["id"] in e["amb"]):
+                    e["auto"] = got
+                    n_auto += 1
+    n_auto += _neighbour_links(rows, trad, wk)
+    for ch, _, places, _ in rows:
+        for e in places:
+            _auto_candidate(e)
+            _sugg_candidate(e)
+    return n_auto
+
+
+def _vouch(e: Optional[dict]) -> Optional[str]:
+    """The person a neighbour place stands for, when it is settled enough to vouch for the place next to it."""
+    if e is None:
+        return None
+    return e.get("exact") or (e["auto"]["id"] if e.get("auto") else None)
+
+
+def _neighbour_links(rows, trad: Dict[str, str], wk: dict) -> int:
+    """What the databases' teacher/student pairs (``icm.neighbours``) say for the places the written names did not settle:
+    «عن أبيه» after a known narrator is his father when the databases show one person with the father's name next to him far more
+    than any other (``father_of_prev``: the middle level); a name one person dominates (``name_major``) is that person when he is also
+    next to a neighbour in at least 3 hadiths (``name_major_adj``: middle level); the weaker readings of both and the ambiguous-name
+    ranking (``adj``, ``adj_one``) are ``e["sugg"]``, a suggestion that is used nowhere until the user approves it."""
+    n = 0
+    have = names.available()
+    for _ in range(3):                                          # «عن أبيه عن جده»: the second relative needs the first
+        changed = 0
+        for ch, rec, places, ks in rows:
+            order = ("noor", "kg") if (trad.get(ch["wid"]) or ch.get("tradition") or "shia") == "shia" else ("kg", "noor")
+            for i, e in enumerate(places):
+                if e.get("exact") or e.get("auto") or e["kind"] == "anon" or e.get("frag"):
+                    continue
+                prev = _vouch(places[i - 1]) if i else None
+                nxt = _vouch(places[i + 1]) if i + 1 < len(places) else None
+                if e["kind"] == "relative":
+                    rel = RELATION.get(e["name"])
+                    base = places[i - 1] if i else None
+                    if base is None or not prev or any(c.get("derived") for c in e["cands"]) or rel not in ("father", "grandfather"):
+                        continue
+                    if rel == "grandfather" and not (base["kind"] == "relative" and RELATION.get(base["name"]) == "father"):
+                        continue
+                    key = _ID2KEY.get(int(prev.split(":")[1])) if prev.startswith("noor:") and prev.split(":")[1].isdigit() else None
+                    if key:                                    # an Imam's father is in the table of Imams, not in the isnads (Sadiq's father is not a «محمد» who sat next to him)
+                        fid = _NOOR_OF_KEY.get(FATHER.get(key) or "")
+                        if fid:
+                            e["auto"] = dict(id=fid, rule="father_of_prev", n=0, tot=0, src="imams", prec=0.999)
+                            e.pop("sugg", None)
+                            n += 1
+                            changed += 1
+                        continue
+                    link, hint = neighbours.father_rule(prev)
+                    if link:
+                        e["auto"] = dict(link, src="father")
+                        e.pop("sugg", None)
+                        n += 1
+                        changed += 1
+                    elif hint and not e.get("sugg"):
+                        e["sugg"] = dict(hint, src="father")
+                    continue
+                if e["kind"] != "name" or not have:
+                    continue
+                k = ks[i]
+                got, best = None, None
+                for db in order:
+                    m = names.major_of(db, k)
+                    if m and (k, m["id"]) not in wk["rejected"] and (not e.get("amb") or m["id"] in e["amb"]):
+                        pr = neighbours.pairs(m["id"], prev, nxt)
+                        if pr >= 3 and m["share"] >= 0.99:
+                            got = dict(id=m["id"], rule="name_major_adj", n=m["n"], tot=m["tot"], src=db, pairs=pr, prec=neighbours.MAJOR_ADJ_PREC[db])
+                            break
+                        if m.get("prec") is not None and (best is None or m["prec"] > best["prec"]):
+                            best = dict(m, src=db)
+                    h = neighbours.hint(db, k, [c["id"] for c in e["cands"][:8]], prev, nxt)
+                    if h and (not e.get("amb") or h["id"] in e["amb"]) and (best is None or h["prec"] > best["prec"]):
+                        best = dict(h, src=db)
+                if got:
+                    e["auto"] = got
+                    e.pop("sugg", None)
+                    n += 1
+                    changed += 1
+                elif best and not e.get("sugg"):
+                    e["sugg"] = best
+        if not changed:
+            break
+    return n
+
+
+def _sugg_candidate(e: dict) -> None:
+    """The person of ``e["sugg"]`` first among the place's candidates (tier ``sugg``, between the automatic links and the name matches),
+    with the reason. A place that has an automatic link has no suggestion."""
+    a = e.get("sugg")
+    if not a:
+        e.pop("sugg", None)
+        return
+    if e.get("exact") or e.get("auto"):
+        del e["sugg"]
+        return
+    cid = a["id"]
+    why = SUGG_FA.get(a["rule"], "").format(name=e.get("clean") or e["name"], n=a.get("n"), tot=a.get("tot"))
+    if a.get("prec") is not None:
+        why += f" (دقت سنجیده‌شده {round(100 * a['prec'])}٪)"
+    c = next((c for c in e["cands"] if c["id"] == cid), None)
+    if c is None:
+        c = dict(id=cid, label=_label(cid), cov=0.0, score=0.0, n=0)
+        e["cands"].append(c)
+    top = max((x["score"] for x in e["cands"] if x is not c), default=0.0)
+    c.update(tier="sugg", sugg=a["rule"], score=round(max(c["score"], top + 0.2), 3), reason=why if not c.get("reason") else c["reason"] + "؛ " + why)
+    e["cands"].sort(key=lambda d: -d["score"])
+
+
+def _auto_candidate(e: dict) -> None:
+    """The person of ``e["auto"]`` first among the place's candidates, with the reason and the new tier ``auto``."""
+    a = e.get("auto")
+    if not a:
+        return
+    cid = a["id"]
+    why = AUTO_SRC_FA.get(a["src"]) or (f"«{e.get('raw') or e['name']}» {AUTO_RULE_FA.get(a['rule'].replace('_major', ''), '')} "
+                                       f"در {a['n']} از {a['tot']} حدیث{' (بیشتر)' if a['rule'].endswith('_major') else ''} {'نور' if a['src'] == 'noor' else 'گراف دانش'}")
+    c = next((c for c in e["cands"] if c["id"] == cid), None)
+    if c is None:
+        label = _label(cid)
+        cov = 0.0
+        if cid.startswith("noor:") and int(cid[5:]) in noor_index()["ravis"]:
+            r = noor_index()["ravis"][int(cid[5:])]
+            cov = round(max([_cov(name_tokens(e["name"]), r["toks"])] + [_cov(name_tokens(e["name"]), x) for x in r["alts"]]), 3)
+        c = dict(id=cid, label=label, cov=cov, score=0.0, n=0)
+        e["cands"].append(c)
+    top = max((x["score"] for x in e["cands"] if x is not c), default=0.0)
+    c.update(tier="auto", auto=a["rule"], score=round(max(c["score"], top + 0.3), 3), reason=why if not c.get("reason") else c["reason"] + "؛ " + why)
+    e["cands"].sort(key=lambda d: -d["score"])
+
+
+def _veto_defaults(cards: Dict[str, dict], trad: Dict[str, str]) -> int:
+    """A card's default (a ``high`` name match) is taken back when the databases say the written name means someone else: one of its
+    places has an automatic link to another person, or the name alone is, in at least 20 hadiths and 80% of them, another person
+    («ابن عمر» is عبد الله بن عمر, not عمر بن الخطاب, who matches it by name). Its places then follow their own links."""
+    n = 0
+    gs = {db: names._getter(db) for db in ("noor", "kg")} if names.available() else {}
+    for cd in cards.values():
+        d = cd.get("default")
+        if not d or cd.get("kind") == "relative":
+            continue
+        top = next((c for c in cd["candidates"] if c["id"] == d), None)
+        mine = {d} | set((top or {}).get("also") or [])
+        if any(i not in mine for i in (cd.get("autos") or {})):
+            cd["default"], cd["veto"] = None, "auto"
+            n += 1
+            continue
+        k = names.written_key(sanad_parse.strip_nonname(cd["name"])["core"] or cd["name"])
+        for db, g in gs.items():
+            r = g("name", (k,))
+            if r and r[2] >= 20 and r[1] / r[2] >= 0.8 and f"{db}:{r[0]}" not in mine and d.startswith(db + ":"):
+                cd["default"], cd["veto"] = None, db
+                n += 1
+                break
+    return n
+
+
+_LAQAB: Dict[str, str] = {}                  # an Imam's laqab written alone («الصادق») -> his noor id
+for _k, _v in _IMAMS.items():
+    if _v.get("ravi_id") and _k not in ("prophet", "fatima", "unspecified", "lam_yarwi"):
+        for _a in _v.get("noor_aliases", []):
+            if " " not in _a.strip():
+                _LAQAB[title_key(_a)] = f"noor:{_v['ravi_id']}"
+
+
 def match(name: str, trad: str, imam_hint: bool = False, death=None, collector: bool = False) -> List[dict]:
     """Candidate persons for a name in a chain of this tradition: the KG for Sunni chains (Noor too for an Imam),
     Noor for Shia chains (the KG too for a collector)."""
@@ -483,6 +890,13 @@ def match(name: str, trad: str, imam_hint: bool = False, death=None, collector: 
         cs = kg_candidates(name, death) + (noor_candidates(name, imam_hint, 4) if imam_hint else [])
     else:
         cs = noor_candidates(name, imam_hint) + (kg_candidates(name, death, 3) if collector else [])
+    lk = _LAQAB.get(title_key(name)) if trad != "sunni" and not collector else None
+    if lk:                                         # «الصادق» written alone in an Imami chain is the Imam, whatever else it matches
+        rid = int(lk.split(":")[1])
+        cs = [c for c in cs if c["id"] != lk]
+        r = noor_index()["ravis"].get(rid)
+        cs.insert(0, dict(id=lk, label=r["name"] if r else lk, cov=1.0, score=3.0, n=r["n"] if r else 0, laqab=True,
+                          reason="لقب امام در سند شیعه", **({"mazhab": r["mazhab"], "grade": r["grade"]} if r else {})))
     cs.sort(key=lambda d: -d["score"])
     return cs[:10]
 
@@ -591,6 +1005,12 @@ def _add_context(ch: dict) -> None:
 def tier(c: dict, nxt: Optional[dict], first: bool) -> str:
     if c.get("exact"):
         return "exact"
+    if c.get("laqab"):
+        return "high"
+    if c.get("sugg"):
+        return "sugg"
+    if c.get("form"):
+        return "low"
     if c.get("hai"):                                   # measured leave-book-out: 99.7% (ctx3), 99.2% (one neighbour)
         t = "high" if first and c["hai"] == "ctx3" else "medium"
         own = tier(dict(c, hai=None), nxt, first)      # the name and Noor-context evidence may say more on its own
@@ -611,7 +1031,7 @@ def card_key(trad: str, e: dict) -> str:
     return f"{trad}:{' '.join(norm(e['name']).split())}"
 
 
-_TIER_RANK = {"exact": 4, "high": 3, "derived": 3, "medium": 2, "low": 1}
+_TIER_RANK = {"exact": 4, "auto": 3.5, "high": 3, "derived": 3, "sugg": 2.5, "medium": 2, "low": 1}
 
 
 def make_cards(chains: Sequence[dict], trad: Dict[str, str]) -> Dict[str, dict]:
@@ -631,6 +1051,10 @@ def make_cards(chains: Sequence[dict], trad: Dict[str, str]) -> Dict[str, dict]:
             e["card"] = key
             cd = cards.setdefault(key, dict(key=key, name=e["name"], kind=e["kind"], tradition=t, occurrences=[], candidates={}))
             cd["occurrences"].append([ch["aid"], e["i"]])
+            if e.get("auto"):
+                cd.setdefault("autos", {}).setdefault(e["auto"]["id"], []).append([ch["aid"], e["i"]])
+            elif e.get("sugg"):
+                cd.setdefault("suggs", {}).setdefault(e["sugg"]["id"], []).append([ch["aid"], e["i"]])
             for c in e["cands"]:
                 old = cd["candidates"].get(c["id"])
                 if old is None:
@@ -681,6 +1105,11 @@ def _collapse_chains(chains: List[dict], version) -> None:
                 c = version.canon([e["exact"]]).get(e["exact"])
                 if c and c != e["exact"]:
                     e["exact_src"], e["exact"] = e["exact"], c
+            for key in ("auto", "sugg"):
+                if e.get(key):
+                    c = version.canon([e[key]["id"]]).get(e[key]["id"])
+                    if c and c != e[key]["id"]:
+                        e[key] = dict(e[key], id=c, id_src=e[key]["id"])
 
 
 def apply_renames(chains: Sequence[dict], renames: Optional[dict]) -> int:
@@ -922,15 +1351,18 @@ def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, ch
             if not e["exact"] and e["kind"] == "name" and relative_word(e["name"]):
                 e["kind"], e["name"] = "relative", relative_word(e["name"])
     attach_candidates(chains, trad)
+    n_auto = auto_links(chains, trad, wits)
     _collapse_chains(chains, version)
     for ch in chains:
         ch["tradition"] = trad.get(ch["wid"]) or ("sunni" if ch["source"] == "kg" else "shia")
     cards = make_cards(chains, trad)
+    n_veto = _veto_defaults(cards, trad)
     n_exact = sum(1 for ch in chains for e in ch["elems"] if e["exact"])
     n_el = sum(len(ch["elems"]) for ch in chains)
     return dict(chains=chains, cards=cards, flags=flags,
                 stats=dict(chains=len(chains), elements=n_el, exact=n_exact, cards=len(cards),
-                           undecided_by_default=sum(1 for c in cards.values() if not c["default"])))
+                           undecided_by_default=sum(1 for c in cards.values() if not c["default"]), auto=n_auto, vetoed=n_veto,
+                           sugg=sum(1 for ch in chains for e in ch["elems"] if e.get("sugg"))))
 
 
 def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict:
@@ -950,6 +1382,7 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
     d = decisions or {}
     choices, overrides = d.get("choices", {}), d.get("overrides", {})
     drops = set(d.get("drops", []))
+    approved = d.get("approved", {}) or {}                  # place -> the person the user confirmed for an automatic link
     splits = d.get("splits", {}) or {}
     cards = ident["cards"]
     nodes: Dict[str, dict] = {}
@@ -958,6 +1391,7 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
     all_ids = [c["id"] for ch in ident["chains"] for e in ch["elems"] for c in e["cands"][:1]]
     all_ids += [v for v in choices.values() if isinstance(v, str)]
     all_ids += [v for v in overrides.values() if isinstance(v, str)] + [x for m in d.get("merges", []) for x in m]
+    all_ids += [v for v in approved.values() if isinstance(v, str)]
     all_ids += list((d.get("dates") or {}))
     same = version.canon(all_ids)
     # the user's merges are taken after the version's mapping, so a merge naming any member id still applies
@@ -979,11 +1413,15 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
                 nid, tier = f"anon:{ch['aid']}:{e['i']}", "anon"
             else:
                 cd = cards.get(e.get("card"))
-                if e["kind"] == "relative" and e["cands"] and e["cands"][0].get("derived") and e.get("card") not in choices:
+                if occ in approved and (e.get("auto") or e.get("sugg")):
+                    nid, tier = approved[occ], "chosen"
+                elif e["kind"] == "relative" and e["cands"] and e["cands"][0].get("derived") and e.get("card") not in choices:
                     nid, tier = e["cands"][0]["id"], "derived"
                 elif cd is not None and cd["key"] in choices:
                     v = choices[cd["key"]]
                     nid, tier = (None, "name") if v in (None, "none") else (v, "chosen")
+                elif e.get("auto"):                           # the middle level: used, and waiting for the user's approval
+                    nid, tier = e["auto"]["id"], "default"
                 elif cd is not None and cd["default"]:
                     nid, tier = cd["default"], "default"
                 else:
@@ -1007,7 +1445,8 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
                 node["names"].append(e["name"])
             node["tiers"].add(tier)
             node["n"] += 1
-            out.append(dict(i=e["i"], nid=nid, tier=tier, name=e["name"], collector=e.get("role") == "collector"))
+            out.append(dict(i=e["i"], nid=nid, tier=tier, name=e["name"], collector=e.get("role") == "collector",
+                            **({"auto": e["auto"]["rule"]} if tier == "default" and e.get("auto") and nid == e["auto"]["id"] else {})))
         chains_out.append(dict(aid=ch["aid"], wid=ch["wid"], source=ch["source"], elems=out, speaker=ch["speaker"],
                                quoted_work=ch["quoted_work"], flags=ch["flags"]))
     for n in nodes.values():
@@ -1068,3 +1507,12 @@ def _union(pairs) -> Dict[str, str]:
         name = min(g, key=lambda x: (rank.get(x.split(":")[0], 6), x))
         out.update({x: name for x in g if x != name})
     return out
+
+
+def approved_pins(ident: dict, approved: Optional[dict]) -> dict:
+    """The approvals the graph has to know: those naming another person than the place's automatic link, and every approval of a
+    suggestion (below the middle level: used nowhere until it is approved). An approval of the automatic link itself changes nothing in
+    the tree, so it is not part of the graph's key; one the model has since left behind is."""
+    auto = {f"{ch['aid']}|{e['i']}": e["auto"]["id"] for ch in ident.get("chains", []) for e in ch["elems"] if e.get("auto")}
+    sugg = {f"{ch['aid']}|{e['i']}" for ch in ident.get("chains", []) for e in ch["elems"] if e.get("sugg") and not e.get("auto")}
+    return {k: v for k, v in (approved or {}).items() if (k in auto and auto[k] != v) or k in sugg}      # (a suggestion used nowhere until approved: it changes the tree)

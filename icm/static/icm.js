@@ -131,7 +131,7 @@ document.getElementById('modal-x').onclick = tryCloseModal;
 document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') tryCloseModal(); });
 const STATUS = { draft: 'منتظر تصمیم شما', running: 'در حال اجرا', finalized: 'نهایی', failed: 'خطا', awaiting: 'منتظر محاسبه' };
 const CLS = { witness: 'همان متن', variant: 'نسخه‌ی دیگر', extended: 'در متن بلندتر', abridged: 'خلاصه', partial: 'بخشی', different: 'متفاوت', semantic: 'هم‌معنا' };
-const TIER = { exact: 'قطعی', high: 'بالا', medium: 'متوسط', low: 'پایین', derived: 'استنباطی', none: 'بی‌نامزد' };
+const TIER = { exact: 'قطعی', auto: 'خودکار', high: 'بالا', medium: 'متوسط', low: 'پایین', derived: 'استنباطی', sugg: 'پیشنهادی', none: 'بی‌نامزد' };
 const FLAG_FA = {
   semantic_unavailable: 'جستجوی معنایی انجام نشد؛ فقط جستجوی لفظی به کار رفت.',
   pool_capped: 'تعداد نامزدها بسیار زیاد بود؛ فقط آن‌هایی که نشانه‌ی بیشتری داشتند سنجیده شدند.',
@@ -994,8 +994,8 @@ const panels = {
     /* dates entered on step 5 before they moved here are carried over (those keyed by a person id) */
     const oldDates = Object.fromEntries(Object.entries(phd.dates || {}).filter(([k]) => /^(noor|kg):\d+$|^wiki:[0-9a-f]+$/.test(k)));
     const saved = { choices: dec.choices || {}, overrides: dec.overrides || {}, dates: { ...oldDates, ...(dec.dates || {}) },
-      merges: dec.merges || [], drops: dec.drops || [], dismissed: dec.dismissed || [], splits: dec.splits || {} };
-    const choices = { ...saved.choices }, overrides = { ...saved.overrides }, dates = { ...saved.dates };
+      merges: dec.merges || [], drops: dec.drops || [], dismissed: dec.dismissed || [], splits: dec.splits || {}, approved: dec.approved || {} };
+    const choices = { ...saved.choices }, overrides = { ...saved.overrides }, dates = { ...saved.dates }, approved = { ...saved.approved };   // approved: place -> the person of its automatic link the user confirmed
     const splits = JSON.parse(JSON.stringify(saved.splits));   // people the user split off an identity: split:<n> -> {label, from}
     const merges = saved.merges.map(m => [...m]), drops = new Set(saved.drops), dismissed = new Set(saved.dismissed);
     const cards = I.cards, W = A.witnesses;
@@ -1020,7 +1020,7 @@ const panels = {
     const splitSel = new Set(), openFull = new Set();     // places ticked for a split; full texts left open
     let listView = pref('icm.idlist', 'hadith'), onlyUnd = false, onlyUndated = false, q = '', scopeHere = false, sq = '', sres = null, sbusy = false;
 
-    /* what a place in a chain resolves to: {st, id}; st = drop | exact | anon | user | auto | und (id 'none' = name only) */
+    /* what a place in a chain resolves to: {st, id}; st = drop | exact | anon | user | ok (an automatic link the user confirmed) | mid (an automatic link waiting for approval) | hint (a suggestion below the middle level: used nowhere until approved) | auto (a default) | und (id 'none' = name only) */
     const stateOf = (ch, e) => {
       const occ = `${ch.aid}|${e.i}`;
       if (drops.has(occ)) return { st: 'drop' };
@@ -1028,9 +1028,12 @@ const panels = {
       if (e.exact) return { st: 'exact', id: e.exact };
       if (e.kind === 'anon') return { st: 'anon' };
       const cd = cards[e.card];
+      if ((e.auto || e.sugg) && approved[occ]) return { st: 'ok', id: approved[occ] };                  // the middle level, confirmed (identity.resolve: approved)
       if (cd && cd.key in choices) return { st: 'user', id: choices[cd.key] };
       if (e.kind === 'relative' && e.cands[0] && e.cands[0].derived) return { st: 'auto', id: e.cands[0].id };
+      if (e.auto) return { st: 'mid', id: e.auto.id };                                       // used automatically, waiting for approval
       if (cd && cd.default && !(relOnly(cd) && cd.occurrences.length > 1)) return { st: 'auto', id: cd.default };   // older runs shared one card for every «أبيه»
+      if (e.sugg) return { st: 'hint', id: e.sugg.id };                                      // a suggestion: not used until the user approves it
       return { st: 'und' };
     };
     const stOf = s => s.id === 'none' ? 'none' : s.st;
@@ -1043,13 +1046,13 @@ const panels = {
     const isGap = e => e.exact && /^(موضع |اسم مبهم)/.test(e.name);      // the KG's placeholders: a gap, a cut, an unnamed man
     const cardState = cd => {
       const sts = cd.occurrences.map(o => stateOf(...splitOcc(o.join('|'))).st);
-      return sts.includes('und') ? 'und' : sts.includes('user') || sts.includes('drop') ? 'user' : 'auto';
+      return sts.includes('und') ? 'und' : sts.includes('hint') ? 'hint' : sts.includes('mid') ? 'mid' : sts.includes('user') || sts.includes('drop') ? 'user' : sts.includes('ok') ? 'ok' : 'auto';
     };
-    const counts = () => { const n = { auto: 0, user: 0, und: 0 }; Object.values(cards).forEach(cd => n[cardState(cd)]++); return n; };
-    const dirty = pageDirty = () => JSON.stringify([choices, overrides, dates, merges, [...drops].sort(), [...dismissed].sort(), splits])
-      !== JSON.stringify([saved.choices, saved.overrides, saved.dates, saved.merges, [...saved.drops].sort(), [...saved.dismissed].sort(), saved.splits]);
+    const counts = () => { const n = { auto: 0, user: 0, und: 0, mid: 0, ok: 0, hint: 0 }; Object.values(cards).forEach(cd => n[cardState(cd)]++); return n; };
+    const dirty = pageDirty = () => JSON.stringify([choices, overrides, dates, merges, [...drops].sort(), [...dismissed].sort(), splits, approved])
+      !== JSON.stringify([saved.choices, saved.overrides, saved.dates, saved.merges, [...saved.drops].sort(), [...saved.dismissed].sort(), saved.splits, saved.approved]);
     /* the step's work as it stands (a chain edit saves it first, so nothing done here is lost) */
-    const saveStep = (o = {}) => post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides, dates, merges, drops: [...drops], dismissed: [...dismissed], splits, ...o } });
+    const saveStep = (o = {}) => post(`/project/${c.pid}/decide/identities`, { payload: { choices, overrides, dates, merges, drops: [...drops], dismissed: [...dismissed], splits, approved, ...o } });
     if (c.register && c.can && !STATIC) c.register({ dirty, save: saveStep, pending: () => !dec.version });       // the first save records the automatic choices too
     /* death dates: the user's, else the databases' (fetched per id), else the work's author for a collector */
     const known = {}, asked = new Set();
@@ -1076,12 +1079,12 @@ const panels = {
       const sts = els.map(([ch, e]) => stOf(stateOf(ch, e)));
       const nund = els.filter(([ch, e]) => e.kind !== 'anon' && !drops.has(`${ch.aid}|${e.i}`) && !dateOf(ch, e).death).length;
       const n = k => sts.filter(s => s === k).length;
-      const [st, txt] = n('und') ? ['und', `${fa(n('und'))} بی‌تصمیم`] : sts.every(s => s === 'exact') ? ['exact', 'همه قطعی']
+      const [st, txt] = n('und') ? ['und', `${fa(n('und'))} بی‌تصمیم`] : n('hint') ? ['hint', `${fa(n('hint'))} پیشنهادی`] : n('mid') ? ['mid', `${fa(n('mid'))} در انتظار تأیید`] : sts.every(s => s === 'exact') ? ['exact', 'همه قطعی']
         : n('none') + n('anon') + n('drop') ? ['none', 'همه تصمیم‌گرفته'] : ['auto', 'همه شناخته'];
-      return { sts, st, txt, nund, tip: ['exact', 'auto', 'user', 'und', 'none', 'anon', 'drop'].filter(k => n(k)).map(k => `${fa(n(k))} ${ST[k]}`).join('، ') + (nund ? `، ${fa(nund)} بی‌تاریخ` : '') };
+      return { sts, st, txt, nund, tip: ['exact', 'ok', 'mid', 'auto', 'user', 'hint', 'und', 'none', 'anon', 'drop'].filter(k => n(k)).map(k => `${fa(n(k))} ${ST[k]}`).join('، ') + (nund ? `، ${fa(nund)} بی‌تاریخ` : '') };
     };
 
-    const ST = { exact: 'قطعی (از منبع)', auto: 'خودکار (بازبینی‌نشده)', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم', drop: 'حذف می‌شود (با ذخیره)' };
+    const ST = { exact: 'قطعی (از منبع)', ok: 'خودکار، تأییدشده', mid: 'خودکار، در انتظار تأیید', hint: 'پیشنهادی (تا تأیید نکنید به کار نمی‌رود)', auto: 'خودکار (بازبینی‌نشده)', user: 'انتخاب کاربر', und: 'بی‌تصمیم', none: 'فقط نام', anon: 'نامعلوم', drop: 'حذف می‌شود (با ذخیره)' };
     const chip = (ch, e) => {
       if (isGap(e)) return el('span', { class: 'gapm', title: 'جایی که منبع راوی‌ای را نیاورده است' }, '‹' + e.name.replace('موضع ', '').replace('اسم مبهم', 'بی‌نام') + '›');
       const s = stateOf(ch, e), cd = cards[e.card], st = stOf(s), occ = `${ch.aid}|${e.i}`;
@@ -1120,7 +1123,7 @@ const panels = {
     const drawList = () => {
       const top = listBox.scrollTop;
       if (listView === 'hadith') {
-        const rows = order.map(wid => [wid, hstate(wid)]).filter(([, h]) => (!onlyUnd || h.st === 'und') && (!onlyUndated || h.nund))
+        const rows = order.map(wid => [wid, hstate(wid)]).filter(([, h]) => (!onlyUnd || h.st === 'und' || h.st === 'hint') && (!onlyUndated || h.nund))
           .filter(([wid]) => !q || byWid[wid].some(ch => ch.elems.some(e => (e.raw || e.name).includes(q))) || wtitle(wid).includes(q));
         fill(listBox, rows.length ? el('table', { class: 'hl' }, el('tbody', {}, rows.map(([wid, h]) => {
           const w = W.find(x => x.wid === wid) || hadith(wid) || {};
@@ -1130,7 +1133,7 @@ const panels = {
             el('td', { title: h.tip }, strip2(h.sts), h.nund ? el('div', { class: 'small muted' }, `${fa(h.nund)} بی‌تاریخ`) : null), el('td', {}, el('span', { class: 'chip ' + h.st }, h.txt)));
         }))) : el('p', { class: 'muted' }, 'حدیثی نیست.'));
       } else {
-        const ks = seq.filter(k => (!onlyUnd || cardState(cards[k]) === 'und') && (!q || cards[k].name.includes(q)));
+        const ks = seq.filter(k => (!onlyUnd || cardState(cards[k]) === 'und' || cardState(cards[k]) === 'hint') && (!q || cards[k].name.includes(q)));
         fill(listBox, ks.length ? el('table', { class: 'hl' }, el('tbody', {}, ks.map(k => {
           const cd = cards[k], st = cardState(cd), o = cd.occurrences[0].join('|');
           return el('tr', { class: pick && pick.key === k ? 'on' : '', onclick: () => setPick(k, pick && pick.key === k ? pick.occ : o) },
@@ -1572,6 +1575,13 @@ const panels = {
           c.can && !STATIC && !isGap(e) ? el('button', { class: 'small', title: 'افزودن راوی از هر جای متن (سند یا متن)، حذف این راوی، یا جابه‌جایی مرز نام و لفظ نقل روی خود متن', onclick: () => chainEditor(ch, e.i) }, '✎ ویرایش سند در متن کامل') : null,
           el('button', { class: 'small', onclick: () => { pick = null; keepUrl(); draw(); } }, 'بستن')),
         renameBox(ch, e),
+        cd.autos && Object.keys(cd.autos).length ? el('div', { class: 'small' }, 'خودکارهای این نام: ',
+          Object.entries(cd.autos).map(([id, pl]) => el('span', { class: 'chip mid', title: id }, `${labelOf(id, null, cd)} · ${fa(pl.length)} جا`)), ' ',
+          Object.keys(cd.autos).length > 1 ? 'هر جا راوی خودش را دارد؛ اگر برای «همه‌ی جاهای این نام» یک راوی برگزینید، همه‌جا همان می‌شود.' : null, help('step4.mid', false, true)) : null,
+        cd.suggs && Object.keys(cd.suggs).length ? el('div', { class: 'small' }, 'پیشنهادهای این نام (به کار نمی‌روند تا تأیید کنید): ',
+          Object.entries(cd.suggs).map(([id, pl]) => el('span', { class: 'chip hint', title: id }, `${labelOf(id, null, cd)} · ${fa(pl.length)} جا`)), ' ', help('step4.hint', false, true)) : null,
+        e.parts && e.parts.length > 1 ? el('div', { class: 'small warn' }, `این جا چند نام دارد: ${e.parts.map(x => '«' + x + '»').join(' و ')}. برنامه برای نخستین جست‌وجو کرده؛ با «ویرایش سند در متن کامل» جدایشان کنید.`) : null,
+        e.clean && e.clean !== e.name ? el('div', { class: 'small muted' }, `برای جست‌وجو از «${e.clean}» استفاده شد (واژه‌های سند از نام کنار رفتند).`) : null,
         el('h3', {}, relOnly(cd) ? 'نسبت، نه نام' : n > 1 ? `این نام در ${fa(n)} جا آمده است` : 'این نام فقط همین جا آمده است'),
         relOnly(cd) ? el('p', { class: 'small muted' }, `«${e.raw || e.name}» نام نیست، نسبت است (پدر، جد، برادر… راوی پیشین)، پس در هر سند کس دیگری است و جداگانه تعیین می‌شود. پیشنهادها از سندهای نور آمده‌اند که برای همان راوی پیشین همین نسبت را به نام آورده‌اند (پدر و جد امامان از جدول امامان). «عن أبيه عن جده» یعنی پدرِ همان پدر.`) : null,
         el('div', { class: 'occs' }, cd.occurrences.map(o => occRow(o.join('|'), occ, true))),
@@ -1621,6 +1631,7 @@ const panels = {
       /* the counts in the colours of the name labels: status and legend in one */
       const chip = (s, t, tip) => el('span', { class: 'nc demo ' + s, title: tip || ST[s] }, t);
       fill(status, `${fa(Object.keys(cards).length)} نام:`,
+        n.mid ? chip('mid', `${fa(n.mid)} خودکار، در انتظار تأیید`) : null, n.hint ? chip('hint', `${fa(n.hint)} پیشنهادی`) : null, n.ok ? chip('ok', `${fa(n.ok)} خودکار، تأییدشده`) : null,
         chip('auto', `${fa(n.auto)} خودکار`), chip('user', `${fa(n.user)} انتخاب کاربر`), chip('und', `${fa(n.und)} بی‌تصمیم`),
         chip('exact', `قطعی ${fa(I.stats.exact)} از ${fa(I.stats.elements)} جا`, `${fa(I.stats.exact)} از ${fa(I.stats.elements)} جای سند را خود منبع به راوی‌ای پیوند داده است`),
         dec.version ? el('span', { class: 'muted' }, `· ذخیره: ${fa((dec.created || '').replace('T', ' ').slice(0, 16))}، ${dec.user}${dec.note === 'auto' ? ' (خودکار)' : ''}`) : null);
@@ -1631,6 +1642,8 @@ const panels = {
     /* suggestions from the databases, and the automatic choices, to accept or dismiss one by one */
     const VIA = { title: 'از عنوان‌های سندهای نور', strip: 'پس از حذف واژه‌های سند', relative: 'از سندهای نور برای راوی پیشین' };
     const SUG = [
+      ['mid', 'خودکارهای در انتظار تأیید', 'جاهایی که پایگاه‌ها راوی را قطعی نکرده‌اند و برنامه از روی شواهد راوی را برگزیده و به کار برده است: همان نام کنار همان همسایه‌ها در سندی از همین پروژه، همین حدیث در کتابی که راویانش پیوند خورده، یا نامی که در سندهای پیونددارِ نور و گراف دانش (با اندازه‌گیری روی کتاب‌های کنارگذاشته) همیشه همین راوی است، یا «عن أبيه» پس از راوی شناخته‌شده (پدرِ او به نام و هم‌نشینی)، یا نامی که تقریباً همیشه یک راوی است و کنار همسایه‌های این سند آمده. تا تأیید نکنید «در انتظار تأیید» می‌ماند اما در شجره به کار می‌رود. تأیید فقط همین جاها را ثبت می‌کند، نه جای دیگری را. اگر نپذیرید، راوی دیگری را از «بخش ۳» برگزینید.'],
+      ['hint', 'پیشنهادها (زیر سطح میانی)', 'جاهایی که شواهد به راوی اشاره می‌کنند ولی نه آن‌قدر که خودکار به کار برود (دقت سنجیده‌شده زیر ۹۸٪): پدرِ راوی پیشین با فاصله‌ی کم، نامی که یک راوی بیشترِ آن است، یا میان نامزدها آن که کنار راویان پیش و پس بیشتر آمده. هیچ‌جا به کار نمی‌رود تا «تأیید» کنید؛ آن‌گاه مانند انتخاب شما در شجره می‌نشیند (و شجره کهنه می‌شود). دقت هر ردیف کنارش آمده است.'],
       ['default', 'انتخاب‌های خودکار', 'نامزدی که نامش دست‌کم ۸۸٪ می‌خواند، همسایه‌هایش در سند او را تأیید می‌کنند و از نامزد بعدی آشکارا جلوتر است، خودکار انتخاب شده است؛ نسبتی («عن أبيه») که نور همیشه به یک نفر می‌برد نیز. اگر نپذیرید یا تغییر ندهید، همین‌ها به شجره می‌روند، اما «بازبینی‌نشده» نشان داده می‌شوند.'],
       ['strip_words', 'واژه‌های سند چسبیده به نام', 'مثلاً «عایشه ان رسول الله»: «ان رسول الله» آغاز سخن پیامبر است، نه بخشی از نام. پس از حذف آن واژه‌ها، باقی نام در پایگاه جستجو شده است.'],
       ['title_match', 'نام‌هایی که نور دقیقاً همین‌گونه نوشته', 'در سندهای پیونددارِ نور، همین نام (مثلاً «ابن عباس») بارها آمده و نور آن را به یک راوی پیوند داده است. شمار و سهم آن راوی کنار پیشنهاد آمده است.'],
@@ -1640,20 +1653,47 @@ const panels = {
       ['same_person', 'یک شخص با دو شناسه', 'یک راوی گاهی هم در نور و هم در گراف دانش آمده است. در پایگاه «خام» هیچ‌چیز خودکار یکی نمی‌شود و پیوندها و جفت‌های هم‌نام با وفات نزدیک همه پیشنهادند. در یک پایگاه ادغام‌شده، جفت‌های همان نسخه از پیش یکی شده‌اند و بقیه (کم‌اطمینان‌تر یا ردشده) و شناسه‌هایی که پایگاه راویان ویکی‌مانند (ebadollah.ir/narrator) یک شخص می‌داند پیشنهاد می‌مانند.'],
       ['witness_without_chain', 'شاهدهای بی‌سند', 'سند این شاهدها جز گردآورنده کسی را نام نمی‌برد. در شجره هر کدام طریقی جداگانه از خودِ گردآورنده می‌شود؛ برای پرسش مبدأ بهتر است در مرحله‌ی ۳ کنار گذاشته شوند.']];
     const CONF = { high: 'زیاد', medium: 'متوسط', low: 'کم' };
-    const OPFA = { choice: 'پذیرش', drop: 'حذف از سند', merge: 'یکی کردن', exclude: 'کنار گذاشتن شاهد' };
+    const OPFA = { approve: 'تأیید', choice: 'پذیرش', drop: 'حذف از سند', merge: 'یکی کردن', exclude: 'کنار گذاشتن شاهد' };
     const autos = () => Object.values(cards).filter(cd => cd.default && !(relOnly(cd) && cd.occurrences.length > 1)).map(cd => {
       const k = cd.candidates.find(x => x.id === cd.default) || {}, occ = cd.occurrences[0].join('|');
       return { id: 'default:' + cd.key, kind: 'default', occ, wid: splitOcc(occ)[0].wid, card: cd.key, confidence: 'high',
         proposal: { op: 'choice', id: cd.default, label: k.label || cd.default },
         evidence: k.reason || `هم‌خوانی نام ${pct(k.cov || 0)} · هم‌نشین ${fa(k.ctx || 0)}${cd.occurrences.length > 1 ? ` · ${fa(cd.occurrences.length)} جا` : ''}` };
     });
-    const sugAll = () => [...autos(), ...(I.suggestions || [])];
+    /* the middle level: one row per (name, person) with the places it covers */
+    const mids = () => {
+      const by = {};
+      I.chains.forEach(ch => ch.elems.forEach(e => { const occ = `${ch.aid}|${e.i}`;
+        if (e.auto && !e.exact && !drops.has(occ)) (by[(e.card || '') + '|' + e.auto.id] ||= { card: e.card, id: e.auto.id, a: e.auto, places: [] }).places.push(occ); }));
+      return Object.values(by).map(g => {
+        const occ = g.places[0], [ch0, e0] = splitOcc(occ), k = e0.cands.find(x => x.id === g.id) || {}, pr = g.a.prec;
+        return { id: 'mid:' + g.card + '|' + g.id, kind: 'mid', occ, wid: ch0.wid, card: g.card, places: g.places,
+          confidence: pr == null ? 'medium' : pr >= 0.99 ? 'high' : pr >= 0.975 ? 'medium' : 'low',
+          proposal: { op: 'approve', id: g.id, label: k.label || g.id, places: g.places },
+          evidence: (k.reason || '') + (g.places.length > 1 ? ` · ${fa(g.places.length)} جا` : '') + (pr != null ? ` · دقت سنجیده‌شده ${pct(pr)}` : '') };
+      });
+    };
+    /* the tier below the middle: a suggestion per (name, person); used nowhere until approved */
+    const hints = () => {
+      const by = {};
+      I.chains.forEach(ch => ch.elems.forEach(e => { const occ = `${ch.aid}|${e.i}`;
+        if (e.sugg && !e.exact && !e.auto && !drops.has(occ) && (stateOf(ch, e).st === 'hint' || approved[occ])) (by[(e.card || '') + '|' + e.sugg.id] ||= { card: e.card, id: e.sugg.id, a: e.sugg, places: [] }).places.push(occ); }));
+      return Object.values(by).map(g => {
+        const occ = g.places[0], [ch0, e0] = splitOcc(occ), k = e0.cands.find(x => x.id === g.id) || {}, pr = g.a.prec;
+        return { id: 'hint:' + g.card + '|' + g.id, kind: 'hint', occ, wid: ch0.wid, card: g.card, places: g.places,
+          confidence: pr == null ? 'low' : pr >= 0.98 ? 'high' : pr >= 0.93 ? 'medium' : 'low',
+          proposal: { op: 'approve', id: g.id, label: k.label || g.id, places: g.places },
+          evidence: (k.reason || '') + (g.places.length > 1 ? ` · ${fa(g.places.length)} جا` : '') };
+      });
+    };
+    const sugAll = () => [...mids(), ...hints(), ...autos(), ...(I.suggestions || [])];
     const isMerged = p => merges.some(m => m[0] === p[0] && m[1] === p[1] || m[0] === p[1] && m[1] === p[0]);
     const applied = sg => {
       const p = sg.proposal;
       if (p.op === 'choice') { const st = stateOf(...splitOcc(sg.occ)); return st.st === 'user' && st.id === p.id; }
       if (p.op === 'drop') return drops.has(sg.occ);
       if (p.op === 'merge') return isMerged(p.pair);
+      if (p.op === 'approve') return p.places.every(o => approved[o] === p.id);
       return false;
     };
     const holds = sg => !sg.depends_on || stateOf(...splitOcc(sg.depends_on.occ)).id === sg.depends_on.id;
@@ -1662,6 +1702,7 @@ const panels = {
       if (p.op === 'choice') { const [, e] = splitOcc(sg.occ); extraLabel[p.id] = p.label; return setVal(cards[sg.card || e.card], sg.occ, false, p.id); }
       if (p.op === 'drop') { drops.add(sg.occ); return draw(); }
       if (p.op === 'merge') { merges.push([...p.pair]); return draw(); }
+      if (p.op === 'approve') { extraLabel[p.id] = p.label; p.places.forEach(o => { approved[o] = p.id; }); return draw(); }
       if (p.op === 'exclude') {
         if (dirty()) return toast('نخست تغییرهای این مرحله را با «ذخیره» ثبت کنید؛ کنار گذاشتن شاهد (مرحله‌ی ۳) هم‌ترازی را قدیمی می‌کند و باید دوباره ساخته شود.', 'warn');
         if (!(await sure(`«${wtitle(p.wid)}» از شاهدهای برگزیده (مرحله‌ی ۳) کنار گذاشته شود؟ انتخاب‌های این مرحله می‌مانند.`))) return;
@@ -1673,6 +1714,7 @@ const panels = {
       const p = sg.proposal;
       if (p.op === 'choice') return setVal(cards[sg.card || splitOcc(sg.occ)[1].card], sg.occ, false, undefined);
       if (p.op === 'drop') drops.delete(sg.occ);
+      if (p.op === 'approve') p.places.forEach(o => { delete approved[o]; });
       if (p.op === 'merge') { const j = merges.findIndex(m => m.includes(p.pair[0]) && m.includes(p.pair[1])); if (j >= 0) merges.splice(j, 1); }
       draw();
     };
@@ -1709,6 +1751,7 @@ const panels = {
             c.can && nOpen > 1 && k !== 'witness_without_chain' && k !== 'same_person' ? el('div', { class: 'toolbar small' },
               el('button', { class: 'small', onclick: () => { rows.filter(sg => !applied(sg) && !dismissed.has(sg.id) && sg.confidence !== 'low').forEach(sg => {
                 const pp = sg.proposal; if (pp.op === 'choice') { const [, e2] = splitOcc(sg.occ); extraLabel[pp.id] = pp.label; const cd2 = cards[sg.card || e2.card]; choices[cd2.key] = pp.id; delete overrides[sg.occ]; }
+                else if (pp.op === 'approve') pp.places.forEach(o => { approved[o] = pp.id; });
                 else if (pp.op === 'drop') drops.add(sg.occ); }); draw(); } }, 'پذیرش همه‌ی با اطمینان زیاد و متوسط')) : null,
             rows.map(sugRow));
           d.addEventListener('toggle', () => { d.open ? sugOpen.add(k) : sugOpen.delete(k); setPref('icm.sugopen', JSON.stringify([...sugOpen])); });
@@ -1719,7 +1762,7 @@ const panels = {
 
     const seg = el('span', { class: 'seg' }, [['hadith', 'حدیث‌ها'], ['names', 'نام‌ها']].map(([v, t]) => {
       const b = el('button', { class: 'small', onclick: () => { listView = v; setPref('icm.idlist', v); drawList(); } }, t); b.dataset.v = v; return b; }));
-    const legend = el('p', { class: 'small' }, 'رنگ برچسب نام‌ها: ', ['exact', 'auto', 'user', 'und', 'none', 'drop'].map(s => el('span', { class: 'nc demo ' + s }, ST[s])), el('span', { class: 'muted' }, ' ◆ = فقط همین جا · ✂ = شخص جداشده'));
+    const legend = el('p', { class: 'small' }, 'رنگ برچسب نام‌ها: ', ['exact', 'ok', 'mid', 'hint', 'auto', 'user', 'und', 'none', 'drop'].map(s => el('span', { class: 'nc demo ' + s }, ST[s])), el('span', { class: 'muted' }, ' ◆ = فقط همین جا · ✂ = شخص جداشده'));
     const nver = I.narrator_version ? (I.narrator_version.label_fa || (I.narrator_version.name === 'raw' ? 'خام (بدون ادغام)' : I.narrator_version.name)) : 'خام (نسخه‌ی پیش از پایگاه‌ها)';
     const oldRun = (I.stage_version || 1) < 3;
     /* the step's title, counts, narrator database and everything to read sit behind the (i) after its tab in the header */
