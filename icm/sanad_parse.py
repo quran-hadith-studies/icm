@@ -26,6 +26,8 @@ TRANSMIT = {norm(x) for x in _DATA["transmit"]}
 HONORIFIC = {norm(x) for x in _DATA["honorific_start"]}
 RELATIVES = {norm(x) for x in _DATA["relatives"]}
 ANON = [norm(x) for x in _DATA["anonymous"]]
+BOOK_TITLES = {norm(x) for x in _DATA["book_titles"]}
+ANON_GROUP = {norm(x) for x in _DATA["anon_group"]}
 GAPS = [norm(x) for x in _DATA["gap_markers"]]
 GAPS_STRIP = GAPS + ["و" + g for g in GAPS]             # «وبهذا الاسناد», «وباسناده»: the same markers after a «و» (only strip_nonname reads them: parse() stays as it was)
 PROPHET = [norm(x) for x in _DATA["prophet"]]
@@ -187,6 +189,11 @@ def _split_conj(toks: List[str]) -> List[List[str]]:
     return [[t for t in toks if t != "و"]] if len(parts) <= 1 else [toks]
 
 
+def is_anon_group(name: str) -> bool:
+    """«العدة» alone: the Kafi's abbreviation of «عدة من أصحابنا». (parse() does not know it: places keep their numbers.)"""
+    return " ".join(norm(name).split()) in ANON_GROUP
+
+
 def is_anon(name: str) -> bool:
     """True for an unnamed narrator: «رجل», «عدة من أصحابنا», «من ذكره», ..."""
     toks = norm(name).split()
@@ -210,6 +217,7 @@ def strip_nonname(name: str) -> dict:
     reasons: List[str] = []
     lam = False
     while toks and (toks[0] in _PROCLITIC or toks[0] in TRANSMIT or toks[0] in LEAD or toks[0] in ("و", "ف", "ثم")
+                    or (len(toks) > 1 and (toks[0].isdigit() or toks[0] in BOOK_TITLES))          # «الکافی 1 1 396 6 علی»
                     or (len(toks) > 1 and len(toks[0]) <= 2 and toks[0] in NON_NAME)):          # (a siglum: «خ ونا موسی …»)
         lam = toks[0] in LEAD_LAM
         stripped.append(toks.pop(0))

@@ -555,6 +555,7 @@ AUTO_SRC_FA = dict(family="در سندی دیگر از همین پروژه، ه�
 AUTO_RULE_FA = dict(ctx3="همین نام با همان راوی پیش و پس از آن", prev="همین نام با همان راوی پیش از آن", next="همین نام با همان راوی پس از آن",
                     name="این نام همیشه همین راوی است", pprev="پس از راوی شناخته‌شده‌ی پیشین", pnext="پیش از راوی شناخته‌شده‌ی پسین",
                     name_adj="تقریباً همیشه همین راوی است (در هر دسته از کتاب‌ها) و در سندهای پایگاه کنار همسایه‌های این سند آمده")
+AUTO_SRC_FA["twin_fuzzy"] = "همین حدیث در منبعی دیگر از همین پروژه که راویانش پیوند خورده: نام‌های هم‌خوان (کوتاه‌شده) به همان ترتیب، کنار جایی دیگر که هم‌خوان است"
 AUTO_SRC_FA["imams"] = "پدرِ امام، از جدول امامان"
 AUTO_SRC_FA["father"] = "پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه (با فاصله‌ی روشن از نامزد بعدی)"
 AUTHOR_NAME_PREC = 0.97             # measured: name only (death years ignored) gave the same person as name + death year in 110 of 110 authors (95% lower bound 97%)
@@ -617,6 +618,92 @@ def _family(idx: dict, k: str, p: str, n: str) -> Optional[dict]:
     got = b or c
     key = ("p", k, p) if b else ("n", k, n)
     return dict(id=got, rule="family", n=idx[key][got], tot=idx[key][got], src="family") if got else None
+
+
+def _fuzzy_twins(ch: dict, places: List[dict], ks: List[str], rows, need: int = 3, debug: Optional[dict] = None) -> Dict[int, set]:
+    """place index -> {ids} the same hadith in another chain of the project that carries ids says for it, when the names are only
+    *compatible*: the Wafi's «علي عن أبيه و محمد عن أحمد و العدة عن سهل» against the Kafi's chains «علي بن إبراهيم عن أبيه», «محمد بن يحيى عن
+    أحمد بن محمد», «عدة من أصحابنا عن سهل بن زياد». The two are put in order (longest common subsequence): a pair matches when the
+    written names are the same, or when the other chain's person is one of the place's own candidates (the name matching found him),
+    or when both are unnamed groups. A chain counts only when at least ``need`` places match, two of them by the same written name,
+    and at least half of this chain's named places. A place with two different persons from different chains gets none."""
+    out: Dict[int, set] = defaultdict(set)
+    named = [i for i, e in enumerate(places) if e["kind"] in ("name", "relative")]
+    if len(named) < need:
+        return {}
+    cand = [{c["id"] for c in e.get("cands") or []} for e in places]
+    for och, orec, oplaces, oks in rows:
+        if och is ch or och["wid"] == ch["wid"] or not any(e.get("exact") for e in oplaces):
+            continue
+        n, m = len(places), len(oplaces)
+        score = [[0] * (m + 1) for _ in range(n + 1)]
+        how = [[None] * (m + 1) for _ in range(n + 1)]
+        for i in range(n):
+            for j in range(m):
+                w = 0
+                if ks[i] and ks[i] == oks[j]:
+                    w = 2
+                elif oplaces[j].get("exact") and oplaces[j]["exact"] in cand[i]:
+                    w = 1
+                elif places[i]["kind"] == "anon" and oplaces[j]["kind"] == "anon":
+                    w = 1
+                best, h = score[i][j + 1], "up"
+                if score[i + 1][j] > best:
+                    best, h = score[i + 1][j], "left"
+                if w and score[i][j] + w > best:
+                    best, h = score[i][j] + w, "diag"
+                score[i + 1][j + 1], how[i + 1][j + 1] = best, h
+        pairs, i, j = [], n, m
+        while i and j:
+            h = how[i][j]
+            if h == "diag":
+                pairs.append((i - 1, j - 1))
+                i, j = i - 1, j - 1
+            elif h == "up":
+                i -= 1
+            else:
+                j -= 1
+        same = sum(1 for a, b in pairs if ks[a] and ks[a] == oks[b])
+        if len(pairs) < need or same < 2 or sum(1 for a, _ in pairs if a in named) * 2 < len(named):
+            continue
+        pset = set(pairs)
+        for a, b in pairs:
+            if oplaces[b].get("exact"):
+                nb = [(a + d, b + d) for d in (-1, 1) if (a + d, b + d) in pset]
+                if debug is not None:
+                    debug.setdefault(a, []).append((len(pairs), same, bool(ks[a] and ks[a] == oks[b]), len(named),
+                                                   len(nb), sum(1 for x, y in nb if ks[x] and ks[x] == oks[y])))
+                if ks[a] and ks[a] == oks[b] or nb:             # a loose match stands only next to another match (alone it is right in 62%, with one in 98%)
+                    out[a].add(oplaces[b]["exact"])
+    return out
+
+
+def _twin_rows(rec: Optional[dict], limit: int = 8) -> list:
+    """The Noor isnads of the matched hadiths of ``rec`` (the v02 consensus set) as chains with ids, for ``_fuzzy_twins``."""
+    if not rec or rec.get("corpus") != "v02":
+        return []
+    from . import relations
+    rows, done = [], 0
+    c = _nconn()
+    try:
+        for t in sorted(relations.consensus_set(int(rec["hid"]))):
+            nid = _noor_twin(t)
+            if nid is None or done >= limit:
+                continue
+            chains: Dict[int, list] = defaultdict(list)
+            for r in c.execute("select sanad_idx, title, ravi_id, type from slot where hadith_id=? order by sanad_idx, pos", (nid,)):
+                if r["type"] != 4 and r["ravi_id"] != PROPHET_ID:
+                    chains[r["sanad_idx"]].append(r)
+            if not chains:
+                continue
+            done += 1
+            for idx, sl in chains.items():
+                places = [dict(name=r["title"] or "", kind="anon" if sanad_parse.is_anon(r["title"] or "") else "name",
+                               exact=f"noor:{r['ravi_id']}" if r["ravi_id"] else None, cands=[]) for r in sl]
+                rows.append((dict(wid=f"twin:{nid}#{idx}"), None, places, [names.written_key(p["name"]) for p in places]))
+    finally:
+        c.close()
+    return rows
 
 
 def _noor_twin(hid: int) -> Optional[int]:
@@ -698,6 +785,7 @@ def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], t
     for rounds in range(2):                                   # the second round knows the persons the first one found next to a place
         for ch, rec, places, ks in rows:
             tw = None
+            fz = _fuzzy_twins(ch, places, ks, rows + (_twin_rows(rec) if twins and rec is not None and any(todo(e) for e in places) else [])) if rounds == 0 else {}
             for i, e in enumerate(places):
                 if not todo(e) or id(e) in skip:
                     continue
@@ -711,6 +799,8 @@ def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], t
                     if len(ids) > 1:
                         t = False
                 got = None
+                if t is None and not f and len(fz.get(i) or ()) == 1:
+                    t = dict(id=next(iter(fz[i])), rule="twin_fuzzy", n=1, tot=1, src="twin_fuzzy", prec=0.98)
                 if f and t is not None and (t is False or f["id"] != t["id"]):
                     got = None                                   # the sources disagree: leave it to the user
                     skip.add(id(e))
@@ -1498,7 +1588,7 @@ def _split_parallel(chains: Sequence[dict]) -> int:
             for j, part in enumerate(parts):
                 x = dict(e, name=part, raw=part, cands=[], par=e["i"], term=e["term"] if j == 0 else "و",
                          i=e["i"] if j == 0 else PAR_BASE + 8 * e["i"] + j - 1,
-                         kind="anon" if sanad_parse.is_anon(part) else "name")
+                         kind="anon" if sanad_parse.is_anon(part) or sanad_parse.is_anon_group(part) else "name")
                 for k in ("clean", "parts", "frag", "span", "span_auto"):
                     x.pop(k, None)
                 out.append(x)
@@ -1536,6 +1626,8 @@ def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, ch
     _split_parallel(chains)
     for ch in chains:                                  # «أبيه عليه السلام» in Noor's slots, «حدثني أبي» ...
         for e in ch["elems"]:
+            if not e["exact"] and e["kind"] == "name" and sanad_parse.is_anon_group(e["name"]):
+                e["kind"] = "anon"                                 # «العدة» (the Kafi's abbreviation): an unnamed group
             if not e["exact"] and e["kind"] == "name" and relative_word(e["name"]):
                 e["kind"], e["name"] = "relative", relative_word(e["name"])
     attach_candidates(chains, trad)

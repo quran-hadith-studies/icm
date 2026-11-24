@@ -293,3 +293,35 @@ def test_the_words_of_the_text_after_an_imam_are_no_narrators_whatever_number_of
 
 def test_the_commentators_word_hadith_is_not_part_of_a_name():
     assert sanad_parse.strip_nonname("الحدیث ابو علی الاشعری")["core"] == "ابو علی الاشعری"
+
+
+def _pl(name, exact=None, cands=(), kind="name"):
+    return dict(name=name, kind=kind, exact=exact, cands=[dict(id=c) for c in cands])
+
+
+def _fz(a, b):
+    ka = [names.written_key(e["name"]) for e in a]
+    kb = [names.written_key(e["name"]) for e in b]
+    ca, cb = dict(wid="a"), dict(wid="b")
+    return identity._fuzzy_twins(ca, a, ka, [(ca, None, a, ka), (cb, None, b, kb)])
+
+
+def test_the_same_hadith_in_a_book_with_linked_isnads_gives_the_persons_of_shortened_names():
+    wafi = [_pl("علی", cands=["noor:3915", "noor:9"]), _pl("ابیه"), _pl("محمد", cands=["noor:5698"]), _pl("احمد", cands=["noor:660"]),
+            _pl("سراد", cands=["noor:1190"]), _pl("خالد بن جریر"), _pl("ابی الربیع الشامی")]
+    kafi = [_pl("علی بن ابراهیم", "noor:3915"), _pl("ابیه", "noor:203"), _pl("محمد بن یحیی", "noor:5698"), _pl("احمد بن محمد", "noor:660"),
+            _pl("ابن محبوب", "noor:1190"), _pl("خالد بن جریر", "noor:2369"), _pl("ابی الربیع الشامی", "noor:235")]
+    got = _fz(wafi, kafi)
+    assert {i: next(iter(s)) for i, s in got.items()} == {0: "noor:3915", 1: "noor:203", 2: "noor:5698", 3: "noor:660", 4: "noor:1190", 5: "noor:2369", 6: "noor:235"}
+
+
+def test_a_loose_match_with_no_matched_neighbour_gives_nothing():
+    a = [_pl("محمد", cands=["noor:5698"]), _pl("فلان"), _pl("خالد بن جریر"), _pl("ابی الربیع الشامی")]
+    b = [_pl("محمد بن یحیی", "noor:5698"), _pl("ابن محبوب", "noor:1190"), _pl("خالد بن جریر", "noor:2369"), _pl("ابی الربیع الشامی", "noor:235")]
+    got = _fz(a, b)
+    assert 0 not in got and got[2] == {"noor:2369"}
+
+
+def test_the_reference_before_a_name_and_the_group_abbreviation():
+    assert sanad_parse.strip_nonname("1 الکافی 1 1 396 6 علی")["core"] == "علی"
+    assert sanad_parse.is_anon_group("العدة") and not sanad_parse.is_anon_group("العدة من اصحابنا")
