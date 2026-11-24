@@ -127,6 +127,7 @@ table.hl td{padding:5px 10px;vertical-align:middle;cursor:pointer;transition:bac
 .occs{display:flex;flex-direction:column;gap:2px}
 .occ{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;padding:3px 6px;border-radius:8px}.occ.on{background:var(--accent-soft)}
 .occ .lnk{min-width:210px}
+.nc.par{box-shadow:inset 0 -3px 0 var(--accent)}
 .chain.mini{margin:0}.chain.mini .nc{padding:0 6px}.chain.mini .nc .n{font-size:13px}
 .autoc,.exactc{color:var(--good)}.userc{color:var(--accent)}.undc{color:var(--warn)}.nonec,.anonc{color:var(--muted)}
 .edcard{border:2px solid var(--accent)}

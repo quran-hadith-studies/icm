@@ -1091,8 +1091,8 @@ const panels = {
       const n = cd && !relOnly(cd) ? cd.occurrences.length : 1;
       const sub = st === 'exact' ? '✓' : st === 'und' ? 'بی‌تصمیم' : st === 'none' ? 'فقط نام' : st === 'anon' ? 'نامعلوم' : st === 'drop' ? 'حذف می‌شود' : labelOf(s.id, e, cd);
       const hit = pick && (pick.key === keyAt(ch, e) || pick.key.startsWith('id:') && s.id === pick.key.slice(3));
-      return el('button', { class: `nc ${st}` + (hit ? (pick.occ === occ ? ' pk pk2' : ' pk') : ''),
-        title: `${ST[st]}${s.split ? ' — شخص جداشده' : s.here ? ' — فقط همین جا' : ''}${s.id && s.id !== 'none' ? ' — ' + s.id : ''}`,
+      return el('button', { class: `nc ${st}` + (e.par != null ? ' par' : '') + (hit ? (pick.occ === occ ? ' pk pk2' : ' pk') : ''),
+        title: `${ST[st]}${e.par != null ? ' — هم‌سطح با راوی دیگرِ همین جا (موازی)' : ''}${s.split ? ' — شخص جداشده' : s.here ? ' — فقط همین جا' : ''}${s.id && s.id !== 'none' ? ' — ' + s.id : ''}`,
         onclick: () => { if (keyAt(ch, e)) setPick(keyAt(ch, e), occ); } },
         el('span', { class: 'n ar', title: e.raw || e.name }, st === 'exact' ? short(e.raw || e.name, 34) : e.raw || e.name, n > 1 ? el('sup', {}, ' ×' + fa(n)) : null,
           e.renamed ? el('sup', { title: 'نام و لفظ نقل این جا را شما تعیین کرده‌اید' }, ' ✎') : null),
@@ -1823,7 +1823,7 @@ const panels = {
     const occIn = (n, aid) => (G.nodes[n] && G.nodes[n].occ || []).find(o => !aid || o.startsWith(aid + '|'));
     const step4 = (wid, occ, txt) => { const q = new URLSearchParams({ h: wid }); if (occ) q.set('n', occ); const href = BASE + stepUrl(c.pid, null, 'narrators') + '?' + q;
       return el('a', { href, onclick: ev => { ev.preventDefault(); go(href.slice(BASE.length)); } }, txt); };
-    const nodeLink = (n, aid) => { const o = occIn(n, aid), a = G.attestations.find(x => (!aid || x.id === aid) && x.sanad.includes(n));
+    const nodeLink = (n, aid) => { const o = occIn(n, aid), a = G.attestations.find(x => (!aid || x.id === aid || x.id.startsWith(aid + '+')) && x.sanad.includes(n));
       const wid = o ? o.slice(0, o.lastIndexOf('|')).split('#')[0] : a && a.wid;
       const nm = G.narrators[n] ? G.narrators[n].name : n, d = G.narrators[n] && G.narrators[n].death, und = !G.nodes[n] || !G.nodes[n].date_source || G.nodes[n].date_source === 'interpolated';
       return el('span', { class: 'ar' }, wid ? step4(wid, o, nm) : nm, d && !und ? el('span', { class: 'muted' }, ` (ف ${yearTxt(d)})`) : null); };
@@ -1948,10 +1948,12 @@ function foldInfo(bs) {
 }
 /* the full explanation of a section (help_fa.js) behind an (i) with its title; inner = the entry's body alone (inside another help);
    pop: in a popover, for a section that is itself in the modal (the modal would replace it) */
+const RULE_PAGES = new Set(['step4.overview', 'step4.mid', 'step4.hint']);
 function help(key, inner, pop) {
   if (!window.ICMHelp) return null;
   const b = ICMHelp.block(key); if (!b) return null;
   const blk = el('div', { class: 'helpblk' }, b.querySelector('dl'));     // a <details> without its summary would show the browser's «Details»
+  if (RULE_PAGES.has(key) && ICMHelp.rules) blk.append(ICMHelp.rules(key === 'step4.overview'));     // every rule of the step, beside the one applied here
   if (inner) return blk;
   const t = ICMHelp.entries[key].title;
   const btn = info(() => [el('h3', {}, t), blk], { modal: !pop, title: 'توضیحات: ' + t });

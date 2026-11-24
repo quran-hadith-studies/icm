@@ -11,6 +11,7 @@ for Sunni narrators, from the Hadith Knowledge Graph.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import sqlite3
 from collections import defaultdict
@@ -28,6 +29,24 @@ def _group_key(w: dict, quoted: Optional[str]) -> str:
     return "g:" + " ".join(norm(str(title)).split())
 
 
+MAX_COMBINATIONS = 8
+
+
+def _combinations(elems) -> List[List[str]]:
+    """The node lists (source -> collector) a resolved chain stands for: one, unless some narrators stand at one level (``par``, «A و B عن C»):
+    then every choice of one narrator per level (at most ``MAX_COMBINATIONS``), as when Noor gives a hadith several isnads."""
+    levels: List[tuple] = []                           # collector -> source: (par, [nid])
+    for e in elems:
+        if e.get("dropped"):
+            continue
+        if e.get("par") is not None and levels and levels[-1][0] == e["par"]:
+            if e["nid"] not in levels[-1][1]:
+                levels[-1][1].append(e["nid"])
+        else:
+            levels.append((e.get("par"), [e["nid"]]))
+    return [list(c) for c in itertools.islice(itertools.product(*[l[1] for l in reversed(levels)]), MAX_COMBINATIONS)]
+
+
 def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> dict:
     ph = phylogeny or {}
     wmeta = {w["wid"]: w for w in alignment["witnesses"]}
@@ -40,22 +59,25 @@ def run(alignment: dict, resolved: dict, phylogeny: Optional[dict] = None) -> di
     for ch in resolved["chains"]:
         if ch["wid"] not in X:
             continue
-        nids = [e["nid"] for e in reversed(ch["elems"]) if not e.get("dropped")]   # a dropped place is no narrator
         for e in ch["elems"]:
             if not e.get("dropped"):
                 occ.setdefault(e["nid"], []).append(f"{ch['aid']}|{e['i']}")
         if ch["aid"] in ph.get("chain_edits", {}):
-            nids = list(ph["chain_edits"][ch["aid"]])
-        seen, dd = set(), []
-        for n in nids:
-            if n in seen:
-                flags.append(dict(kind="repeated_node", ref=ch["aid"], wid=ch["wid"], nodes=[n], message=f"{n} appears twice in one chain; later occurrence dropped"))
-                continue
-            seen.add(n)
-            dd.append(n)
-        if len(dd) < 2:
-            flags.append(dict(kind="chain_too_short", ref=ch["aid"], wid=ch["wid"], message="chain has fewer than two narrators; witness kept only if no other chain"))
-        chains.append(dict(aid=ch["aid"], wid=ch["wid"], nids=dd, quoted=ch.get("quoted_work"), source=ch["source"]))
+            combos = [list(ph["chain_edits"][ch["aid"]])]
+        else:
+            combos = _combinations(ch["elems"])
+        for ci, nids in enumerate(combos):
+            aid = ch["aid"] if ci == 0 else f"{ch['aid']}+{ci}"            # narrators at one level (par) make a chain of every combination
+            seen, dd = set(), []
+            for n in nids:
+                if n in seen:
+                    flags.append(dict(kind="repeated_node", ref=aid, wid=ch["wid"], nodes=[n], message=f"{n} appears twice in one chain; later occurrence dropped"))
+                    continue
+                seen.add(n)
+                dd.append(n)
+            if len(dd) < 2:
+                flags.append(dict(kind="chain_too_short", ref=aid, wid=ch["wid"], message="chain has fewer than two narrators; witness kept only if no other chain"))
+            chains.append(dict(aid=aid, wid=ch["wid"], nids=dd, quoted=ch.get("quoted_work"), source=ch["source"]))
     by_wid = defaultdict(list)
     for c in chains:
         by_wid[c["wid"]].append(c)

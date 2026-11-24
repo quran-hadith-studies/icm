@@ -433,6 +433,14 @@ def attach_candidates(chains: List[dict], tradition_of: Dict[str, str]) -> None:
         _add_context(ch)
 
 
+def _glued_conj(vocab: dict, t: str) -> bool:
+    """«ومحمد»: a «و» glued to the next name. The word without it is far more common in the databases' names than the glued word is («ومحمد» 2376,
+    «محمد» 103888), or it opens an unnamed group («وعدة من أصحابنا»); a name that begins with «و» («وهب», «وكيع») has no such stem."""
+    stem = names.written_key(t[1:])
+    n_stem, n_word = vocab.get(stem, 0), vocab.get(t, 0)
+    return (n_stem >= 20 and n_stem >= 10 * n_word) or stem in ("عده", "عدة", "جماعه", "رجل", "رجال", "بعض")
+
+
 def clean_parts(name: str) -> List[str]:
     """The names a reading holds, cleaned of the isnad words glued to it («قلت لابی عبد الله», «نبا عمرو بن خالد», «… انه»): split at
     a «و» (also glued to the next name, «وزکریا», when the word is no name but what follows it is one). [] when nothing is left."""
@@ -442,7 +450,7 @@ def clean_parts(name: str) -> List[str]:
     for t in core.split():
         if t == "و":
             parts.append([])
-        elif v and t[0] == "و" and len(t) > 3 and v.get(t, 0) <= 2 and v.get(names.written_key(t[1:]), 0) >= 20 and parts[-1]:
+        elif v and t[0] == "و" and len(t) > 3 and parts[-1] and _glued_conj(v, t):
             parts.append([t[1:]])
         else:
             parts[-1].append(t)
@@ -749,11 +757,12 @@ def _neighbour_links(rows, trad: Dict[str, str], wk: dict) -> int:
             for i, e in enumerate(places):
                 if e.get("exact") or e.get("auto") or e["kind"] == "anon" or e.get("frag"):
                     continue
-                prev = _vouch(places[i - 1]) if i else None
-                nxt = _vouch(places[i + 1]) if i + 1 < len(places) else None
+                pb, nb = _beside1(places, i, -1), _beside1(places, i, +1)
+                prev = _vouch(pb) if pb else None
+                nxt = _vouch(nb) if nb else None
                 if e["kind"] == "relative":
                     rel = RELATION.get(e["name"])
-                    base = places[i - 1] if i else None
+                    base = pb
                     if base is None or not prev or any(c.get("derived") for c in e["cands"]) or rel not in ("father", "grandfather"):
                         continue
                     if rel == "grandfather" and not (base["kind"] == "relative" and RELATION.get(base["name"]) == "father"):
@@ -917,7 +926,9 @@ def _derive_relatives(ch: dict) -> None:
         rel = RELATION.get(e["name"]) if e["kind"] == "relative" else None
         if not rel or k == 0 or rel not in ("father", "grandfather", "brother", "uncle", "maternal_uncle", "mother", "son"):
             continue
-        base = els[k - 1]
+        base = _beside1(els, k, -1)
+        if base is None:
+            continue
         if rel == "grandfather" and RELATION.get(relative_word(base["name"]) or "") == "father":
             rel = "father"                             # «عن أبيه عن جده»: the father of the father
         bc = [c for c in base["cands"][:3] if c.get("exact") or c.get("derived") or c.get("cov", 0) >= 0.88]
@@ -974,6 +985,26 @@ def _adjacent(pairs: Iterable[Tuple[str, str]]) -> set:
     return out
 
 
+def _level(els: Sequence[dict], k: int) -> List[int]:
+    """Indices of the places standing at the same level as place ``k``: itself, or its parallel narrators («A و B عن C», ``par``)."""
+    g = els[k].get("par")
+    return [k] if g is None else [j for j, e in enumerate(els) if e.get("par") == g]
+
+
+def _beside(els: Sequence[dict], k: int, d: int) -> List[dict]:
+    """The places of the level before (``d`` = -1: the teachers' side of the isnad's text order) or after (+1) place ``k``, all the
+    members of a parallel level."""
+    lv = _level(els, k)
+    j = lv[0] - 1 if d < 0 else lv[-1] + 1
+    return [els[x] for x in _level(els, j)] if 0 <= j < len(els) else []
+
+
+def _beside1(els: Sequence[dict], k: int, d: int) -> Optional[dict]:
+    """The nearest place of that level (the last member before, the first after), None at the end of the chain."""
+    b = _beside(els, k, d)
+    return (b[-1] if d < 0 else b[0]) if b else None
+
+
 def _top(e: dict, n: int = 3) -> List[str]:
     """Neighbour candidates that may vouch for context: exact, derived, or a strong name match."""
     return [c["id"] for c in e["cands"][:n] if c.get("exact") or c.get("derived") or c.get("cov", 0) >= 0.88]
@@ -982,17 +1013,19 @@ def _top(e: dict, n: int = 3) -> List[str]:
 def _add_context(ch: dict) -> None:
     els = ch["elems"]
     pairs = []
-    for k in range(len(els) - 1):                    # els[k] is the student of els[k+1]
-        for s in _top(els[k]):
-            for t in _top(els[k + 1]):
-                pairs.append((t, s))
+    for k in range(len(els)):                        # els[k] is the student of every place of the level after it
+        for t_el in _beside(els, k, +1):
+            for s in _top(els[k]):
+                for t in _top(t_el):
+                    pairs.append((t, s))
     adj = _adjacent(pairs)
     for k, e in enumerate(els):
+        before, after = _beside(els, k, -1), _beside(els, k, +1)
         for c in e["cands"]:
             ctx = 0
-            if k > 0 and any((c["id"], s) in adj for s in _top(els[k - 1])):
+            if any((c["id"], s) in adj for b in before for s in _top(b)):
                 ctx += 1
-            if k + 1 < len(els) and any((t, c["id"]) in adj for t in _top(els[k + 1])):
+            if any((t, c["id"]) in adj for a in after for t in _top(a)):
                 ctx += 1
             c["ctx"] = ctx
             if not c.get("exact"):
@@ -1324,6 +1357,60 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
     return n
 
 
+ASK_WORDS = {norm(x) for x in ("سئل", "وسئل", "سأل", "سألت", "سألته", "وسألت", "فسألت", "سألنا")}      # the isnad turns into a question
+
+
+def _asks(e: dict) -> bool:
+    """The place is the one asked: «سئل» or «سألت» stands in its words or in the transmission phrase before it."""
+    return bool(ASK_WORDS & set(norm(f"{e.get('raw') or ''} {e.get('term') or ''}").split()))
+
+
+def _without_wording(elems: List[dict]) -> List[dict]:
+    """The places without isnad wording read as narrators: words Noor kept between two narrators that are no name
+    («قال سئل»: they stay in the link's phrase), and what follows the one asked («سئل أبو عبد الله عن الخمر فقال»): «عن»
+    there introduces the question's subject, not a narrator. A place with a database id is never removed."""
+    out, asked = [], False
+    for e in elems:
+        free = not e["exact"] and e.get("role") != "collector"
+        if free and e.get("hidden") and sanad_parse.not_a_name(e["name"]):
+            continue
+        if free and asked and norm(e.get("term") or "").split()[:1] == ["عن"]:
+            asked = False
+            continue
+        asked = _asks(e) and not sanad_parse.not_a_name(e["name"])
+        out.append(e)
+    return out
+
+
+PAR_BASE = 500                       # the k-th further name of a place that held several is 500 + 8 × place + k − 1: below ADDED_BASE, stable
+
+
+def _split_parallel(chains: Sequence[dict]) -> int:
+    """«ابيه ومحمد بن يحيى» is two places, narrators at the same level (``par`` = the first one's place number on all of them): each
+    its own name card, its own person; the isnad's other places see the level as one (``_beside``) and the graph makes one chain
+    of every combination. The first name keeps the place's number, so decisions made on the place stay with it. Places with a
+    database id are never split. Returns the number of places made."""
+    made = 0
+    for ch in chains:
+        out = []
+        for e in ch["elems"]:
+            parts = clean_parts(e["name"]) if (not e["exact"] and e.get("role") != "collector" and e["kind"] == "name"
+                                               and not e.get("par") and not e.get("added")) else []
+            if len(parts) < 2 or len(parts) > 7 or PAR_BASE + 8 * e["i"] + len(parts) - 1 >= ADDED_BASE:
+                out.append(e)
+                continue
+            for j, part in enumerate(parts):
+                x = dict(e, name=part, raw=part, cands=[], par=e["i"], term=e["term"] if j == 0 else "و",
+                         i=e["i"] if j == 0 else PAR_BASE + 8 * e["i"] + j - 1,
+                         kind="anon" if sanad_parse.is_anon(part) else "name")
+                for k in ("clean", "parts", "frag", "span", "span_auto"):
+                    x.pop(k, None)
+                out.append(x)
+            made += len(parts) - 1
+        ch["elems"] = out
+    return made
+
+
 def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, chain_edits: Optional[dict] = None) -> dict:
     """identities.json: chains with candidates, and the name cards to decide.
 
@@ -1340,12 +1427,15 @@ def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, ch
         if not ch:
             flags.append(dict(kind="no_chain", ref=w["wid"], message="no isnad could be read for this witness"))
         chains.extend(ch)
+    for ch in chains:                                  # Places keep their numbers, as with a removal in the chain editor.
+        ch["elems"] = _without_wording(ch["elems"])
     if chain_edits:
         wids = {aid.split("#")[0] for aid in chain_edits}
         apply_chain_edits(chains, {w["wid"]: hadith_words(w) for w in wits if w["wid"] in wids}, chain_edits)
         moved = {f"{aid}|{i}" for aid, ed in chain_edits.items() for i in (ed.get("span") or {})}
         renames = {k: v for k, v in (renames or {}).items() if k not in moved}
     apply_renames(chains, renames)
+    _split_parallel(chains)
     for ch in chains:                                  # «أبيه عليه السلام» in Noor's slots, «حدثني أبي» ...
         for e in ch["elems"]:
             if not e["exact"] and e["kind"] == "name" and relative_word(e["name"]):
@@ -1402,7 +1492,8 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
             occ = f"{ch['aid']}|{e['i']}"
             tier = None
             if occ in drops:
-                out.append(dict(i=e["i"], nid=None, tier="dropped", name=e["name"], collector=e.get("role") == "collector", dropped=True))
+                out.append(dict(i=e["i"], nid=None, tier="dropped", name=e["name"], collector=e.get("role") == "collector", dropped=True,
+                                **({"par": e["par"]} if e.get("par") is not None else {})))
                 continue
             if occ in overrides:
                 v = overrides[occ]
@@ -1446,6 +1537,7 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
             node["tiers"].add(tier)
             node["n"] += 1
             out.append(dict(i=e["i"], nid=nid, tier=tier, name=e["name"], collector=e.get("role") == "collector",
+                            **({"par": e["par"]} if e.get("par") is not None else {}),
                             **({"auto": e["auto"]["rule"]} if tier == "default" and e.get("auto") and nid == e["auto"]["id"] else {})))
         chains_out.append(dict(aid=ch["aid"], wid=ch["wid"], source=ch["source"], elems=out, speaker=ch["speaker"],
                                quoted_work=ch["quoted_work"], flags=ch["flags"]))

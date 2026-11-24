@@ -109,3 +109,5 @@ dialog.helpdlg::backdrop{background:rgb(15 23 42 / .5)}
 .rv svg.conv text{font-size:11px;fill:var(--muted)}.rv svg.conv .grid{stroke:var(--line);stroke-width:1}
 .rv .convleg{display:flex;flex-wrap:wrap;gap:4px 14px}.rv .convleg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-inline-end:5px;vertical-align:middle}
 .rv svg.spark{width:90px;height:18px;vertical-align:middle}.rv svg.spark polyline{stroke:var(--accent);stroke-width:1.3}.rv svg.spark circle{fill:var(--warn)}.rv .stpnav{margin:6px 0 0;columns:2 260px}
+
+.helprules{margin:8px 0 4px}.helprules summary{cursor:pointer;color:var(--accent);font-weight:700}.helprules h4{margin:12px 0 4px;font-size:13px}.helprules ul{margin:0;padding-inline-start:18px;line-height:1.85}.helprules .prec{color:var(--good);font-size:12px;unicode-bidi:isolate}

@@ -1012,6 +1012,17 @@ in one place), 38% were real names with several candidates, 9% relatives («عن
   `e["parts"]`: the chain editor splits them; places and decisions keyed `aid|i` are untouched, `parse()` is unchanged). A place with no
   candidate at all whose words are in no narrator's name (`names.fragment`: two or more words absent from the names file) is `e["frag"]`
   and a «not a name» drop suggestion (0 of 130 well-matched places and 1 of 768 weak ones are flagged).
+- **Wording that is no narrator** (`identity._without_wording`, in `build`): words Noor keeps between two narrators («قال سئل», «فقد»)
+  are the link's phrase, not a hidden narrator (the words used to appear twice, as the link's label and as a «سيل» place); after a
+  place whose words or phrase hold «سئل / سألت», the next place with the phrase «عن» is the question's subject («عن الخمر فقال»),
+  not a narrator. A place with a database id is never removed, and places keep their numbers (as with a removal in the chain editor).
+- **Parallel narrators** (`identity._split_parallel`, `par`; `graph._combinations`): «A و B» in one place («عن أبيه ومحمد بن يحيى»,
+  «أحمد بن محمد وعدة من أصحابنا») is two places at one level. The first keeps the place's number, the others are `500 + 8·i + k − 1`
+  (below `ADDED_BASE`, stable); each has its own name card and person. For everything that looks at neighbours (teacher/student pairs,
+  `father_of_prev`, `_add_context`, `suggest._ctx`) the level is one (`_beside`); the written-name model keeps the text order, as it
+  was learnt. The graph makes one chain per choice of one narrator per level (at most 8, aid `<aid>+k`), as for a hadith with several
+  Noor isnads. A glued «و» («ومحمد») splits when the word without it is ≥10× as common in the names file; names that begin with «و»
+  («وهب», «وكيع») do not. Decisions taken on the old one-place reading of such a name no longer apply (its card key changed).
 - **Written forms as candidates** (`names.persons_written`): «الثوري», «الشيباني» are nobody's *name* but isnads write them for one
   person; they are `low` candidates (never a default) when the name matching found nothing close.
 - **`father_of_prev`** (middle level): «عن أبيه» after a narrator we know (exact, or an automatic link) is the person whose first name

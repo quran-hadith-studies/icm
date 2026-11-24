@@ -54,17 +54,14 @@ def _append(cd: Optional[dict], e: dict, c: dict, via: str) -> None:
 
 
 def _ctx(els: List[dict], k: int, pid: str) -> int:
-    """How many neighbours of place k the databases record next to ``pid`` (teacher or student)."""
-    pairs = []
-    if k > 0:
-        pairs += [(pid, s) for s in identity._top(els[k - 1])]
-    if k + 1 < len(els):
-        pairs += [(t, pid) for t in identity._top(els[k + 1])]
+    """How many neighbours of place k the databases record next to ``pid`` (teacher or student): the side before, the side after."""
+    before, after = identity._beside(els, k, -1), identity._beside(els, k, +1)
+    pairs = [(pid, s) for p in before for s in identity._top(p)] + [(t, pid) for n in after for t in identity._top(n)]
     if not pairs:
         return 0
     adj = identity._adjacent(pairs)
-    return int(any((pid, s) in adj for s in (identity._top(els[k - 1]) if k > 0 else []))) + \
-        int(any((t, pid) in adj for t in (identity._top(els[k + 1]) if k + 1 < len(els) else [])))
+    return int(any((pid, s) in adj for p in before for s in identity._top(p))) + \
+        int(any((t, pid) in adj for n in after for t in identity._top(n)))
 
 
 def _label(pid: str) -> str:
@@ -161,9 +158,9 @@ def _best(core: str, trad: str, e: dict) -> Optional[dict]:
 
 def _relative(add, picks, els, k, e, cd, base) -> None:
     rel = identity.RELATION.get(e["name"])
-    if not rel or k == 0 or (e["cands"] and e["cands"][0].get("derived")):
+    prev = identity._beside1(els, k, -1)
+    if not rel or prev is None or (e["cands"] and e["cands"][0].get("derived")):
         return
-    prev = els[k - 1]
     if rel == "grandfather" and identity.RELATION.get(identity.relative_word(prev["name"]) or "") == "father":
         rel = "father"                                 # «عن أبيه عن جده»: the father of the father
     occb = f"{base['aid']}|{prev['i']}"

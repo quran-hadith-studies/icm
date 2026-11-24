@@ -201,3 +201,44 @@ def test_the_father_of_an_imam_comes_from_the_table_of_imams_not_from_the_pairs(
     finally:
         identity._label, identity.noor_index = label, ni
         _restore(d, old)
+
+
+def test_words_noor_kept_between_two_narrators_are_not_read_again_as_a_hidden_narrator():
+    ch = dict(aid="w:1#0", wid="w:1", source="noor_slots", speaker=None, quoted_work=None, flags=[],
+              elems=[dict(_el(0, "الكليني", None, "collector", "collector")),
+                     dict(_el(1, "ابی الربیع الشامی", "noor:7")),
+                     dict(_el(2, "سیل", None), hidden=True),                       # «قال سئل» between him and the Imam
+                     dict(_el(3, "ابو عبد الله", "noor:2107"), term="قال سئل"),
+                     dict(_el(4, "الخمر فقال", None), hidden=True),        # what he was asked about, not a narrator
+                     dict(_el(5, "ابن فلان بن علان", None), hidden=True)])     # a name after the question stays
+    old = identity.chains_for
+    identity.chains_for = lambda w: [ch]
+    try:
+        out = identity.build([dict(wid="w:1", corpus="v02", hid=1)])
+    finally:
+        identity.chains_for = old
+    assert [e["i"] for e in out["chains"][0]["elems"]] == [0, 1, 3, 5]               # places 2 and 4 left, the others keep their numbers
+
+
+def test_two_names_joined_by_and_are_parallel_narrators_and_make_a_chain_of_every_combination():
+    from icm import graph
+    old = names.vocab
+    names.vocab = lambda: {"ومحمد": 2376, "محمد": 103888, "وعده": 3, "عده": 22, "وهب": 400, "هب": 1, "بن": 99999}
+    try:
+        ch = identity.text_chain(dict(wid="w:1", author="الكليني", sanad="علي بن إبراهيم عن أبيه ومحمد بن يحيى عن أحمد بن محمد وعدة من أصحابنا عن سهل بن زياد جميعا"))
+        assert identity._split_parallel([ch]) == 2
+        assert [(e["i"], e["name"], e.get("par")) for e in ch["elems"]] == [
+            (0, "الكليني", None), (1, "علی بن ابراهیم", None), (2, "ابیه", 2), (516, "محمد بن یحیی", 2),
+            (3, "احمد بن محمد", 3), (524, "عده من اصحابنا", 3), (4, "سهل بن زیاد جمیعا", None)]       # the first keeps its number
+        assert ch["elems"][5]["kind"] == "anon" and ch["elems"][3]["term"] == "و"
+        els = ch["elems"]
+        assert [e["i"] for e in identity._beside(els, 6, -1)] == [3, 524]                         # Sahl follows both
+        assert [e["i"] for e in identity._beside(els, 2, +1)] == [3, 524] and [e["i"] for e in identity._beside(els, 1, +1)] == [2, 516]
+        assert identity._beside1(els, 4, -1)["i"] == 516 and identity._beside1(els, 0, -1) is None
+        res = [dict(i=e["i"], nid=f"n:{e['i']}", par=e.get("par")) for e in els]
+        got = graph._combinations(res)
+        assert len(got) == 4 and all(len(c) == 5 and c[0] == "n:4" and c[-1] == "n:0" for c in got)   # source -> collector
+        assert sorted(c[1:3] for c in got) == [["n:3", "n:2"], ["n:3", "n:516"], ["n:524", "n:2"], ["n:524", "n:516"]]
+        assert identity.clean_parts("محمد بن عبد الله وهب بن منبه") == ["محمد بن عبد الله وهب بن منبه"]     # a name that begins with «و» is one name
+    finally:
+        names.vocab = old
