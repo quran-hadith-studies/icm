@@ -312,7 +312,7 @@ def test_the_same_hadith_in_a_book_with_linked_isnads_gives_the_persons_of_short
     kafi = [_pl("علی بن ابراهیم", "noor:3915"), _pl("ابیه", "noor:203"), _pl("محمد بن یحیی", "noor:5698"), _pl("احمد بن محمد", "noor:660"),
             _pl("ابن محبوب", "noor:1190"), _pl("خالد بن جریر", "noor:2369"), _pl("ابی الربیع الشامی", "noor:235")]
     got = _fz(wafi, kafi)
-    assert {i: next(iter(s)) for i, s in got.items()} == {0: "noor:3915", 1: "noor:203", 2: "noor:5698", 3: "noor:660", 4: "noor:1190", 5: "noor:2369", 6: "noor:235"}
+    assert {i: next(iter(s)) for i, s in got.items()} == {0: "noor:3915", 2: "noor:5698", 3: "noor:660", 4: "noor:1190", 5: "noor:2369", 6: "noor:235"}
 
 
 def test_a_loose_match_with_no_matched_neighbour_gives_nothing():
@@ -325,3 +325,10 @@ def test_a_loose_match_with_no_matched_neighbour_gives_nothing():
 def test_the_reference_before_a_name_and_the_group_abbreviation():
     assert sanad_parse.strip_nonname("1 الکافی 1 1 396 6 علی")["core"] == "علی"
     assert sanad_parse.is_anon_group("العدة") and not sanad_parse.is_anon_group("العدة من اصحابنا")
+
+
+def test_a_word_that_begins_many_names_or_a_relative_is_not_taken_from_a_twin():
+    a = [_pl("ابو", cands=["noor:2107"]), _pl("ابیه", cands=["noor:203"]), _pl("خالد بن جریر"), _pl("ابی الربیع الشامی"), _pl("سهل", cands=["noor:2921"])]
+    b = [_pl("ابو عبد الله", "noor:2107"), _pl("ابیه", "noor:203"), _pl("خالد بن جریر", "noor:2369"), _pl("ابی الربیع الشامی", "noor:235"), _pl("سهل بن زیاد", "noor:2921")]
+    got = _fz(a, b)
+    assert 0 not in got and 1 not in got and got[2] == {"noor:2369"}

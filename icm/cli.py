@@ -12,6 +12,7 @@
   eval                           recall of the search against the diagram witnesses and the consensus sets
   build kg|noor|termdf|books|hadithai   (re)build the laptop-side data files
   build names                    names.sqlite: which person a written name is, in which company (Noor slots + the KG's tagged isnads; needs KG_SRC)
+  build twins                    twins.sqlite: for every hadith the other hadiths with the same opening that carry narrator ids (preprocess for twin_fuzzy)
   build authors                  authors.json: which book authors are certainly which narrator-database person (name + death year; needs books)
   build roots                    the root of every Arabic word form (needs camel-tools: conda env dev3)  -> external/icm/term_root.tsv
   build lex                      lex.sqlite: word / root / sanad / book index of both corpora (needs the roots file)
@@ -70,7 +71,7 @@ def main(argv=None) -> int:
     sub.add_parser("eval")
     sub.add_parser("app", add_help=False)           # own parser in icm.app
     hp = sub.add_parser("helper", add_help=False)   # own parser in icm.helper
-    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "names", "authors", "model", "roots", "lex", "vec", "parts", "all"])
+    b = sub.add_parser("build"); b.add_argument("what", choices=["kg", "noor", "termdf", "books", "hadithai", "names", "authors", "twins", "model", "roots", "lex", "vec", "parts", "all"])
     b.add_argument("--model", default="BAAI/bge-m3", help="build vec: the embedding model (Hugging Face name)")
     b.add_argument("--limit", type=int, help="build lex / vec: only the first N rows of each corpus (a trial)")
     b.add_argument("--out", help="build lex / vec / parts: another output path")
@@ -122,6 +123,10 @@ def main(argv=None) -> int:
         if a.what == "names":
             from .build import names as build_names
             build_names.run(a.out)
+            return 0
+        if a.what == "twins":
+            from .build import twins as build_twins
+            build_twins.run()
             return 0
         if a.what == "authors":
             from .build import authors as build_authors

@@ -33,7 +33,8 @@ else
 fi
 # the written-names model (identity.auto_links) and the wiki's review queue; names_wiki.sqlite is written ON the server by the wiki's «انتشار», never shipped
 # the book authors' table (python3 -m icm build authors): who a collector is; it is in the identify key, so ship it BEFORE the code too
-for f in authors.json names.sqlite name_patterns.sqlite; do
+# twins.sqlite (python3 -m icm build twins, ~1 min): per hadith the same-text hadiths that carry ids (twin_fuzzy); in the identify key, so ship it BEFORE the code
+for f in authors.json twins.sqlite names.sqlite name_patterns.sqlite; do
   if [ -f "$SRC/$f" ]; then rsync "${FLAGS[@]}" "$f" "$HOST:$DEST/data/icm/"; else echo "==> no $SRC/$f (python3 -m icm build names / python3 -m narwiki names build): step «راویان» then finds no automatic links by written names"; fi
 done
 # the semantic index (python3 -m icm build vec): vectors, lists and the model's weights; not the chunk texts or raw vectors it is built from

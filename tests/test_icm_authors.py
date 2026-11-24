@@ -134,3 +134,18 @@ def test_name_link_reads_the_table(monkeypatch):
                                             authors.key_of("فلان بن فلان", 400): dict(ids=[], by_name=["noor:1", "noor:2"])})
     assert authors.name_link("ابن هارون، یحیی بن حسین", 424) == "noor:20620"
     assert authors.name_link("فلان بن فلان", 400) is None and authors.lookup("ابن هارون، یحیی بن حسین", 424) is None
+
+
+def test_twins_are_read_from_the_file_and_its_stamp_is_a_key(tmp_path, monkeypatch):
+    import sqlite3
+    from icm import config, twins
+    f = tmp_path / "twins.sqlite"
+    monkeypatch.setattr(config, "TWINS_DB", str(f))
+    assert twins.key() == "" and twins.of("v02", 5) == []
+    c = sqlite3.connect(f)
+    c.executescript("create table twin(corp text, hid integer, db text, tid integer, primary key (corp, hid, db, tid)) without rowid;"
+                    "create table meta(k text primary key, v text); insert into twin values ('v02', 5, 'noor', 77), ('v02', 5, 'kg', 9); insert into meta values ('built', 'T1');")
+    c.commit()
+    c.close()
+    monkeypatch.setattr(twins, "_local", type(twins._local)())
+    assert sorted(twins.of("v02", 5)) == [("kg", 9), ("noor", 77)] and twins.key() == "T1" and twins.of("kg", 5) == []

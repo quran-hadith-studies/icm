@@ -673,23 +673,38 @@ def _fuzzy_twins(ch: dict, places: List[dict], ks: List[str], rows, need: int = 
                 if debug is not None:
                     debug.setdefault(a, []).append((len(pairs), same, bool(ks[a] and ks[a] == oks[b]), len(named),
                                                    len(nb), sum(1 for x, y in nb if ks[x] and ks[x] == oks[y])))
+                if ks[a] in GENERIC_FIRST or places[a]["kind"] == "relative" or relative_word(places[a]["name"]):
+                    continue                               # «ابو», «ابيه»: not a name of one person
                 if ks[a] and ks[a] == oks[b] or nb:             # a loose match stands only next to another match (alone it is right in 62%, with one in 98%)
                     out[a].add(oplaces[b]["exact"])
     return out
 
 
 def _twin_rows(rec: Optional[dict], limit: int = 8) -> list:
-    """The Noor isnads of the matched hadiths of ``rec`` (the v02 consensus set) as chains with ids, for ``_fuzzy_twins``."""
-    if not rec or rec.get("corpus") != "v02":
+    """The isnads of the hadiths that are the same text and carry ids, as chains for ``_fuzzy_twins``: Noor's (the matched hadiths of the v02
+    consensus sets, and the twins ``twins.sqlite`` found by the opening words) and the KG's tagged ones (their written names from the names file)."""
+    if not rec or rec.get("corpus") not in ("v02", "kg"):
         return []
-    from . import relations
+    from . import relations, twins
+    corp, hid = rec["corpus"], int(rec["hid"])
+    noor_ids: List[int] = []
+    kg_ids: List[int] = []
+    if corp == "v02":
+        for t in sorted(relations.consensus_set(hid)):
+            nid = _noor_twin(t)
+            if nid is not None:
+                noor_ids.append(nid)
+    for db, tid in twins.of(corp, hid):
+        if db == "noor" and tid not in noor_ids:
+            noor_ids.append(tid)
+        elif db == "kg" and not (corp == "kg" and tid == hid):
+            kg_ids.append(tid)
     rows, done = [], 0
     c = _nconn()
     try:
-        for t in sorted(relations.consensus_set(int(rec["hid"]))):
-            nid = _noor_twin(t)
-            if nid is None or done >= limit:
-                continue
+        for nid in noor_ids:
+            if done >= limit:
+                break
             chains: Dict[int, list] = defaultdict(list)
             for r in c.execute("select sanad_idx, title, ravi_id, type from slot where hadith_id=? order by sanad_idx, pos", (nid,)):
                 if r["type"] != 4 and r["ravi_id"] != PROPHET_ID:
@@ -700,9 +715,14 @@ def _twin_rows(rec: Optional[dict], limit: int = 8) -> list:
             for idx, sl in chains.items():
                 places = [dict(name=r["title"] or "", kind="anon" if sanad_parse.is_anon(r["title"] or "") else "name",
                                exact=f"noor:{r['ravi_id']}" if r["ravi_id"] else None, cands=[]) for r in sl]
-                rows.append((dict(wid=f"twin:{nid}#{idx}"), None, places, [names.written_key(p["name"]) for p in places]))
+                rows.append((dict(wid=f"twin:noor{nid}#{idx}"), None, places, [names.written_key(p["name"]) for p in places]))
     finally:
         c.close()
+    for kid in kg_ids[:max(0, limit - done)]:
+        ch = names.kg_chain(kid)
+        if len(ch) >= 2:
+            places = [dict(name=k, kind="name", exact=f"kg:{rid}" if rid else None, cands=[]) for k, rid in ch]
+            rows.append((dict(wid=f"twin:kg{kid}"), None, places, [k for k, _ in ch]))
     return rows
 
 
@@ -1453,6 +1473,7 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
     return n
 
 
+GENERIC_FIRST = {names.written_key(x) for x in sanad_parse._DATA["generic_first"]}
 MATN_OPEN = {norm(x) for x in sanad_parse._DATA["matn_open"]}
 ASK_WORDS = {norm(x) for x in ("سئل", "وسئل", "سأل", "سألت", "سألته", "وسألت", "فسألت", "سألنا")}      # the isnad turns into a question
 

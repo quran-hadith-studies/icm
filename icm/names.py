@@ -220,6 +220,17 @@ def kg_written(hid: int) -> Dict[int, list]:
     return out
 
 
+def kg_chain(hid: int) -> list:
+    """[(written key, narrator id or 0)] of a KG hadith's inline mentions in text order."""
+    c = _conn()
+    if c is None:
+        return []
+    try:
+        return [(k, rid or 0) for rid, k in c.execute("select m.rawi_id, n.k from kgm m join name n on n.id=m.nid where m.hid=? order by m.seq", (int(hid),))]
+    except sqlite3.OperationalError:
+        return []
+
+
 _VOCAB: Dict[str, Tuple[tuple, dict]] = {}
 
 
