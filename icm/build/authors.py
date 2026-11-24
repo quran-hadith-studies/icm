@@ -2,6 +2,9 @@
 
     python3 -m icm build authors
 
+A catalogue often puts a second name in brackets («يوسف بن عبد الله النمري القرطبي ( ابن عبد البر )»); it is tried as the author's name
+beside the first (notes such as «( تحقيق … )» and «(ع)» are not), and «عبد الله» as one word or two is the same name.
+
 The collector of a hadith is its book's author, written as the book's catalogue wrote him («الشيخ الصدوق», «البخاري»,
 «مفید، محمد بن محمد»). Matching that name against the narrator databases alone picks wrong people (al-Kulayni became
 al-Tusi), so a link is made only when *both* checks hold:
@@ -51,6 +54,36 @@ def subseq(a: tuple, b: tuple) -> bool:
     return all(t in it for t in a)
 
 
+PAREN = re.compile(r"[(（]([^)）]*)[)）]")
+NOT_A_NAME = re.compile(r"^\s*(تحقيق|مترجم|ترجمه|ترجمة|شرح|جمع|اعداد|إعداد|ع|عج|ص|رض|ره)\b")
+
+
+def glued(t: tuple) -> tuple:
+    """«عبد الله» written as one word and as two are one name: the two-word spelling joined."""
+    out, i = [], 0
+    while i < len(t):
+        if t[i] == "عبد" and i + 1 < len(t):
+            out.append(t[i] + t[i + 1])
+            i += 2
+        else:
+            out.append(t[i])
+            i += 1
+    return tuple(out)
+
+
+def forms(author: str) -> List[tuple]:
+    """The names an author is catalogued by: the text outside the brackets, and what is in them when it is another name
+    («يوسف بن عبد الله النمري القرطبي ( ابن عبد البر )» is Ibn Abd al-Barr; «( تحقيق صالح )» and «(ع)» are not names), each also with
+    «عبد الله» as one word."""
+    main = toks(PAREN.sub(" ", author))
+    out = [main] if main else []
+    for m in PAREN.findall(author):
+        t = toks(m)
+        if len(t) >= 2 and not NOT_A_NAME.match(m):
+            out.append(t)
+    return list(dict.fromkeys(out + [glued(t) for t in out]))
+
+
 class Person:
     """``deaths``: every death year the database has (Noor may hold several, from different books)."""
     __slots__ = ("id", "name", "variants", "deaths")
@@ -58,7 +91,7 @@ class Person:
     def __init__(self, id, name, variants, deaths):
         self.id, self.name = id, name
         self.deaths = tuple(deaths) if isinstance(deaths, (list, tuple, set)) else (deaths,)
-        self.variants = [v for v in {toks(x) for x in variants if x} if v]
+        self.variants = [v for v in {t for x in variants if x for t in (toks(x), glued(toks(x)))} if v]
 
 
 def _noor() -> List[Person]:
@@ -210,16 +243,17 @@ def run(dst: str = OUT) -> None:
     authors = _authors()
     res, review = {}, []
     for key, a in sorted(authors.items(), key=lambda kv: -kv[1]["n_books"]):
-        tk = toks(a["author"])
+        fm = forms(a["author"])
+        tk = fm[0] if fm else toks(a["author"])
         rec = dict(author=a["author"], death=a["death"], n_books=a["n_books"], ids=[], known=[], ambiguous={}, by=None)
         known = []                 # the author as OpenITI / muslimscholars have him, when exactly one of their persons fits
         for name in ("openiti", "ms"):
-            ps = srcs[name].passing(tk, a["death"])
+            ps = srcs[name].passing_any(fm, a["death"])
             if len(ps) == 1:
                 known.append(ps[0])
         rec["known"] = [q.id for q in known]
         for name in ("noor", "kg"):
-            ps = srcs[name].passing(tk, a["death"])
+            ps = srcs[name].passing_any(fm, a["death"])
             if len(set(tk)) == 1 and not known:
                 ps = []                  # a lone nickname («الخلال») and a year are not enough unless OpenITI / muslimscholars know the author too
             by = "name+death"

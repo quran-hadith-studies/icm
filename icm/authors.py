@@ -9,6 +9,7 @@ author that is not in the table is not known to be anybody; he stays a name for 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -29,6 +30,7 @@ LINKED_SOURCES = ("kg", "arsanad", "hawramani", "muslimscholars")
 _lock = threading.Lock()
 _table: Optional[Dict[str, dict]] = None
 _noor: Optional[Dict[int, Set[float]]] = None
+_key: list = [None, ""]
 
 
 def toks(s: str) -> tuple:
@@ -70,6 +72,18 @@ def table() -> Dict[str, dict]:
             except FileNotFoundError:
                 _table = {}
     return _table
+
+
+def key() -> str:
+    """Goes into the identify stage's key: a rebuilt table changes who a book's author is."""
+    try:
+        st = os.stat(AUTHORS_JSON)
+    except OSError:
+        return ""
+    sig = (st.st_mtime_ns, st.st_size)
+    if _key[0] != sig:
+        _key[:] = [sig, hashlib.md5(open(AUTHORS_JSON, "rb").read()).hexdigest()[:12]]
+    return _key[1]
 
 
 def lookup(author: Optional[str], death) -> Optional[dict]:

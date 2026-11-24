@@ -81,3 +81,30 @@ def test_a_candidate_whose_death_is_years_from_the_books_is_dropped(monkeypatch)
     assert authors.contradicts("noor:1", 460) and not authors.contradicts("noor:2", 460)
     assert not authors.contradicts("noor:3", 460) and not authors.contradicts("noor:9", 460)      # no death recorded: nothing to contradict
     assert not authors.contradicts("kg:7", 460)
+
+
+def _ids_forms(src, author, death):
+    return [p.id for p in src.passing_any(build.forms(author), death)]
+
+
+def test_a_name_in_brackets_is_another_name_of_the_author_and_a_note_is_not():
+    s = _src(("kg:1", ["يوسف بن عبد الله بن محمد بن عبد البر بن عاصم", "ابن عبد البر القرطبي"], 463),
+             ("kg:2", ["صالح بن أحمد"], 463))
+    assert _ids_forms(s, "يوسف بن عبد الله النمري القرطبي ( ابن عبد البر )", 463) == ["kg:1"]
+    assert build.forms("محمد بن إسحاق ( تحقيق صالح )") == [authors.toks("محمد بن إسحاق")]
+    assert build.forms("علي (ع)") == [authors.toks("علي")]
+
+
+def test_abd_allah_is_one_name_written_as_one_word_or_two():
+    s = _src(("kg:1", ["يوسف بن عبد الله بن محمد بن عبد البر بن عاصم", "ابن عبد البر القرطبي"], 463))
+    assert _ids_forms(s, "يوسف بن عبدالله بن عبدالبر", 463) == ["kg:1"]
+
+
+def test_the_authors_table_has_a_key_that_changes_with_the_file(tmp_path, monkeypatch):
+    f = tmp_path / "authors.json"
+    monkeypatch.setattr(authors, "AUTHORS_JSON", str(f))
+    assert authors.key() == ""
+    f.write_text('{"authors": {}}')
+    a = authors.key()
+    f.write_text('{"authors": {"x": {}}}')
+    assert a and authors.key() not in ("", a)
