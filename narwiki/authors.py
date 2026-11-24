@@ -112,7 +112,7 @@ def plan(authors_path: str, books_path: str, with_databases: bool = True) -> dic
     for k, v in cand.items():
         by_death[v["death"]].append(k)
     for ks in by_death.values():
-        sets = {k: set(toks(cand[k]["author"])) for k in ks}
+        sets = {k: set(toks(display(cand[k]["author"]))) for k in ks}
         for a in ks:
             for b in ks:
                 if a < b:
