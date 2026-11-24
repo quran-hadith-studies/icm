@@ -94,7 +94,7 @@ class Person:
         self.variants = [v for v in {t for x in variants if x for t in (toks(x), glued(toks(x)))} if v]
 
 
-def _noor() -> List[Person]:
+def _noor(everyone: bool = False) -> List[Person]:
     c = sqlite3.connect(f"file:{config.NARRATORS_DB}?mode=ro&immutable=1", uri=True)
     c.row_factory = sqlite3.Row
     deaths = defaultdict(set)
@@ -102,7 +102,7 @@ def _noor() -> List[Person]:
         deaths[rid] = ds
     out = []
     for r in c.execute("select ravi_id, name, kunya, ishtihar, laqab_json from ravi"):
-        if r["ravi_id"] not in deaths:
+        if r["ravi_id"] not in deaths and not everyone:
             continue
         lq = []
         for x in json.loads(r["laqab_json"] or "[]"):
@@ -111,10 +111,10 @@ def _noor() -> List[Person]:
     return out
 
 
-def _kg() -> List[Person]:
+def _kg(everyone: bool = False) -> List[Person]:
     c = sqlite3.connect(f"file:{config.KG_DB}?mode=ro&immutable=1", uri=True)
-    return [Person(f"kg:{i}", n, [n, nn], d) for i, n, nn, d in c.execute(
-        "select id, name, nickname, death_year from rawis where death_year is not null and death_year > 0")]
+    return [Person(f"kg:{i}", n, [n, nn], d if d and d > 0 else ()) for i, n, nn, d in c.execute(
+        "select id, name, nickname, death_year from rawis" + ("" if everyone else " where death_year is not null and death_year > 0"))]
 
 
 def _openiti() -> List[Person]:
@@ -148,6 +148,29 @@ class Source:
         for p in persons:
             for d in p.deaths:
                 self.by_year[int(round(d))][p.id] = p
+
+    def index_everyone(self, persons: List[Person]) -> None:
+        """For ``by_name``: every person of the database, whether or not it has a death year."""
+        self.inv: Dict[str, List[Person]] = defaultdict(list)
+        for p in persons:
+            for t in set().union(*map(set, p.variants)) if p.variants else ():
+                self.inv[t].append(p)
+
+    def by_name(self, names: Iterable[tuple], death: int) -> List[Person]:
+        """The persons whose written name begins with the author's full name (at least three words, the last of them may come later; a rare
+        word among them), leaving out those whose recorded death is years from the book's. Exactly one person is a link when he has no
+        death year of his own (``name+death`` could not see him): measured on the authors that name+death links, with the death years
+        ignored, it is the same person in every case it gives one (107 of 107)."""
+        out: Dict[str, Person] = {}
+        for a in names:
+            if len(a) < 3 or not any(self.df[t] < RARE_DF for t in set(a)):
+                continue
+            for p in self.inv.get(min(set(a), key=lambda t: self.df[t] or 10 ** 9), ()):
+                if p.deaths and min(abs(d - death) for d in p.deaths) > 1:
+                    continue
+                if any(len(v) >= len(a) and (v[:len(a)] == a or v[:len(a) - 1] == a[:-1] and a[-1] in v[len(a) - 1:]) for v in p.variants):
+                    out[p.id] = p            # his name begins with the author's, whose last word (a nisba) may come later: «محمد بن عبد الوهاب» is not «محمد بن أحمد بن عبد الوهاب»
+        return list(out.values())
 
     def _same_lineage(self, a: tuple, p: tuple) -> bool:
         """Two full names that begin with the same name, father, grandfather and great-grandfather (after a kunya): one may stop
@@ -239,13 +262,15 @@ def run(dst: str = OUT) -> None:
             for t in set().union(*map(set, p.variants)) if p.variants else ():
                 df[t] += 1
     srcs = {k: Source(k, v, df, relaxed=k in ("openiti", "ms")) for k, v in persons.items()}
+    for name, everyone in (("noor", _noor(True)), ("kg", _kg(True))):
+        srcs[name].index_everyone(everyone)
     hand = _overrides()
     authors = _authors()
     res, review = {}, []
     for key, a in sorted(authors.items(), key=lambda kv: -kv[1]["n_books"]):
         fm = forms(a["author"])
         tk = fm[0] if fm else toks(a["author"])
-        rec = dict(author=a["author"], death=a["death"], n_books=a["n_books"], ids=[], known=[], ambiguous={}, by=None)
+        rec = dict(author=a["author"], death=a["death"], n_books=a["n_books"], ids=[], known=[], ambiguous={}, by=None, by_name=[])
         known = []                 # the author as OpenITI / muslimscholars have him, when exactly one of their persons fits
         for name in ("openiti", "ms"):
             ps = srcs[name].passing_any(fm, a["death"])
@@ -270,9 +295,14 @@ def run(dst: str = OUT) -> None:
                 rec["by"] = by
             elif len(ps) > 1:
                 rec["ambiguous"][name] = [f"{p.id} {p.name}" for p in ps[:6]]
+        if not rec["ids"]:                  # no person agrees in name and death year: one whose name is the author's full name and who has no death year
+            for name in ("noor", "kg"):
+                ps = [p for p in srcs[name].by_name(fm, a["death"])]
+                if len(ps) == 1 and not ps[0].deaths:
+                    rec["by_name"].append(ps[0].id)
         h = hand.get(key) or next((hand[q] for q in rec["known"] if q in hand), None)
         if h and not rec["ids"]:
-            rec["ids"], rec["by"] = h["ids"], "hand: " + h["note"]
+            rec["ids"], rec["by"], rec["by_name"] = h["ids"], "hand: " + h["note"], []
         res[key] = rec
         if not rec["ids"]:
             review.append(rec)

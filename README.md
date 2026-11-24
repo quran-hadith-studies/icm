@@ -1023,6 +1023,10 @@ in one place), 38% were real names with several candidates, 9% relatives («عن
   was learnt. The graph makes one chain per choice of one narrator per level (at most 8, aid `<aid>+k`), as for a hadith with several
   Noor isnads. A glued «و» («ومحمد») splits when the word without it is ≥10× as common in the names file; names that begin with «و»
   («وهب», «وكيع») do not. Decisions taken on the old one-place reading of such a name no longer apply (its card key changed).
+- **Author by name only** (`build/authors.py` `Source.by_name`, `authors.name_link`, `author_name`): when no person agrees with a book's author in name *and* death year, one whose name begins with the author's full name (≥3 words; the last, a nisba, may come later) and who has no death year of his own is a suggestion. Measured on the authors name+death links, with the death years ignored: the same person in 110 of 110 cases where it gives one (it gives one for 110 of 389).
+- **Pointers back** (`identity._without_backref`): «وبه قال: حدثنا …», «وبهذا الإسناد», «وعنه» as the first words of an isnad (3% of the
+  hadiths of a 80 000 sample) mean «the isnad of the hadith before»; the place is removed (its number stays unused) and the chain gets
+  the flag `gap:…`.
 - **Reported narrators** (`identity._split_reported`, `rep`): «قرأت على أحمد بن قاسم أن قاسم بن اصبغ حدثهم» — the parser keeps «A أن B» as one
   place; when the word after it (in the text) is an isnad verb (حدثهم، حدثه، أخبره، أخبرهم، حدثنا …) it is two places in a row, B the next
   narrator (id `500 + 8·i + 7`, phrase «ان»). A story («أن عمر سأل النبي», «أن رسول الله») is left as it is; the words after «أن» are

@@ -94,6 +94,15 @@ def lookup(author: Optional[str], death) -> Optional[dict]:
     return rec if rec and rec.get("ids") else None
 
 
+def name_link(author: Optional[str], death) -> Optional[str]:
+    """The one person whose name begins with the author's full name and who has no death year of his own (so ``lookup`` could not
+    check): a suggestion for the user to approve, never used on its own. None when there is none."""
+    if not author or not death:
+        return None
+    ids = (table().get(key_of(author, death)) or {}).get("by_name") or []
+    return ids[0] if len(ids) == 1 else None
+
+
 def contradicts(pid: str, death, margin: int = 5) -> bool:
     """The person's own death year (when the database has one) is more than ``margin`` years from the book author's."""
     if not death:

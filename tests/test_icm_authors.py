@@ -108,3 +108,29 @@ def test_the_authors_table_has_a_key_that_changes_with_the_file(tmp_path, monkey
     a = authors.key()
     f.write_text('{"authors": {"x": {}}}')
     assert a and authors.key() not in ("", a)
+
+
+def test_a_person_without_a_death_year_whose_name_begins_with_the_authors_is_a_name_link():
+    persons = [build.Person("noor:1", "يحيى بن الحسين بن هارون أبو طالب الحسني", ["يحيى بن الحسين بن هارون أبو طالب الحسني"], ()),
+               build.Person("noor:2", "محمد بن أحمد ابن عبد الوهاب أبو بكر", ["محمد بن أحمد ابن عبد الوهاب أبو بكر"], ()),
+               build.Person("noor:3", "أحمد بن الحسين بن علي بن موسى البيهقي", ["أحمد بن الحسين بن علي بن موسى البيهقي"], (458,)),
+               build.Person("noor:4", "أحمد بن الحسين بن علي بن موسى البيهقي", ["أحمد بن الحسين بن علي بن موسى البيهقي"], (300,))]
+    df = Counter()
+    for p in persons:
+        for t in set().union(*map(set, p.variants)):
+            df[t] += 1
+    src = build.Source("noor", persons, df)
+    src.index_everyone(persons)
+
+    def ids(author, death):
+        return [p.id for p in src.by_name(build.forms(author), death)]
+    assert ids("ابن هارون، یحیی بن حسین", 424) == ["noor:1"]
+    assert ids("محمد بن عبد الوهاب", 1206) == []                    # his father's name is the grandfather's of noor:2
+    assert ids("أحمد بن الحسين البيهقي", 458) == ["noor:3"]         # the one whose death year is years from the book's is left out
+
+
+def test_name_link_reads_the_table(monkeypatch):
+    monkeypatch.setattr(authors, "_table", {authors.key_of("ابن هارون، یحیی بن حسین", 424): dict(ids=[], by_name=["noor:20620"]),
+                                            authors.key_of("فلان بن فلان", 400): dict(ids=[], by_name=["noor:1", "noor:2"])})
+    assert authors.name_link("ابن هارون، یحیی بن حسین", 424) == "noor:20620"
+    assert authors.name_link("فلان بن فلان", 400) is None and authors.lookup("ابن هارون، یحیی بن حسین", 424) is None

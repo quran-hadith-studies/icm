@@ -266,3 +266,15 @@ def test_a_story_after_an_is_not_an_isnad_report():
 def test_the_name_after_an_is_in_the_accusative():
     els = _reported("حدثنا أبو بكر عن سعيد بن المسيب أن أبا هريرة حدثه قال حدثنا فلان")
     assert [e["name"] for e in els if e.get("report_from")] == ["ابو هریره"]
+
+
+def test_a_pointer_back_to_the_isnad_before_is_no_narrator():
+    for lead in ("و بِهِ قَالَ: حَدَّثَنَا", "وبه قال حدثنا", "وبهذا الاسناد قال حدثنا", "وعنه قال حدثنا"):
+        w = dict(wid="v02:1", sanad=f"{lead} أبو علي أحمد بن عبد الله الأصفهاني قال حدثنا عبد الرحمن بن أبي حاتم", matn="", author="X", corpus="v02")
+        ch = identity.text_chain(w)
+        assert ch["elems"][1]["name"] in ("به", "وبه", "وبهذا الاسناد", "وعنه"), lead
+        assert identity._without_backref(ch) == 1
+        assert [e["i"] for e in ch["elems"]] == [0, 2, 3] and any(f.startswith("gap:") for f in ch["flags"])
+    w = dict(wid="v02:1", sanad="حدثنا أحمد بن عبد الله قال حدثنا به", matn="", author="X", corpus="v02")
+    ch = identity.text_chain(w)
+    assert identity._without_backref(ch) == 0 and len(ch["elems"]) == 3

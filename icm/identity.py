@@ -499,6 +499,10 @@ def _collector(e: dict, trad: str) -> None:
         return
     cs = match(e["name"], trad, False, e.get("death"), True)
     e["cands"] = [c for c in cs if not authors.contradicts(c["id"], e.get("death"))]
+    nm = authors.name_link(e["raw"], e.get("death")) or authors.name_link(e["name"], e.get("death"))
+    if nm:
+        e["sugg"] = dict(id=nm, rule="author_name", src="authors", prec=AUTHOR_NAME_PREC)
+        _sugg_candidate(e)
 
 
 def _label(pid: str) -> str:
@@ -553,7 +557,9 @@ AUTO_RULE_FA = dict(ctx3="همین نام با همان راوی پیش و پس 
                     name_adj="تقریباً همیشه همین راوی است (در هر دسته از کتاب‌ها) و در سندهای پایگاه کنار همسایه‌های این سند آمده")
 AUTO_SRC_FA["imams"] = "پدرِ امام، از جدول امامان"
 AUTO_SRC_FA["father"] = "پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه (با فاصله‌ی روشن از نامزد بعدی)"
-SUGG_FA = dict(father_of_prev="پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه",
+AUTHOR_NAME_PREC = 0.97             # measured: name only (death years ignored) gave the same person as name + death year in 110 of 110 authors (95% lower bound 97%)
+SUGG_FA = dict(author_name="نامِ گردآورنده با آغازِ نامِ این شخص می‌خواند و او در پایگاه سال وفات ندارد (بررسی وفات ممکن نبود)",
+               father_of_prev="پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه",
                name_major="«{name}» در {n} از {tot} حدیثِ پایگاه این راوی است (در هر دسته از کتاب‌ها)",
                adj="از میان نامزدهای این نام، بیشترین هم‌نشینی با راویان پیش و پس از آن در سندهای پایگاه و بیشترین نوشته‌شدن این نام برای او",
                adj_one="تنها نامزدی که در سندهای پایگاه کنار هر دو همسایه‌ی این جا آمده")
@@ -1382,11 +1388,29 @@ def _without_wording(elems: List[dict]) -> List[dict]:
     return out
 
 
+BACKREF = set(sanad_parse.GAPS_STRIP) | {norm(x) for x in sanad_parse._DATA["back_ref"]}
+
+
+def _without_backref(ch: dict) -> int:
+    """«وبه قال: حدثنا …», «وبهذا الإسناد», «وعنه» as the first words of an isnad point to the isnad of the hadith before it in the book:
+    they name nobody. The place is taken out (its number stays unused, as for any removal) and the chain says it begins by pointing back
+    (flag ``gap:…``, as the parser does for «بهذا الاسناد»). A place with a database id is never taken out. Returns 1 when one was."""
+    for k, e in enumerate(ch["elems"]):
+        if e.get("role") == "collector" or e.get("kind") == "collector":
+            continue
+        if e["exact"] or e["kind"] != "name" or norm(e["name"]) not in BACKREF:
+            return 0
+        del ch["elems"][k]
+        ch["flags"] = list(ch.get("flags") or []) + [f"gap:{e['raw']}"]
+        return 1
+    return 0
+
+
 PAR_BASE = 500                       # the k-th further name of a place that held several is 500 + 8 × place + k − 1: below ADDED_BASE, stable
 
 
 REPORT_BASE = PAR_BASE + 7             # the place a report names («… أن X حدثهم») is 500 + 8 × place + 7: the parallel split's own numbers stop at +5
-REPORT_VERBS = {norm(x) for x in ("حدثهم", "حدثه", "حدثنا", "حدثني", "حدثكم", "أخبره", "أخبرهم", "أخبرنا", "أخبرني", "أخبركم", "أنبأه", "أنبأهم", "أنبأنا", "أنبأني")}
+REPORT_VERBS = {norm(x) for x in sanad_parse._DATA["report_verbs"]}
 
 
 _ACCUSATIVE = {"ابا": "ابو", "ابنا": "ابن", "اباه": "ابیه", "اخاه": "اخیه"}
@@ -1496,6 +1520,7 @@ def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, ch
         chains.extend(ch)
     for ch in chains:                                  # Places keep their numbers, as with a removal in the chain editor.
         ch["elems"] = _without_wording(ch["elems"])
+        _without_backref(ch)
     if chain_edits:
         wids = {aid.split("#")[0] for aid in chain_edits}
         apply_chain_edits(chains, {w["wid"]: hadith_words(w) for w in wits if w["wid"] in wids}, chain_edits)
