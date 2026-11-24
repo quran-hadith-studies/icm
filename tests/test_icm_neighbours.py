@@ -338,3 +338,19 @@ def test_the_lam_of_a_book_citation_is_cut_off_the_name():
     assert identity.clean_parts("للصدوق") == ["الصدوق"]                      # «لي، الأمالي، للصدوق»: the work's author, not a name «للصدوق»
     assert identity.clean_parts("للشيخ المفيد") == ["الشیخ المفید"]
     assert identity.clean_parts("لله") == ["لله"]                              # no ل + ال…
+
+
+def test_the_author_naming_himself_at_the_head_of_his_isnad_is_the_collector_but_his_son_is_not():
+    def run(label, written):
+        col = dict(i=0, name="x", kind="collector", role="collector", exact="noor:1")
+        e = dict(i=1, name=written, kind="name", exact=None, cands=[])
+        old, identity._label = identity._label, lambda pid: label
+        try:
+            identity._author_again([(dict(elems=[col, e]), None, [e], ["k"])])
+        finally:
+            identity._label = old
+        return e.get("auto")
+    got = run("محمد بن علي بن الحسين بن بابويه", "الشیخ الفقیه ابو جعفر محمد بن علی بن الحسین بن موسی بن بابویه القمی")
+    assert got and got["id"] == "noor:1" and got["rule"] == "author_again"
+    assert run("عبد الله بن جعفر الحميري", "محمد بن عبد الله بن جعفر الحمیری") is None            # the son
+    assert run("محمد بن علي", "محمد بن علی") is None                                         # two words: too common

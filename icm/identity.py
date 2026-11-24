@@ -573,7 +573,7 @@ SUGG_FA = dict(author_words="همه‌ی واژه‌های نامِ گردآور
                name_major="«{name}» در {n} از {tot} حدیثِ پایگاه این راوی است (در هر دسته از کتاب‌ها)",
                adj="از میان نامزدهای این نام، بیشترین هم‌نشینی با راویان پیش و پس از آن در سندهای پایگاه و بیشترین نوشته‌شدن این نام برای او",
                adj_one="تنها نامزدی که در سندهای پایگاه کنار هر دو همسایه‌ی این جا آمده")
-TRUSTED_NEIGHBOUR = ("family", "twin", "ctx3")             # an automatic link that may vouch for its neighbour's pprev / pnext
+TRUSTED_NEIGHBOUR = ("family", "twin", "ctx3", "author")             # an automatic link that may vouch for its neighbour's pprev / pnext
 
 
 def _written(e: dict) -> str:
@@ -798,17 +798,17 @@ def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], t
             if i and not e.get("exact") and e["kind"] == "name":
                 e["exact"], e["by"] = i, "wiki"
                 e["cands"] = [dict(id=i, label=_label(i), score=9.0, cov=1.0, exact=True, tier="exact", reason="تأییدشده در ویکی راویان")]
+    n_auto = _author_again(rows)
     fam = _family_index([(pl, ks) for _, _, pl, ks in rows])
     gs = {db: (names._getter(db), names.cfg(db)) for db in ("noor", "kg")} if names.available() else {}
     todo = lambda e: not e.get("exact") and e["kind"] == "name" and not e.get("auto")
-    n_auto = 0
 
     def known(e: Optional[dict], db: str) -> Optional[int]:
         """The database id of a neighbour the chain knows for sure enough to vouch for a place next to it."""
         if e is None:
             return None
         a = e.get("auto")
-        i = e.get("exact") or (a["id"] if a and (a["src"] in ("family", "twin") or a["rule"] == "ctx3") else None)
+        i = e.get("exact") or (a["id"] if a and (a["src"] in ("family", "twin", "author") or a["rule"] == "ctx3") else None)
         return int(i.split(":")[1]) if i and i.startswith(db + ":") and i.split(":")[1].isdigit() else None
     skip = set()                                              # places whose sources disagreed
     for rounds in range(2):                                   # the second round knows the persons the first one found next to a place
@@ -858,6 +858,37 @@ def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], t
             _auto_candidate(e)
             _sugg_candidate(e)
     return n_auto
+
+
+AUTHOR_TITLES = {"شيخ", "فقيه", "امام", "علامه", "محقق", "استاد", "حافظ"}
+AUTHOR_KUNYA = {"ابو", "ابي", "ام"}
+AUTO_SRC_FA["author"] = "گردآورنده در سندِ خودش نام خود را نوشته («حدثنا الشيخ الفقيه أبو جعفر محمد بن علي بن …»): همه‌ی واژه‌های نامش به همان ترتیب، از آغازِ نام"
+
+
+def _author_again(rows) -> int:
+    """The author naming himself at the head of his own isnad («حدثنا الشيخ الفقيه أبو جعفر محمد بن علي بن الحسين بن موسى بن بابويه القمي»
+    in the Amali) is the collector: the first place after a collector the databases know, whose written name (after titles and the kunya)
+    begins with the collector's first word and holds the others of his name in order («محمد بن عبد الله بن جعفر الحميري» is the son
+    of «عبد الله بن جعفر الحميري», not he). At least three name words. ``e["auto"]`` with rule ``author_again``; the graph drops the repeat."""
+    n = 0
+    for ch, _, places, _ in rows:
+        col = next((e for e in ch["elems"] if e.get("role") == "collector" and e.get("exact")), None)
+        if col is None or not places or places[0].get("exact") or places[0].get("auto") or places[0]["kind"] != "name":
+            continue
+        need = name_tokens(_label(col["exact"]))
+        parts = clean_parts(places[0]["name"])
+        have = name_tokens(parts[0]) if parts else []
+        while have and have[0] in AUTHOR_TITLES:
+            have = have[1:]
+        if len(have) > 2 and have[0] in AUTHOR_KUNYA:
+            have = have[2:]
+        if len(need) < 3 or have[:1] != need[:1]:
+            continue
+        it = iter(have)
+        if all(w in it for w in need):                           # need is a subsequence of have
+            places[0]["auto"] = dict(id=col["exact"], rule="author_again", n=1, tot=1, src="author", prec=0.99)
+            n += 1
+    return n
 
 
 def _vouch(e: Optional[dict]) -> Optional[str]:
