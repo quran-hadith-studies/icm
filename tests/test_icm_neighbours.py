@@ -332,3 +332,9 @@ def test_a_word_that_begins_many_names_or_a_relative_is_not_taken_from_a_twin():
     b = [_pl("ابو عبد الله", "noor:2107"), _pl("ابیه", "noor:203"), _pl("خالد بن جریر", "noor:2369"), _pl("ابی الربیع الشامی", "noor:235"), _pl("سهل بن زیاد", "noor:2921")]
     got = _fz(a, b)
     assert 0 not in got and 1 not in got and got[2] == {"noor:2369"}
+
+
+def test_the_lam_of_a_book_citation_is_cut_off_the_name():
+    assert identity.clean_parts("للصدوق") == ["الصدوق"]                      # «لي، الأمالي، للصدوق»: the work's author, not a name «للصدوق»
+    assert identity.clean_parts("للشيخ المفيد") == ["الشیخ المفید"]
+    assert identity.clean_parts("لله") == ["لله"]                              # no ل + ال…

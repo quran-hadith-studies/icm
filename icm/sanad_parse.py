@@ -230,7 +230,10 @@ def strip_nonname(name: str) -> dict:
     if lam and toks and toks[0][:2] == "لا" and len(toks[0]) > 3:              # «قلت لابی عبد الله» -> «ابی عبد الله»
         stripped.append("ل")
         toks[0] = toks[0][1:]
-    for i in range(1, len(toks)):                                        # words that end the name: «محمد بن علی انه …»
+    if toks and toks[0][:2] == "لل" and len(toks[0]) > 4:                  # «لي، الأمالي، للصدوق» -> «الصدوق» (ل + ال…)
+        stripped.append("ل")
+        toks[0] = "ال" + toks[0][2:]
+    for i in range(1, len(toks)):                                      # words that end the name: «محمد بن علی انه …»
         if toks[i] in CUT_AFTER:
             stripped += toks[i:]
             reasons.append("connective")
