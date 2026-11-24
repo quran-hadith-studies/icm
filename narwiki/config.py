@@ -34,7 +34,18 @@ def _project_dir(analysis: str) -> str:
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))          # the icm checkout
 PROJECT = _project_dir(HERE)                                                 # hadith-project/
 
-DB = os.environ.get("NARWIKI_DB", os.path.join(PROJECT, "narwiki-data", "wiki.sqlite"))
+def _db_default() -> str:
+    """The laptop's ``hadith-project/narwiki-data/wiki.sqlite``; on the server, where ICM's worker has no NARWIKI_DB, the live wiki next to ICM's
+    data (``<root>/user/narwiki/wiki.sqlite`` for ``ICM_DATA_DIR=<root>/data/icm``)."""
+    d = os.environ.get("ICM_DATA_DIR")
+    if d:
+        p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(d))), "user", "narwiki", "wiki.sqlite")
+        if os.path.isfile(p):
+            return p
+    return os.path.join(PROJECT, "narwiki-data", "wiki.sqlite")
+
+
+DB = os.environ.get("NARWIKI_DB") or _db_default()
 OPEN = os.environ.get("NARWIKI_OPEN", "1") != "0"
 # narrator-database versions (one SQLite per version, rebuilt after every manual decision); same directory ICM reads
 # (icm.config.NARRATOR_VERSIONS_DIR, duplicated here so this module stays import-light)

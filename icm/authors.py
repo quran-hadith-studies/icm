@@ -22,6 +22,7 @@ from narrators.common import name_tokens
 from . import config
 
 AUTHORS_JSON = os.environ.get("ICM_AUTHORS", os.path.join(config.DATA_DIR, "authors.json"))
+AUTHOR_WIKI_JSON = os.environ.get("ICM_AUTHOR_WIKI", os.path.join(config.DATA_DIR, "author_wiki.json"))     # book authors the databases do not hold, as persons of the narrator wiki (narwiki.authors)
 TITLES = {"شيخ", "سيد", "امام", "علامه", "حافظ", "ميرزا", "حاج", "ملا", "محقق", "ايه", "استاد", "دكتور", "شهيد", "قاضي", "فقيه", "مولي"}
 # Noor's death years that came from an automatic link to another database are not used: a wrong link (al-Tusi 525, al-Tabrisi 523)
 # would carry its error with it
@@ -71,18 +72,30 @@ def table() -> Dict[str, dict]:
                 _table = json.load(open(AUTHORS_JSON, encoding="utf-8"))["authors"]
             except FileNotFoundError:
                 _table = {}
+            try:                                                   # the wiki's persons for authors no database holds: their link, as a sure one
+                for k, w in json.load(open(AUTHOR_WIKI_JSON, encoding="utf-8"))["authors"].items():
+                    if k in _table and not _table[k].get("ids") and w.get("ids"):
+                        _table[k] = dict(_table[k], ids=w["ids"], by="catalogue: " + w.get("by", "narrator wiki"))
+            except (FileNotFoundError, KeyError, ValueError):
+                pass
     return _table
 
 
 def key() -> str:
     """Goes into the identify stage's key: a rebuilt table changes who a book's author is."""
     try:
-        st = os.stat(AUTHORS_JSON)
+        sts = [os.stat(p) for p in (AUTHORS_JSON, AUTHOR_WIKI_JSON) if os.path.exists(p)]
     except OSError:
         return ""
-    sig = (st.st_mtime_ns, st.st_size)
+    if not sts:
+        return ""
+    sig = tuple((st.st_mtime_ns, st.st_size) for st in sts)
     if _key[0] != sig:
-        _key[:] = [sig, hashlib.md5(open(AUTHORS_JSON, "rb").read()).hexdigest()[:12]]
+        h = hashlib.md5()
+        for p in (AUTHORS_JSON, AUTHOR_WIKI_JSON):
+            if os.path.exists(p):
+                h.update(open(p, "rb").read())
+        _key[:] = [sig, h.hexdigest()[:12]]
     return _key[1]
 
 

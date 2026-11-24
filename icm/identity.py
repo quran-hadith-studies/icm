@@ -507,6 +507,12 @@ def _collector(e: dict, trad: str) -> None:
 
 def _label(pid: str) -> str:
     kind, _, raw = pid.partition(":")
+    if kind == "wiki":                                  # a person made in the narrator wiki (no database holds him)
+        try:
+            from narwiki import lookup
+            return (lookup.wiki_people([pid]).get(pid) or {}).get("name") or pid
+        except Exception:
+            return pid
     if kind == "noor":
         r = noor_index()["ravis"].get(int(raw))
         return r["name"] if r else pid

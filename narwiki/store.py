@@ -31,7 +31,7 @@ from . import config
 FIELDS = ["name", "alias", "kunya", "laqab", "nisba", "mazhab", "grade", "rank", "tabaqa",
           "death_lo", "death_hi", "birth", "places", "note"]
 NAME_FIELDS = ("name", "alias", "kunya", "laqab", "nisba")
-SOURCE_ORDER = {"user": 0, "noor": 1, "kg": 2, "dirayah": 3}          # which source's value is shown first
+SOURCE_ORDER = {"user": 0, "noor": 1, "kg": 2, "dirayah": 3, "books": 4}          # which source's value is shown first
 
 SCHEMA = """
 create table if not exists person(

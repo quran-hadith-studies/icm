@@ -35,6 +35,11 @@ def _evaluate(path: str) -> dict:
 
 
 def main(argv=None) -> int:
+    import sys
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args[:1] == ["authors"]:                           # book authors as persons (own parser): python3 -m narwiki authors [--yes]
+        from . import authors
+        return authors.main(args[1:])
     ap = argparse.ArgumentParser(prog="python3 -m narwiki", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("seed"); s.add_argument("--db"); s.add_argument("--force", action="store_true")
