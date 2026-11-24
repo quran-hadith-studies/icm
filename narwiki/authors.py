@@ -185,6 +185,59 @@ def apply(c, persons: List[dict], user: str = USER) -> dict:
     return out
 
 
+SURE = ("name+death", "prefix+death", "hand")
+
+
+def enrich_plan(c, authors_path: str, books_path: str) -> List[dict]:
+    """What the catalogue adds to the persons the databases already hold for book authors: the author's other spellings (as aliases), his death
+    year when the wiki has none for him, and how many books he wrote with their first titles (source ``books``). Only for authors linked
+    surely (name + death year, prefix + death year, by hand), never for a suggestion. [{pid, keys, add: [(field, value)]}]"""
+    from icm.authors import key_of, toks
+    table = json.load(open(authors_path, encoding="utf-8"))["authors"]
+    books = json.load(open(books_path, encoding="utf-8"))
+    titles: Dict[str, list] = defaultdict(list)
+    for v in books.values():
+        if v.get("author") and v.get("death"):
+            titles[key_of(v["author"], v["death"])].append(_title(v.get("title")))
+    by_pid: Dict[int, list] = defaultdict(list)
+    for key, r in table.items():
+        if not r["ids"] or not str(r.get("by") or "").startswith(SURE) or not (0 < r["death"] < 3000):
+            continue
+        for i in r["ids"]:
+            kind, _, ext = i.partition(":")
+            if kind in ("noor", "kg"):
+                pid = store.by_ext(c, kind, ext)
+                if pid and key not in by_pid[pid]:
+                    by_pid[pid].append(key)
+    out = []
+    for pid, keys in by_pid.items():
+        have = store.fields_of(c, pid)
+        sigs = {" ".join(sorted(toks(f["value"]))) for f in have if f["field"] in ("name", "alias") and f["value"]}
+        sigs.add(" ".join(sorted(toks(store.get_person(c, pid)["display_name"]))))
+        add = []
+        for k in keys:
+            sig = " ".join(sorted(toks(table[k]["author"])))
+            if sig and sig not in sigs:
+                sigs.add(sig)
+                add.append(("alias", display(table[k]["author"])))
+        death = table[keys[0]]["death"]
+        if not any(f["field"] == "death_lo" for f in have):
+            add += [("death_lo", str(death)), ("death_hi", str(death))]
+        if not any(f["source"] == SOURCE and f["field"] == "note" for f in have):
+            ts = list(dict.fromkeys(t for k in keys for t in titles.get(k, []) if t))
+            n = sum(table[k]["n_books"] for k in keys)
+            add.append(("note", f"گردآورنده‌ی {n} کتاب از کتابخانه‌ی ایبادالله: " + "؛ ".join(ts[:8]) + (" …" if len(ts) > 8 else "")))
+        if add:
+            out.append(dict(pid=pid, keys=keys, add=add, death_missing=any(f == "death_lo" for f, _ in add)))
+    return out
+
+
+def enrich_apply(c, items: List[dict], user: str = USER) -> int:
+    for it in items:
+        store.edit_fields(c, it["pid"], user, add=it["add"], note="از فهرست کتاب‌ها: اطلاعات گردآورنده", source=SOURCE)
+    return len(items)
+
+
 def main(argv=None) -> int:
     import argparse
     from icm import config as icm_config
@@ -193,7 +246,18 @@ def main(argv=None) -> int:
     ap.add_argument("--authors", default=os.path.join(icm_config.DATA_DIR, "authors.json"))
     ap.add_argument("--books", default=icm_config.BOOKS_META)
     ap.add_argument("--out", default=None, help="author_wiki.json (default: next to --authors)")
+    ap.add_argument("--enrich", action="store_true", help="instead: add the catalogue's facts to the persons the databases already hold for authors")
     a = ap.parse_args(argv)
+    if a.enrich:
+        c = store.connect(readonly=not a.yes)
+        items = enrich_plan(c, a.authors, a.books)
+        n = lambda f: sum(1 for it in items for x, _ in it["add"] if x == f)
+        print(f"{len(items)} persons to enrich: {n('alias')} spellings, {n('death_lo')} death years, {n('note')} notes")
+        if a.yes:
+            print(f"{enrich_apply(c, items)} persons edited in {config.DB}")
+        else:
+            print("preview only; --yes writes to", config.DB)
+        return 0
     pl = plan(a.authors, a.books)
     ps = pl["persons"]
     print(f"{len(pl['maybe_existing'])} authors left out: the databases may hold them (a person with the same words and no death year, or within 3 years)")

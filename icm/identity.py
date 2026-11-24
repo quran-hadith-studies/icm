@@ -500,8 +500,9 @@ def _collector(e: dict, trad: str) -> None:
     cs = match(e["name"], trad, False, e.get("death"), True)
     e["cands"] = [c for c in cs if not authors.contradicts(c["id"], e.get("death"))]
     nm = authors.name_link(e["raw"], e.get("death")) or authors.name_link(e["name"], e.get("death"))
-    if nm:
-        e["sugg"] = dict(id=nm, rule="author_name", src="authors", prec=AUTHOR_NAME_PREC)
+    wd = None if nm else (authors.words_link(e["raw"], e.get("death")) or authors.words_link(e["name"], e.get("death")))
+    if nm or wd:
+        e["sugg"] = dict(id=nm or wd, rule="author_name" if nm else "author_words", src="authors", prec=AUTHOR_NAME_PREC if nm else AUTHOR_WORDS_PREC)
         _sugg_candidate(e)
 
 
@@ -564,8 +565,10 @@ AUTO_RULE_FA = dict(ctx3="همین نام با همان راوی پیش و پس 
 AUTO_SRC_FA["twin_fuzzy"] = "همین حدیث در منبعی دیگر از همین پروژه که راویانش پیوند خورده: نام‌های هم‌خوان (کوتاه‌شده) به همان ترتیب، کنار جایی دیگر که هم‌خوان است"
 AUTO_SRC_FA["imams"] = "پدرِ امام، از جدول امامان"
 AUTO_SRC_FA["father"] = "پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه (با فاصله‌ی روشن از نامزد بعدی)"
+AUTHOR_WORDS_PREC = 0.94            # measured 107 of 113 (94.7%) with the death years ignored: with them it is better, this is the lower bound
 AUTHOR_NAME_PREC = 0.97             # measured: name only (death years ignored) gave the same person as name + death year in 110 of 110 authors (95% lower bound 97%)
-SUGG_FA = dict(author_name="نامِ گردآورنده با آغازِ نامِ این شخص می‌خواند و او در پایگاه سال وفات ندارد (بررسی وفات ممکن نبود)",
+SUGG_FA = dict(author_words="همه‌ی واژه‌های نامِ گردآورنده در نامِ این شخص هست و سال وفاتش در پایگاه با کتاب سه سال فرق ندارد یا ثبت نشده؛ او تنها کسی است که می‌خواند",
+               author_name="نامِ گردآورنده با آغازِ نامِ این شخص می‌خواند و او در پایگاه سال وفات ندارد (بررسی وفات ممکن نبود)",
                father_of_prev="پدرِ راوی پیشین: نامِ پدر در نام او و بیشترین بار استادِ او در سندهای پایگاه",
                name_major="«{name}» در {n} از {tot} حدیثِ پایگاه این راوی است (در هر دسته از کتاب‌ها)",
                adj="از میان نامزدهای این نام، بیشترین هم‌نشینی با راویان پیش و پس از آن در سندهای پایگاه و بیشترین نوشته‌شدن این نام برای او",

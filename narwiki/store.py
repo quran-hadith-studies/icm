@@ -405,7 +405,7 @@ def add_person(c, display_name: str, fields: Sequence[Tuple[str, str]], user: st
 
 
 def edit_fields(c, pid: int, user: str, display_name: Optional[str] = None, add: Sequence[Tuple[str, str]] = (),
-                retire: Sequence[int] = (), note: str = "") -> int:
+                retire: Sequence[int] = (), note: str = "", source: str = "user") -> int:
     """Change a person: new display name, new values (source ``user``), and values to retire (any source:
     a retired value stays in the history and can be restored by reverting). Returns the revision id."""
     pid = _active(c, pid)
@@ -420,7 +420,7 @@ def edit_fields(c, pid: int, user: str, display_name: Optional[str] = None, add:
             c.execute("update person_field set status='retired' where id=?", (r["id"],))
             retired.append(r["id"])
             retired_desc.append([r["field"], r["value"], r["source"]])
-        added = [_add_field(c, pid, f, v, "user", rev) for f, v in add if str(v).strip()]
+        added = [_add_field(c, pid, f, v, source, rev) for f, v in add if str(v).strip()]
         old_name = c.execute("select display_name from person where id=?", (pid,)).fetchone()[0]
         dn = None
         if display_name is not None and display_name.strip() and display_name.strip() != old_name:

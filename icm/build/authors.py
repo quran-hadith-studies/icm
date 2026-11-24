@@ -156,6 +156,36 @@ class Source:
             for t in set().union(*map(set, p.variants)) if p.variants else ():
                 self.inv[t].append(p)
 
+    def prefix_death(self, names: Iterable[tuple], death: int) -> List[Person]:
+        """Persons whose name begins with the author's whole name (two words at least) and whose death year is within one of the book's.
+        No rare word is asked for (``agree`` asks one, so «أحمد بن عيسى» never passed): the year and the full prefix do the work, and
+        a link is made only when exactly one person in the database fits. On the 167 authors name+death links in one database it gave the
+        same person every time (never another, never two)."""
+        out: Dict[str, Person] = {}
+        for y in (death - 1, death, death + 1):
+            for p in self.by_year.get(y, {}).values():
+                if min(abs(d - death) for d in p.deaths) > 1:
+                    continue
+                if any(len(a) >= 2 and len(v) >= len(a) and v[:len(a)] == a for a in names for v in p.variants):
+                    out[p.id] = p
+        return list(out.values())
+
+    def contained(self, names: Iterable[tuple], death: int, window: int = 3) -> List[Person]:
+        """Persons whose name has every word of the author's (in any order; two words at least) and whose death year is the book's within
+        ``window`` or not recorded. With the death years ignored it gave the same person as name + death year in 107 of 113 authors it
+        was unique for (94.7%), so a link from it is only a suggestion."""
+        out: Dict[str, Person] = {}
+        for a in names:
+            ts = set(a)
+            if len(ts) < 2:
+                continue
+            for p in self.inv.get(min(ts, key=lambda t: self.df[t] or 10 ** 9), ()):
+                if p.deaths and min(abs(d - death) for d in p.deaths) > window:
+                    continue
+                if any(ts <= set(v) for v in p.variants):
+                    out[p.id] = p
+        return list(out.values())
+
     def by_name(self, names: Iterable[tuple], death: int) -> List[Person]:
         """The persons whose written name begins with the author's full name (at least three words, the last of them may come later; a rare
         word among them), leaving out those whose recorded death is years from the book's. Exactly one person is a link when he has no
@@ -270,7 +300,7 @@ def run(dst: str = OUT) -> None:
     for key, a in sorted(authors.items(), key=lambda kv: -kv[1]["n_books"]):
         fm = forms(a["author"])
         tk = fm[0] if fm else toks(a["author"])
-        rec = dict(author=a["author"], death=a["death"], n_books=a["n_books"], ids=[], known=[], ambiguous={}, by=None, by_name=[])
+        rec = dict(author=a["author"], death=a["death"], n_books=a["n_books"], ids=[], known=[], ambiguous={}, by=None, by_name=[], by_words=[])
         known = []                 # the author as OpenITI / muslimscholars have him, when exactly one of their persons fits
         for name in ("openiti", "ms"):
             ps = srcs[name].passing_any(fm, a["death"])
@@ -290,6 +320,10 @@ def run(dst: str = OUT) -> None:
                 if ps:
                     ps2 = {i: p for i, p in ps2.items() if i in {q.id for q in ps}}      # the catalogue's name and the fuller one both fit
                 ps, by = list(ps2.values()), "name+death, confirmed by " + known[0].id.split(":")[0]
+            if len(ps) != 1 and not any(i.startswith(name + ":") for i in rec["ids"]):
+                pp = srcs[name].prefix_death(fm, a["death"])
+                if len(pp) == 1:
+                    ps, by = pp, "prefix+death"          # his whole name begins the person's, the year agrees, and no one else fits
             if len(ps) == 1:
                 rec["ids"].append(ps[0].id)
                 rec["by"] = by
@@ -300,9 +334,13 @@ def run(dst: str = OUT) -> None:
                 ps = [p for p in srcs[name].by_name(fm, a["death"])]
                 if len(ps) == 1 and not ps[0].deaths:
                     rec["by_name"].append(ps[0].id)
+                elif not ps:
+                    pw = srcs[name].contained(fm, a["death"])
+                    if len(pw) == 1:
+                        rec["by_words"].append(pw[0].id)
         h = hand.get(key) or next((hand[q] for q in rec["known"] if q in hand), None)
         if h and not rec["ids"]:
-            rec["ids"], rec["by"], rec["by_name"] = h["ids"], "hand: " + h["note"], []
+            rec["ids"], rec["by"], rec["by_name"], rec["by_words"] = h["ids"], "hand: " + h["note"], [], []
         res[key] = rec
         if not rec["ids"]:
             review.append(rec)

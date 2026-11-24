@@ -149,3 +149,26 @@ def test_twins_are_read_from_the_file_and_its_stamp_is_a_key(tmp_path, monkeypat
     c.close()
     monkeypatch.setattr(twins, "_local", type(twins._local)())
     assert sorted(twins.of("v02", 5)) == [("kg", 9), ("noor", 77)] and twins.key() == "T1" and twins.of("kg", 5) == []
+
+
+def test_a_name_that_begins_the_persons_with_the_same_death_year_links_when_only_one_fits_though_every_word_is_common():
+    persons = [build.Person("kg:1", "أحمد بن عيسى بن زيد بن علي", ["أحمد بن عيسى بن زيد بن علي", "أحمد بن عيسى الهاشمي"], (247,)),
+               build.Person("kg:2", "أحمد بن عيسى بن حسان", ["أحمد بن عيسى بن حسان"], (243,)),
+               build.Person("kg:3", "أحمد بن محمد", ["أحمد بن محمد"], (247,))]
+    df = Counter({t: 5000 for p in persons for v in p.variants for t in v})
+    src = build.Source("kg", persons, df)
+    assert [p.id for p in src.prefix_death(build.forms("احمد بن عیسی"), 247)] == ["kg:1"]          # not the one who died in 243
+    assert [p.id for p in src.passing_any(build.forms("احمد بن عیسی"), 247)] == []                 # the rare-word rule cannot
+    assert src.prefix_death(build.forms("عيسى"), 247) == []                                          # one word is never a prefix
+
+
+def test_every_word_of_the_authors_name_in_one_persons_is_a_weaker_suggestion(monkeypatch):
+    persons = [build.Person("noor:1", "أحمد بن محمد بن علي ابن قتيبة الدينوري", ["أحمد بن محمد بن علي ابن قتيبة الدينوري"], ()),
+               build.Person("noor:2", "عبد الله بن مسلم بن قتيبة الدينوري", ["عبد الله بن مسلم بن قتيبة الدينوري"], (276,)),
+               build.Person("noor:3", "عبد الله بن مسلم بن قتيبة", ["عبد الله بن مسلم بن قتيبة"], (330,))]
+    df = Counter({t: 3 for p in persons for v in p.variants for t in v})
+    src = build.Source("noor", persons, df)
+    src.index_everyone(persons)
+    assert [p.id for p in src.contained(build.forms("عبد الله بن مسلم الدينوري"), 276)] == ["noor:2"]      # the one who died in 330 is left out
+    monkeypatch.setattr(authors, "_table", {authors.key_of("ابن قتيبة الدينوري", 276): dict(ids=[], by_words=["noor:2"])})
+    assert authors.words_link("ابن قتيبة الدينوري", 276) == "noor:2" and authors.name_link("ابن قتيبة الدينوري", 276) is None

@@ -49,3 +49,22 @@ def test_the_persons_are_written_once_with_the_source_books_and_ICM_links_them(t
     monkeypatch.setattr(authors, "_table", None)
     assert authors.lookup("الفيض الكاشاني", 1091)["ids"] == [tok]
     assert authors.lookup("ابن عبد البر", 463)["ids"] == ["kg:34368"] and authors.lookup("خطب الإمام علي (ع)", 40) is None
+
+
+def test_the_catalogue_adds_its_facts_to_the_person_a_database_holds_for_a_surely_linked_author(tmp_path, monkeypatch):
+    db = str(tmp_path / "wiki.sqlite")
+    c = store.connect(db)
+    pid = store.add_person(c, "أحمد بن عيسى بن زيد", [("name", "أحمد بن عيسى بن زيد")], "t", ext=[("kg", "34794")])
+    rec = lambda a, d, n, ids, by: dict(author=a, death=d, n_books=n, ids=ids, known=[], ambiguous={}, by=by, by_name=[])
+    table = {key_of("احمد بن عیسی", 247): rec("احمد بن عیسی", 247, 2, ["kg:34794"], "prefix+death"),
+             key_of("ابن قتيبة", 276): rec("ابن قتيبة", 276, 5, ["kg:99"], "name+death"),
+             key_of("فلان بن فلان", 300): rec("فلان بن فلان", 300, 1, ["kg:34794"], "by_words")}
+    (tmp_path / "authors.json").write_text(json.dumps(dict(authors=table), ensure_ascii=False))
+    (tmp_path / "books.json").write_text(json.dumps({"b": dict(title="أمالي أحمد بن عيسى", author="احمد بن عیسی", death=247)}, ensure_ascii=False))
+    items = nw_authors.enrich_plan(c, str(tmp_path / "authors.json"), str(tmp_path / "books.json"))
+    assert len(items) == 1 and items[0]["pid"] == pid
+    got = dict((f, v) for f, v in items[0]["add"])
+    assert got["death_lo"] == "247" and got["alias"] == "احمد بن عیسی" and "أمالي أحمد بن عيسى" in got["note"]
+    assert nw_authors.enrich_apply(c, items) == 1
+    assert {f["source"] for f in store.fields_of(c, pid) if f["field"] == "death_lo"} == {"books"}
+    assert nw_authors.enrich_plan(c, str(tmp_path / "authors.json"), str(tmp_path / "books.json")) == []        # once is enough

@@ -116,6 +116,15 @@ def name_link(author: Optional[str], death) -> Optional[str]:
     return ids[0] if len(ids) == 1 else None
 
 
+def words_link(author: Optional[str], death) -> Optional[str]:
+    """The one person who has every word of the author's name and a death year within three of the book's or none: a weaker suggestion than
+    ``name_link`` (measured 94.7% with the years ignored)."""
+    if not author or not death:
+        return None
+    ids = (table().get(key_of(author, death)) or {}).get("by_words") or []
+    return ids[0] if len(ids) == 1 else None
+
+
 def contradicts(pid: str, death, margin: int = 5) -> bool:
     """The person's own death year (when the database has one) is more than ``margin`` years from the book author's."""
     if not death:
