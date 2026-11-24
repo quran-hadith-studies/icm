@@ -1363,6 +1363,7 @@ def apply_chain_edits(chains: Sequence[dict], texts: Dict[str, tuple], edits: Op
     return n
 
 
+MATN_OPEN = {norm(x) for x in sanad_parse._DATA["matn_open"]}
 ASK_WORDS = {norm(x) for x in ("سئل", "وسئل", "سأل", "سألت", "سألته", "وسألت", "فسألت", "سألنا")}      # the isnad turns into a question
 
 
@@ -1375,11 +1376,15 @@ def _without_wording(elems: List[dict]) -> List[dict]:
     """The places without isnad wording read as narrators: words Noor kept between two narrators that are no name
     («قال سئل»: they stay in the link's phrase), and what follows the one asked («سئل أبو عبد الله عن الخمر فقال»): «عن»
     there introduces the question's subject, not a narrator. A place with a database id is never removed."""
-    out, asked = [], False
+    out, asked, imam = [], False, False
     for e in elems:
         free = not e["exact"] and e.get("role") != "collector"
         if free and e.get("hidden") and sanad_parse.not_a_name(e["name"]):
             continue
+        w = norm(e["name"]).split()
+        if free and imam and norm(e.get("term") or "").split()[:1] in (["قال"], ["وقال"], ["فقال"]) and w and (w[0] in MATN_OPEN or w[0] in ("وقال", "فقال", "قال")):
+            continue                       # «عن أبي عبد الله قال ما بعث الله …»: the Imam's words, not a narrator (several Imams may follow one another)
+        imam = bool(w) and e.get("role") != "collector" and (sanad_parse._starts_with(w, sanad_parse.IMAM_KUNYA) or bool(e.get("imam_hint")))
         if free and asked and norm(e.get("term") or "").split()[:1] == ["عن"]:
             asked = False
             continue

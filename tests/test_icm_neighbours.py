@@ -278,3 +278,18 @@ def test_a_pointer_back_to_the_isnad_before_is_no_narrator():
     w = dict(wid="v02:1", sanad="حدثنا أحمد بن عبد الله قال حدثنا به", matn="", author="X", corpus="v02")
     ch = identity.text_chain(w)
     assert identity._without_backref(ch) == 0 and len(ch["elems"]) == 3
+
+
+def test_the_words_of_the_text_after_an_imam_are_no_narrators_whatever_number_of_imams():
+    w = dict(wid="v02:1", sanad="علي بن ابراهيم عن ابيه عن حماد عن ابي جعفر عن ابي عبد الله قال ما بعث الله نبيا قط", matn="", author="X", corpus="v02")
+    ch = identity.text_chain(w)
+    out = identity._without_wording(ch["elems"])
+    names_ = [e["name"] for e in out]
+    assert "ما بعث الله نبیا قط" not in " ".join(names_) and not any(n.startswith("ما ") for n in names_)
+    assert names_[-2:] == ["ابی جعفر", "ابی عبد الله"]              # two Imams in a row stay narrators
+    w2 = dict(w, sanad="حدثنا محمد عن ابي عبد الله قال حدثني ابي عن جدي")
+    assert any(e["name"] == "ابی" or e["name"].startswith("ابی") for e in identity._without_wording(identity.text_chain(w2)["elems"]))
+
+
+def test_the_commentators_word_hadith_is_not_part_of_a_name():
+    assert sanad_parse.strip_nonname("الحدیث ابو علی الاشعری")["core"] == "ابو علی الاشعری"
