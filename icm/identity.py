@@ -1385,6 +1385,73 @@ def _without_wording(elems: List[dict]) -> List[dict]:
 PAR_BASE = 500                       # the k-th further name of a place that held several is 500 + 8 × place + k − 1: below ADDED_BASE, stable
 
 
+REPORT_BASE = PAR_BASE + 7             # the place a report names («… أن X حدثهم») is 500 + 8 × place + 7: the parallel split's own numbers stop at +5
+REPORT_VERBS = {norm(x) for x in ("حدثهم", "حدثه", "حدثنا", "حدثني", "حدثكم", "أخبره", "أخبرهم", "أخبرنا", "أخبرني", "أخبركم", "أنبأه", "أنبأهم", "أنبأنا", "أنبأني")}
+
+
+_ACCUSATIVE = {"ابا": "ابو", "ابنا": "ابن", "اباه": "ابیه", "اخاه": "اخیه"}
+
+
+def _after_an(toks: Sequence[str]) -> List[str]:
+    """The words after «أن» are in the accusative: «ابا هريرة» is «ابو هريره», «مالكا» is «مالك» (when the shorter word is the name the
+    databases write), «اباه» is «ابیه» (his father)."""
+    v = names.vocab()
+    out = []
+    for t in toks:
+        if t in _ACCUSATIVE:
+            t = _ACCUSATIVE[t]
+        elif v and len(t) >= 4 and t.endswith("ا") and v.get(names.written_key(t[:-1]), 0) > 3 * v.get(names.written_key(t), 0):
+            t = t[:-1]
+        out.append(t)
+    return out
+
+
+def _is_nameish(toks: Sequence[str]) -> bool:
+    """At most one word that no narrator's written name has (the vocabulary is empty without the names file: then no test)."""
+    v = names.vocab()
+    return not v or sum(1 for t in toks if v.get(names.written_key(t), 0) < 3) <= (1 if len(toks) > 1 else 0)
+
+
+def _split_reported(chains: Sequence[dict], wits: Sequence[dict]) -> int:
+    """«قرأت على أحمد بن قاسم أن قاسم بن اصبغ حدثهم»: A says that B told them, so B is the next narrator, A's teacher. The parser keeps
+    «A أن B» as one place (the words «حدثهم» are left out of it). It is split in two when the words after the place are an isnad verb
+    of that kind (a plain «قال» or «كان» is the story's, not the isnad's: «أن عمر سأل النبي» stays as it is). A keeps the place's
+    number, B is a new place 500 + 8 × place + 7 with the phrase «ان». Places with a database id, the user's own readings and the
+    places already split are left alone. Returns the number of places made."""
+    made = 0
+    recs = {w["wid"]: w for w in wits}
+    for ch in chains:
+        if ch["wid"] not in recs or not any(e["kind"] == "name" and not e["exact"] and "ان" in (e.get("name") or "").split()[1:-1] for e in ch["elems"]):
+            continue
+        tw = hadith_words(recs[ch["wid"]])
+        spans = anchor_elems(tw[0], ch["elems"])
+        out = []
+        for e in ch["elems"]:
+            sp = spans.get(e["i"])
+            t = (e.get("name") or "").split()
+            k = t.index("ان", 1) if "ان" in t[1:-1] else 0
+            left, right = " ".join(t[:k]), " ".join(_after_an(t[k + 1:]))
+            ok = (k and sp and not e["exact"] and e.get("role") != "collector" and e["kind"] == "name" and not e.get("renamed") and not e.get("added")
+                  and not e.get("par") and sp["b"] < len(tw[0]) and tw[0][sp["b"]] in REPORT_VERBS
+                  and REPORT_BASE + 8 * e["i"] < ADDED_BASE
+                  and sanad_parse.strip_nonname(left)["core"] == left and sanad_parse.strip_nonname(right)["core"] == right
+                  and not sanad_parse.not_a_name(left) and not sanad_parse.not_a_name(right) and "ان" not in right.split()
+                  and len(right.split()) <= 8 and _is_nameish(left.split()) and _is_nameish(right.split()))
+            if not ok:
+                out.append(e)
+                continue
+            out.append(dict(e, name=left, raw=" ".join(e["raw"].split()[:k]) if len(e["raw"].split()) == len(t) else left, cands=[],
+                            kind="anon" if sanad_parse.is_anon(left) else "name", **{"report_of": REPORT_BASE + 8 * e["i"]}))
+            out.append(dict(e, name=right, raw=right, cands=[], i=REPORT_BASE + 8 * e["i"], term="ان", report_from=e["i"],
+                            kind="anon" if sanad_parse.is_anon(right) else "name"))
+            for x in out[-2:]:
+                for key in ("clean", "parts", "frag", "span", "span_auto"):
+                    x.pop(key, None)
+            made += 1
+        ch["elems"] = out
+    return made
+
+
 def _split_parallel(chains: Sequence[dict]) -> int:
     """«ابيه ومحمد بن يحيى» is two places, narrators at the same level (``par`` = the first one's place number on all of them): each
     its own name card, its own person; the isnad's other places see the level as one (``_beside``) and the graph makes one chain
@@ -1435,6 +1502,7 @@ def build(wits: Sequence[dict], version=None, renames: Optional[dict] = None, ch
         moved = {f"{aid}|{i}" for aid, ed in chain_edits.items() for i in (ed.get("span") or {})}
         renames = {k: v for k, v in (renames or {}).items() if k not in moved}
     apply_renames(chains, renames)
+    _split_reported(chains, wits)
     _split_parallel(chains)
     for ch in chains:                                  # «أبيه عليه السلام» in Noor's slots, «حدثني أبي» ...
         for e in ch["elems"]:
@@ -1493,7 +1561,7 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
             tier = None
             if occ in drops:
                 out.append(dict(i=e["i"], nid=None, tier="dropped", name=e["name"], collector=e.get("role") == "collector", dropped=True,
-                                **({"par": e["par"]} if e.get("par") is not None else {})))
+                                **({"par": e["par"]} if e.get("par") is not None else {}), **({"rep": 1} if e.get("report_from") else {})))
                 continue
             if occ in overrides:
                 v = overrides[occ]
@@ -1537,7 +1605,7 @@ def resolve(ident: dict, decisions: Optional[dict] = None, version=None) -> dict
             node["tiers"].add(tier)
             node["n"] += 1
             out.append(dict(i=e["i"], nid=nid, tier=tier, name=e["name"], collector=e.get("role") == "collector",
-                            **({"par": e["par"]} if e.get("par") is not None else {}),
+                            **({"par": e["par"]} if e.get("par") is not None else {}), **({"rep": 1} if e.get("report_from") else {}),
                             **({"auto": e["auto"]["rule"]} if tier == "default" and e.get("auto") and nid == e["auto"]["id"] else {})))
         chains_out.append(dict(aid=ch["aid"], wid=ch["wid"], source=ch["source"], elems=out, speaker=ch["speaker"],
                                quoted_work=ch["quoted_work"], flags=ch["flags"]))

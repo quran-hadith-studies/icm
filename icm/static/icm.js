@@ -1092,7 +1092,7 @@ const panels = {
       const sub = st === 'exact' ? '✓' : st === 'und' ? 'بی‌تصمیم' : st === 'none' ? 'فقط نام' : st === 'anon' ? 'نامعلوم' : st === 'drop' ? 'حذف می‌شود' : labelOf(s.id, e, cd);
       const hit = pick && (pick.key === keyAt(ch, e) || pick.key.startsWith('id:') && s.id === pick.key.slice(3));
       return el('button', { class: `nc ${st}` + (e.par != null ? ' par' : '') + (hit ? (pick.occ === occ ? ' pk pk2' : ' pk') : ''),
-        title: `${ST[st]}${e.par != null ? ' — هم‌سطح با راوی دیگرِ همین جا (موازی)' : ''}${s.split ? ' — شخص جداشده' : s.here ? ' — فقط همین جا' : ''}${s.id && s.id !== 'none' ? ' — ' + s.id : ''}`,
+        title: `${ST[st]}${e.par != null ? ' — هم‌سطح با راوی دیگرِ همین جا (موازی)' : ''}${e.rep ? ' — «أن … حدثهم»: استادِ راوی پیش از خود، از متنِ همان جای سند جدا شده' : ''}${s.split ? ' — شخص جداشده' : s.here ? ' — فقط همین جا' : ''}${s.id && s.id !== 'none' ? ' — ' + s.id : ''}`,
         onclick: () => { if (keyAt(ch, e)) setPick(keyAt(ch, e), occ); } },
         el('span', { class: 'n ar', title: e.raw || e.name }, st === 'exact' ? short(e.raw || e.name, 34) : e.raw || e.name, n > 1 ? el('sup', {}, ' ×' + fa(n)) : null,
           e.renamed ? el('sup', { title: 'نام و لفظ نقل این جا را شما تعیین کرده‌اید' }, ' ✎') : null),

@@ -242,3 +242,27 @@ def test_two_names_joined_by_and_are_parallel_narrators_and_make_a_chain_of_ever
         assert identity.clean_parts("محمد بن عبد الله وهب بن منبه") == ["محمد بن عبد الله وهب بن منبه"]     # a name that begins with «و» is one name
     finally:
         names.vocab = old
+
+
+def _reported(sanad):
+    w = dict(wid="v02:1", sanad=sanad, matn="", author="X", corpus="v02")
+    ch = identity.text_chain(w)
+    identity._split_reported([ch], [w])
+    return ch["elems"]
+
+
+def test_a_report_that_a_narrator_told_them_makes_him_the_next_narrator():
+    els = _reported("قرأت على أحمد ابن قاسم أن قاسم بن اصبغ حدثهم قال حدثنا الحارث بن أبي أسامة قال حدثنا يزيد بن هارون")
+    assert [(e["i"], e["name"], e["term"]) for e in els[1:4]] == [
+        (1, "احمد ابن قاسم", "قرات علی"), (identity.REPORT_BASE + 8, "قاسم بن اصبغ", "ان"), (2, "الحارث بن ابی اسامه", "حدثنا")]
+
+
+def test_a_story_after_an_is_not_an_isnad_report():
+    names = lambda els: [e["name"] for e in els]
+    assert "ابن عمر ان عمر سال" in " ".join(names(_reported("حدثنا مالك عن ابن عمر أن عمر سأل النبي عن كذا")))
+    assert not any(e.get("report_from") for e in _reported("حدثنا مالك عن عائشة أن رسول الله صلى الله عليه وسلم قال"))
+
+
+def test_the_name_after_an_is_in_the_accusative():
+    els = _reported("حدثنا أبو بكر عن سعيد بن المسيب أن أبا هريرة حدثه قال حدثنا فلان")
+    assert [e["name"] for e in els if e.get("report_from")] == ["ابو هریره"]

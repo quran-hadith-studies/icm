@@ -1023,6 +1023,10 @@ in one place), 38% were real names with several candidates, 9% relatives («عن
   was learnt. The graph makes one chain per choice of one narrator per level (at most 8, aid `<aid>+k`), as for a hadith with several
   Noor isnads. A glued «و» («ومحمد») splits when the word without it is ≥10× as common in the names file; names that begin with «و»
   («وهب», «وكيع») do not. Decisions taken on the old one-place reading of such a name no longer apply (its card key changed).
+- **Reported narrators** (`identity._split_reported`, `rep`): «قرأت على أحمد بن قاسم أن قاسم بن اصبغ حدثهم» — the parser keeps «A أن B» as one
+  place; when the word after it (in the text) is an isnad verb (حدثهم، حدثه، أخبره، أخبرهم، حدثنا …) it is two places in a row, B the next
+  narrator (id `500 + 8·i + 7`, phrase «ان»). A story («أن عمر سأل النبي», «أن رسول الله») is left as it is; the words after «أن» are
+  accusative («ابا» → «ابو», «مالكا» → «مالك»). Measured on 80 000 Rezwan/v02 isnads: 894 places (≈0.2% of places) split.
 - **Written forms as candidates** (`names.persons_written`): «الثوري», «الشيباني» are nobody's *name* but isnads write them for one
   person; they are `low` candidates (never a default) when the name matching found nothing close.
 - **`father_of_prev`** (middle level): «عن أبيه» after a narrator we know (exact, or an automatic link) is the person whose first name
