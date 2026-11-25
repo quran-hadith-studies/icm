@@ -264,9 +264,13 @@ def noor_chains(rec: dict) -> List[dict]:
         speaker = None
         for r in slots:
             if r["term"]:                              # words before this narrator: may hide narrators
+                asked = False
                 for e in sanad_parse.parse(r["term"])["elems"]:
                     if e["kind"] in ("gap", "prev"):
                         continue
+                    if asked and e["kind"] == "name":
+                        continue                               # «أنه سئل عن الخمر فقال قال رسول الله»: what was asked, not a narrator
+                    asked = bool(ASK_WORDS & set(norm(e["name"]).split()))
                     elems.append(_elem(len(elems), e["name"], e["term"], e["kind"], imam_hint=e["honorific"], raw=e["raw"], hidden=True))
             cands = json.loads(r["cand_json"]) if r["cand_json"] else []
             if r["ravi_id"] == PROPHET_ID:
@@ -573,7 +577,7 @@ SUGG_FA = dict(author_words="همه‌ی واژه‌های نامِ گردآور
                name_major="«{name}» در {n} از {tot} حدیثِ پایگاه این راوی است (در هر دسته از کتاب‌ها)",
                adj="از میان نامزدهای این نام، بیشترین هم‌نشینی با راویان پیش و پس از آن در سندهای پایگاه و بیشترین نوشته‌شدن این نام برای او",
                adj_one="تنها نامزدی که در سندهای پایگاه کنار هر دو همسایه‌ی این جا آمده")
-TRUSTED_NEIGHBOUR = ("family", "twin", "ctx3", "author")             # an automatic link that may vouch for its neighbour's pprev / pnext
+TRUSTED_NEIGHBOUR = ("family", "twin", "ctx3", "author", "table")             # an automatic link that may vouch for its neighbour's pprev / pnext
 
 
 def _written(e: dict) -> str:
@@ -798,7 +802,7 @@ def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], t
             if i and not e.get("exact") and e["kind"] == "name":
                 e["exact"], e["by"] = i, "wiki"
                 e["cands"] = [dict(id=i, label=_label(i), score=9.0, cov=1.0, exact=True, tier="exact", reason="تأییدشده در ویکی راویان")]
-    n_auto = _author_again(rows)
+    n_auto = _author_again(rows) + _school_imams(rows)
     fam = _family_index([(pl, ks) for _, _, pl, ks in rows])
     gs = {db: (names._getter(db), names.cfg(db)) for db in ("noor", "kg")} if names.available() else {}
     todo = lambda e: not e.get("exact") and e["kind"] == "name" and not e.get("auto")
@@ -808,7 +812,7 @@ def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], t
         if e is None:
             return None
         a = e.get("auto")
-        i = e.get("exact") or (a["id"] if a and (a["src"] in ("family", "twin", "author") or a["rule"] == "ctx3") else None)
+        i = e.get("exact") or (a["id"] if a and (a["src"] in ("family", "twin", "author", "table") or a["rule"] == "ctx3") else None)
         return int(i.split(":")[1]) if i and i.startswith(db + ":") and i.split(":")[1].isdigit() else None
     skip = set()                                              # places whose sources disagreed
     for rounds in range(2):                                   # the second round knows the persons the first one found next to a place
@@ -858,6 +862,26 @@ def auto_links(chains: List[dict], trad: Dict[str, str], wits: Sequence[dict], t
             _auto_candidate(e)
             _sugg_candidate(e)
     return n_auto
+
+
+SCHOOL_IMAMS = {norm(k): v for k, v in sanad_parse._DATA["school_imams"].items()}
+AUTO_SRC_FA["table"] = "نامِ پیشوای مذهب با لقب «الإمام»، از جدول پیشوایان (احمد، مالک، شافعی، بخاری، مسلم)"
+
+
+def _school_imams(rows) -> int:
+    """«روى الإمام أحمد»: the title «الإمام» before the name of the head of a school of the Sunnis (a short table in sanad_terms.json,
+    ``school_imams``) is that person; «أحمد» alone is anybody. ``e["auto"]`` with rule ``school_imam``."""
+    n = 0
+    for ch, _, places, _ in rows:
+        for e in places:
+            if e.get("exact") or e.get("auto") or e["kind"] != "name":
+                continue
+            parts = clean_parts(e["name"])
+            pid = SCHOOL_IMAMS.get(norm(parts[0])) if parts else None
+            if pid:
+                e["auto"] = dict(id=pid, rule="school_imam", n=1, tot=1, src="table", prec=0.99)
+                n += 1
+    return n
 
 
 AUTHOR_TITLES = {"شيخ", "فقيه", "امام", "علامه", "محقق", "استاد", "حافظ"}

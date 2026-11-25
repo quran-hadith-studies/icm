@@ -354,3 +354,13 @@ def test_the_author_naming_himself_at_the_head_of_his_isnad_is_the_collector_but
     assert got and got["id"] == "noor:1" and got["rule"] == "author_again"
     assert run("عبد الله بن جعفر الحميري", "محمد بن عبد الله بن جعفر الحمیری") is None            # the son
     assert run("محمد بن علي", "محمد بن علی") is None                                         # two words: too common
+
+
+def test_the_head_of_a_school_with_the_title_imam_is_that_person_and_others_are_unnamed():
+    e = dict(i=1, name="الامام احمد", kind="name", exact=None, cands=[])
+    assert identity._school_imams([(dict(elems=[]), None, [e], ["k"])]) == 1
+    assert e["auto"]["id"] == "kg:488" and e["auto"]["rule"] == "school_imam"
+    bare = dict(i=1, name="احمد", kind="name", exact=None, cands=[])
+    assert identity._school_imams([(dict(elems=[]), None, [bare], ["k"])]) == 0           # «أحمد» alone is anybody
+    assert sanad_parse.is_anon_group("غیره")
+
